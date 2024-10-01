@@ -202,15 +202,19 @@ impl Crud for PgReportStorage {
             WHERE ($1::text IS NULL OR $1 like r.program_id)
               AND ($2::text IS NULL OR $2 like r.event_id)
               AND ($3::text IS NULL OR $3 like r.client_name)
-              AND (NOT $4 OR v.ven_id IS NULL OR v.ven_id = ANY($5))
-              AND ($6::text[] IS NULL OR p.business_id = ANY($6))
-            LIMIT $7 OFFSET $8
+              AND (
+                  ($4 AND (v.ven_id IS NULL OR v.ven_id = ANY($5))) 
+                  OR 
+                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
+                  )
+            OFFSET $8 LIMIT $9
             "#,
             filter.program_id.clone().map(|x| x.to_string()),
             filter.event_id.clone().map(|x| x.to_string()),
             filter.client_name,
             user.is_ven(),
             &user.ven_ids_string(),
+            user.is_business(),
             business_ids.as_deref(),
             filter.skip,
             filter.limit,
