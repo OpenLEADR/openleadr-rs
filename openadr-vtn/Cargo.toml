@@ -1,0 +1,50 @@
+[package]
+name = "openadr-vtn"
+description = "openadr VTN server"
+readme = "../README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+openadr-wire.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+
+reqwest.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tower-http.workspace = true
+tower.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+url.workspace = true
+uuid.workspace = true
+jsonwebtoken.workspace = true
+validator.workspace = true
+mime.workspace = true
+http-body-util.workspace = true
+
+chrono.workspace = true
+thiserror.workspace = true
+
+sqlx = {workspace = true, optional = true}
+argon2 = {workspace = true, optional = true}
+dotenvy = {workspace = true, optional = true}
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[features]
+default = ["postgres", "live-db-test"]
+live-db-test = ["postgres"]
+postgres = ["sqlx/postgres", "dep:dotenvy", "dep:argon2"]

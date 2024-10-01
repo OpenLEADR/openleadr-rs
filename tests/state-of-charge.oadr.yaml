@@ -1,0 +1,42 @@
+# Based on User Guide 8.6
+programs:
+  - id: sof101
+    programName: State of Charge 101
+
+events:
+  - id: sof101-e1
+    programID: sof101
+    intervalPeriod:
+      start: 2024-01-01T00:00Z
+    reportDescriptors:
+      - payloadType: STORAGE_USABLE_CAPACITY
+        units: KWH
+      - payloadType: STORAGE_CHARGE_LEVEL
+        units: PERCENT
+      - payloadType: STORAGE_MAX_DISCHARGE_POWER
+        units: KW
+      - payloadType: STORAGE_MAX_CHARGE_POWER
+        units: KW
+    intervals: [ ]
+
+reports:
+  - reportName: State of Charge
+    programID: sof101
+    eventID: sod101-e1
+    clientName: bat0
+    resources:
+      - resourceName: AGGREGATED_REPORT
+        intervalPeriod:
+          start: 2024-01-01T00:00Z
+          duration: PT0S
+        intervals:
+          - id: 0
+            payloads:
+              - type: STORAGE_USABLE_CAPACITY
+                values: [ 100 ]
+              - type: STORAGE_CHARGE_LEVEL
+                values: [ 42 ]
+              - type: STORAGE_MAX_DISCHARGE_POWER
+                values: [ 25 ]
+              - type: STORAGE_MAX_CHARGE_POWER
+                values: [ 15 ]

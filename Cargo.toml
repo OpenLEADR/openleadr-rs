@@ -1,0 +1,59 @@
+[workspace]
+members = [
+    "openadr-vtn",
+    "openadr-client",
+    "openadr-wire"
+]
+exclude = [ ]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80" # MSRV
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/OpenLEADR/openleadr-rs"
+homepage = "https://github.com/OpenLEADR/openleadr-rs"
+publish = true
+description = "An OpenADR 3.0 VTN/VEN implementation"
+
+[workspace.dependencies]
+openadr-wire = { path = "openadr-wire" }
+openadr-vtn = { path = "openadr-vtn" }
+openadr-client = { path = "openadr-client" }
+
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+serde_with = { version = "3.8.1", features = ["macros"] }
+
+reqwest = { version = "0.12.4", default-features = false, features = ["http2", "charset", "rustls-tls-native-roots", "json"] }
+tokio = { version = "1.37.0", features = ["full", "test-util"] }
+axum = { version = "0.7.5", features = ["macros"] }
+axum-extra = { version = "0.9.3", features = ["query", "typed-header"] }
+tower = { version = "0.4", features = ["util"] }
+
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-test = "0.2.5"
+
+chrono = "0.4.38"
+iso8601-duration = { version = "0.2.0", features = ["chrono"] }
+rangemap = "1.5.1"
+
+thiserror = "1.0.61"
+validator = {version =  "0.18.1", features = ["derive"] }
+uuid = { version = "1.8.0", features = ["v4"] }
+url = "2.5.0"
+http = "^1.0.0"
+mime = "0.3"
+tower-http = { version = "0.5.2" , features = ["trace"]}
+http-body-util = "0.1.0"
+jsonwebtoken = "9.3.0"
+async-trait = "0.1.81"
+
+quickcheck = "1.0.3"
+
+sqlx = { version = "0.8.1", features = ["postgres", "runtime-tokio", "chrono", "migrate"] }
+argon2 = "0.5.3"
+dotenvy = "0.15.7"

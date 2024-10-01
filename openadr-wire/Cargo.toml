@@ -1,0 +1,24 @@
+[package]
+name = "openadr-wire"
+description = "encode and decode openadr messages that go over the wire"
+readme = "../README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+chrono.workspace = true
+serde_with.workspace  = true
+iso8601-duration.workspace = true
+thiserror.workspace = true
+http.workspace = true
+validator.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+quickcheck.workspace = true

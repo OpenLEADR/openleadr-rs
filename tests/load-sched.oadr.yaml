@@ -1,0 +1,18 @@
+# Based on User Guide 8.2
+
+programs:
+  - id: ls101
+    programName: Load Shedding 101
+events:
+  - id: ls101-e0
+    programID: ls101
+    intervalPeriod:
+      start: 2024-01-01T13:37Z
+      duration: PT4H
+    payloadDescriptors:
+      - payloadType: SIMPLE
+    intervals:
+      - id: 0
+        payloads:
+          - type: SIMPLE
+            values: [ 1 ]

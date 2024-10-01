@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT u.*,\n                   array_agg(DISTINCT c.client_id) FILTER ( WHERE c.client_id IS NOT NULL )     AS client_ids,\n                   array_agg(DISTINCT b.business_id) FILTER ( WHERE b.business_id IS NOT NULL ) AS business_ids,\n                   array_agg(DISTINCT ven.ven_id) FILTER ( WHERE ven.ven_id IS NOT NULL )       AS ven_ids,\n                   ab.user_id IS NOT NULL                                                       AS \"is_any_business_user!\",\n                   um.user_id IS NOT NULL                                                       AS \"is_user_manager!\",\n                   vm.user_id IS NOT NULL                                                       AS \"is_ven_manager!\"\n            FROM \"user\" u\n                     LEFT JOIN user_credentials c ON c.user_id = u.id\n                     LEFT JOIN any_business_user ab ON u.id = ab.user_id\n                     LEFT JOIN user_business b ON u.id = b.user_id\n                     LEFT JOIN user_manager um ON u.id = um.user_id\n                     LEFT JOIN user_ven ven ON u.id = ven.user_id\n                     LEFT JOIN ven_manager vm ON u.id = vm.user_id\n            WHERE u.id = $1\n            GROUP BY u.id,\n                     b.user_id,\n                     ab.user_id,\n                     um.user_id,\n                     ven.user_id,\n                     vm.user_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "reference",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "modified",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "client_ids",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "business_ids",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "ven_ids",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_any_business_user!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_user_manager!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_ven_manager!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e6a59c961d3c5efc2e12760f19b3e6a819d6ac15412b4c8bd52611aaa909335e"
+}

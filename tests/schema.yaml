@@ -1,0 +1,734 @@
+$id: "https://example.com/person.schema.json"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+type: object
+properties:
+  programs:
+    type: array
+    items: { $ref: '#/components/schemas/program' }
+  events:
+    type: array
+    items: { $ref: '#/components/schemas/event' }
+  reports:
+    type: array
+    items: { $ref: '#/components/schemas/report' }
+
+components:
+  schemas:
+    program:
+      type: object
+      description: Provides program specific metadata from VTN to VEN.
+      required:
+        - programName
+      properties:
+        id:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation.
+        createdDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object creation.
+        modificationDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object modification.
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. notification.object
+          enum: [ PROGRAM ]
+          # VTN provisioned on object creation.
+        programName:
+          type: string
+          description: Short name to uniquely identify program.
+          minLength: 1
+          maxLength: 128
+          example: ResTOU
+        programLongName:
+          type: string
+          description: Long name of program for human readability.
+          example: Residential Time of Use-A
+          nullable: true
+          default: null
+        retailerName:
+          type: string
+          description: Short name of energy retailer providing the program.
+          example: ACME
+          nullable: true
+          default: null
+        retailerLongName:
+          type: string
+          description: Long name of energy retailer for human readability.
+          example: ACME Electric Inc.
+          nullable: true
+          default: null
+        programType:
+          type: string
+          description: A program defined categorization.
+          example: PRICING_TARIFF
+          nullable: true
+          default: null
+        country:
+          type: string
+          description: Alpha-2 code per ISO 3166-1.
+          example: US
+          nullable: true
+          default: null
+        principalSubdivision:
+          type: string
+          description: Coding per ISO 3166-2. E.g. state in US.
+          example: CO
+          nullable: true
+          default: null
+        timeZoneOffset:
+          $ref: '#/components/schemas/duration'
+          # Number of hours different from UTC for the standard time applicable to the program.
+        intervalPeriod:
+          $ref: '#/components/schemas/intervalPeriod'
+          # The temporal span of the program, could be years long.
+        programDescriptions:
+          type: array
+          description: A list of programDescriptions
+          nullable: true
+          default: null
+          items:
+            required:
+              - URL
+            properties:
+              URL:
+                type: string
+                format: uri
+                description: A human or machine readable program description
+                example: www.myCorporation.com/myProgramDescription
+        bindingEvents:
+          type: boolean
+          description: True if events are fixed once transmitted.
+          example: false
+          default: false
+        localPrice:
+          type: boolean
+          description: True if events have been adapted from a grid event.
+          example: false
+          default: false
+        payloadDescriptors:
+          type: array
+          description: A list of payloadDescriptors.
+          nullable: true
+          default: null
+          items:
+            anyOf:
+              - $ref: '#/components/schemas/eventPayloadDescriptor'
+              - $ref: '#/components/schemas/reportPayloadDescriptor'
+            discriminator:
+              propertyName: objectType
+        targets:
+          type: array
+          description: A list of valuesMap objects.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/valuesMap'
+    report:
+      type: object
+      description: report object.
+      required:
+        - programID
+        - eventID
+        - clientName
+        - resources
+      properties:
+        id:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation.
+        createdDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object creation.
+        modificationDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object modification.
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. notification.object
+          enum: [ REPORT ]
+          # VTN provisioned on object creation.
+        programID:
+          $ref: '#/components/schemas/objectID'
+          # ID attribute of program object this report is associated with.
+        eventID:
+          $ref: '#/components/schemas/objectID'
+          # ID attribute of event object this report is associated with.
+        clientName:
+          type: string
+          description: User generated identifier; may be VEN ID provisioned during program enrollment.
+          minLength: 1
+          maxLength: 128
+          example: VEN-999
+        reportName:
+          type: string
+          description: User defined string for use in debugging or User Interface.
+          example: Battery_usage_04112023
+          nullable: true
+          default: null
+        payloadDescriptors:
+          type: array
+          description: A list of reportPayloadDescriptors.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/reportPayloadDescriptor'
+          # An optional list of objects that provide context to payload types.
+        resources:
+          type: array
+          description: A list of objects containing report data for a set of resources.
+          items:
+            type: object
+            description: Report data associated with a resource.
+            required:
+              - resourceName
+              - intervals
+            properties:
+              resourceName:
+                type: string
+                minLength: 1
+                maxLength: 128
+                description: User generated identifier. A value of AGGREGATED_REPORT indicates an aggregation of more that one resource's data
+                example: RESOURCE-999
+              intervalPeriod:
+                $ref: '#/components/schemas/intervalPeriod'
+                # Defines default start and durations of intervals.
+              intervals:
+                type: array
+                description: A list of interval objects.
+                items:
+                  $ref: '#/components/schemas/interval'
+    event:
+      type: object
+      description: |
+        Event object to communicate a Demand Response request to VEN.
+        If intervalPeriod is present, sets start time and duration of intervals.
+      required:
+        - programID
+        - intervals
+      properties:
+        id:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation.
+        createdDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object creation.
+        modificationDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object modification.
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. notification.object
+          enum: [ EVENT ]
+          # VTN provisioned on object creation.
+        programID:
+          $ref: '#/components/schemas/objectID'
+          # ID attribute of program object this event is associated with.
+        eventName:
+          type: string
+          description: User defined string for use in debugging or User Interface.
+          example: price event 11-18-2022
+          nullable: true
+          default: null
+        priority:
+          type: integer
+          minimum: 0
+          description: Relative priority of event. A lower number is a higher priority.
+          example: 0
+          nullable: true
+          default: null
+        targets:
+          type: array
+          description: A list of valuesMap objects.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/valuesMap'
+        reportDescriptors:
+          type: array
+          description: A list of reportDescriptor objects. Used to request reports from VEN.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/reportDescriptor'
+        payloadDescriptors:
+          type: array
+          description: A list of payloadDescriptor objects.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/eventPayloadDescriptor'
+        intervalPeriod:
+          $ref: '#/components/schemas/intervalPeriod'
+          # Defines default start and durations of intervals.
+        intervals:
+          type: array
+          description: A list of interval objects.
+          items:
+            $ref: '#/components/schemas/interval'
+    subscription:
+      type: object
+      description: |
+        An object created by a client to receive notification of operations on objects.
+        Clients may subscribe to be notified when a type of object is created,
+        updated, or deleted.
+      required:
+        - clientName
+        - programID
+        - objectOperations
+      properties:
+        id:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation.
+        createdDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object creation.
+        modificationDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object modification.
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. notification.object
+          enum: [ SUBSCRIPTION ]
+          # VTN provisioned on object creation.
+        clientName:
+          type: string
+          description: User generated identifier, may be VEN identifier provisioned during program enrollment.
+          minLength: 1
+          maxLength: 128
+          example: VEN-999
+        programID:
+          $ref: '#/components/schemas/objectID'
+          # ID attribute of program object this subscription is associated with.
+        objectOperations:
+          type: array
+          description: list of objects and operations to subscribe to.
+          items:
+            type: object
+            description: object type, operations, and callbackUrl.
+            required:
+              - objects
+              - operations
+              - callbackUrl
+            properties:
+              objects:
+                type: array
+                description: list of objects to subscribe to.
+                items:
+                  $ref: '#/components/schemas/objectTypes'
+              operations:
+                type: array
+                description: list of operations to subscribe to.
+                items:
+                  type: string
+                  description: object operation to subscribe to.
+                  example: POST
+                  enum: [ GET, POST, PUT, DELETE ]
+              callbackUrl:
+                type: string
+                format: uri
+                description: User provided webhook URL.
+                example: https://myserver.com/send/callback/here
+              bearerToken:
+                type: string
+                description: |
+                  User provided token.
+                  To avoid custom integrations, callback endpoints
+                  should accept the provided bearer token to authenticate VTN requests.
+                example: NCEJGI9E8ER9802UT9HUG
+                nullable: true
+                default: null
+        targets:
+          type: array
+          description: A list of valuesMap objects. Used by server to filter callbacks.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/valuesMap'
+    ven:
+      type: object
+      description: Ven represents a client with the ven role.
+      required:
+        - venName
+      properties:
+        id:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation.
+        createdDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object creation.
+        modificationDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object modification.
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. notification.object.
+          enum: [ VEN ]
+          # VTN provisioned on object creation.
+        venName:
+          type: string
+          description: User generated identifier, may be VEN identifier provisioned during program enrollment.
+          minLength: 1
+          maxLength: 128
+          example: VEN-999
+        attributes:
+          type: array
+          description: A list of valuesMap objects describing attributes.
+          items:
+            $ref: '#/components/schemas/valuesMap'
+        targets:
+          type: array
+          description: A list of valuesMap objects describing target criteria.
+          items:
+            $ref: '#/components/schemas/valuesMap'
+        resources:
+          type: array
+          description: A list of resource objects representing end-devices or systems.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/resource'
+    resource:
+      type: object
+      description: |
+        A resource is an energy device or system subject to control by a VEN.
+      required:
+        - resourceName
+      properties:
+        id:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation.
+        createdDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object creation.
+        modificationDateTime:
+          $ref: '#/components/schemas/dateTime'
+          #  VTN provisioned on object modification.
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. notification.object
+          enum: [ RESOURCE ]
+          # VTN provisioned on object creation.
+        resourceName:
+          type: string
+          description: User generated identifier, resource may be configured with identifier out-of-band.
+          minLength: 1
+          maxLength: 128
+          example: RESOURCE-999
+        venID:
+          $ref: '#/components/schemas/objectID'
+          # VTN provisioned on object creation based on path, e.g. POST <>/ven/{venID}/resources.
+        attributes:
+          type: array
+          description: A list of valuesMap objects describing attributes.
+          items:
+            $ref: '#/components/schemas/valuesMap'
+        targets:
+          type: array
+          description: A list of valuesMap objects describing target criteria.
+          items:
+            $ref: '#/components/schemas/valuesMap'
+    interval:
+      type: object
+      description: |
+        An object defining a temporal window and a list of valuesMaps.
+        if intervalPeriod present may set temporal aspects of interval or override event.intervalPeriod.
+      required:
+        - id
+        - payloads
+      properties:
+        id:
+          type: number
+          format: int32
+          description: A client generated number assigned an interval object. Not a sequence number.
+          example: 0
+        intervalPeriod:
+          $ref: '#/components/schemas/intervalPeriod'
+          # Defines default start and durations of intervals.
+        payloads:
+          type: array
+          description: A list of valuesMap objects.
+          items:
+            $ref: '#/components/schemas/valuesMap'
+    intervalPeriod:
+      type: object
+      description: |
+        Defines temporal aspects of intervals.
+        A duration of default null indicates infinity.
+        A randomizeStart of default null indicates no randomization.
+      required:
+        - start
+      properties:
+        start:
+          $ref: '#/components/schemas/dateTime'
+          #  The start time of an interval or set of intervals.
+        duration:
+          $ref: '#/components/schemas/duration'
+          #  The duration of an interval or set of intervals.
+        randomizeStart:
+          $ref: '#/components/schemas/duration'
+          #  Indicates a randomization time that may be applied to start.
+    valuesMap:
+      type: object
+      description: |
+        Represents one or more values associated with a type.
+        E.g. a type of PRICE contains a single float value.
+      required:
+        - type
+        - values
+      properties:
+        type:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: |
+            Enumerated or private string signifying the nature of values.
+            E.G. "PRICE" indicates value is to be interpreted as a currency.
+          example: PRICE
+        values:
+          type: array
+          description: A list of data points. Most often a singular value such as a price.
+          example: [ 0.17 ]
+          items:
+            anyOf:
+              - type: number
+              - type: integer
+              - type: string
+              - type: boolean
+              - $ref: '#/components/schemas/point'
+    point:
+      type: object
+      description: A pair of floats typically used as a point on a 2 dimensional grid.
+      required:
+        - x
+        - y
+      properties:
+        x:
+          type: number
+          format: float
+          description: A value on an x axis.
+          example: 1.0
+          nullable: true
+          default: null
+        y:
+          type: number
+          format: float
+          description: A value on a y axis.
+          example: 2.0
+          nullable: true
+          default: null
+    eventPayloadDescriptor:
+      type: object
+      description: |
+        Contextual information used to interpret event valuesMap values.
+        E.g. a PRICE payload simply contains a price value, an
+        associated descriptor provides necessary context such as units and currency.
+      required:
+        - payloadType
+      properties:
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. program.payloadDescriptors
+          default: EVENT_PAYLOAD_DESCRIPTOR
+        payloadType:
+          type: string
+          description: Enumerated or private string signifying the nature of values.
+          minLength: 1
+          maxLength: 128
+          example: PRICE
+        units:
+          type: string
+          description: Units of measure.
+          example: KWH
+          nullable: true
+          default: null
+        currency:
+          type: string
+          description: Currency of price payload.
+          example: USD
+          nullable: true
+          default: null
+    reportPayloadDescriptor:
+      type: object
+      description: |
+        Contextual information used to interpret report payload values.
+        E.g. a USAGE payload simply contains a usage value, an
+        associated descriptor provides necessary context such as units and data quality.
+      required:
+        - payloadType
+      properties:
+        objectType:
+          type: string
+          description: Used as discriminator, e.g. program.payloadDescriptors
+          default: REPORT_PAYLOAD_DESCRIPTOR
+        payloadType:
+          type: string
+          description: Enumerated or private string signifying the nature of values.
+          minLength: 1
+          maxLength: 128
+          example: USAGE
+        readingType:
+          type: string
+          description: Enumerated or private string signifying the type of reading.
+          example: DIRECT_READ
+          nullable: true
+          default: null
+        units:
+          type: string
+          description: Units of measure.
+          example: KWH
+          nullable: true
+          default: null
+        accuracy:
+          type: number
+          format: float
+          description: A quantification of the accuracy of a set of payload values.
+          example: 0.0
+          nullable: true
+          default: null
+        confidence:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+          description: A quantification of the confidence in a set of payload values.
+          example: 100
+          default: 100
+    reportDescriptor:
+      type: object
+      description: |
+        An object that may be used to request a report from a VEN.
+        See OpenADR REST User Guide for detailed description of how configure a report request.
+      required:
+        - payloadType
+      properties:
+        payloadType:
+          type: string
+          description: Enumerated or private string signifying the nature of values.
+          minLength: 1
+          maxLength: 128
+          example: USAGE
+        readingType:
+          type: string
+          description: Enumerated or private string signifying the type of reading.
+          example: DIRECT_READ
+          nullable: true
+          default: null
+        units:
+          type: string
+          description: Units of measure.
+          example: KWH
+          nullable: true
+          default: null
+        targets:
+          type: array
+          description: A list of valuesMap objects.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/valuesMap'
+        aggregate:
+          type: boolean
+          description: |
+            True if report should aggregate results from all targeted resources.
+            False if report includes results for each resource.
+          example: false
+          default: false
+        startInterval:
+          type: integer
+          format: int32
+          description: |
+            The interval on which to generate a report.
+            -1 indicates generate report at end of last interval.
+          example: -1
+          default: -1
+        numIntervals:
+          type: integer
+          format: int32
+          description: |
+            The number of intervals to include in a report.
+            -1 indicates that all intervals are to be included.
+          example: -1
+          default: -1
+        historical:
+          type: boolean
+          description: |
+            True indicates report on intervals preceding startInterval.
+            False indicates report on intervals following startInterval (e.g. forecast).
+          example: true
+          default: true
+        frequency:
+          type: integer
+          format: int32
+          description: |
+            Number of intervals that elapse between reports.
+            -1 indicates same as numIntervals.
+          example: -1
+          default: -1
+        repeat:
+          type: integer
+          format: int32
+          description: |
+            Number of times to repeat report.
+            1 indicates generate one report.
+            -1 indicates repeat indefinitely.
+          example: 1
+          default: 1
+    objectID:
+      type: string
+      pattern: '^[a-zA-Z0-9_-]*$'
+      minLength: 1
+      maxLength: 128
+      description: URL safe VTN assigned object ID.
+      example: object-999
+    notification:
+      type: object
+      description: |
+        VTN generated object included in request to subscription callbackUrl.
+      required:
+        - objectType
+        - operation
+        - object
+      properties:
+        objectType:
+          $ref: '#/components/schemas/objectTypes'
+        operation:
+          type: string
+          description: the operation on on object that triggered the notification.
+          example: POST
+          enum: [ GET, POST, PUT, DELETE ]
+        targets:
+          type: array
+          description: A list of valuesMap objects.
+          nullable: true
+          default: null
+          items:
+            $ref: '#/components/schemas/valuesMap'
+        object:
+          type: object
+          description: the object that is the subject of the notification.
+          example: { }
+          oneOf:
+            - $ref: '#/components/schemas/program'
+            - $ref: '#/components/schemas/report'
+            - $ref: '#/components/schemas/event'
+            - $ref: '#/components/schemas/subscription'
+            - $ref: '#/components/schemas/ven'
+            - $ref: '#/components/schemas/resource'
+          discriminator:
+            propertyName: objectType
+    objectTypes:
+      type: string
+      description: Types of objects addressable through API.
+      example: EVENT
+      enum: [ PROGRAM, EVENT, REPORT, SUBSCRIPTION, VEN, RESOURCE ]
+    dateTime:
+      type: string
+      format: date-time
+      description: datetime in ISO 8601 format
+      example: 2023-06-15T09:30:00Z
+    duration:
+      type: string
+      pattern: /^(-?)P(?=\d|T\d)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)([DW]))?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
+      description: duration in ISO 8601 format
+      example: PT1H
+      default: PT0S

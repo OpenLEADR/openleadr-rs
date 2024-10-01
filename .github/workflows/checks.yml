@@ -1,0 +1,200 @@
+name: Checks
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches-ignore:
+      - 'release/**'
+  merge_group:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: "${{ matrix.os }}"
+    strategy:
+      matrix:
+        include:
+          - rust: "stable"
+            target: "x86_64-unknown-linux-gnu"
+            os: ubuntu-latest
+            features: "--all-features"
+          - rust: "msrv"
+            target: "x86_64-unknown-linux-gnu"
+            os: ubuntu-latest
+            features: "--all-features"
+          - rust: "stable"
+            target: "x86_64-unknown-linux-musl"
+            os: ubuntu-latest
+            features: "--all-features"
+          - rust: "stable"
+            target: "aarch64-unknown-linux-gnu"
+            os: ubuntu-latest
+            features: "--all-features"
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        with:
+          persist-credentials: false
+
+      - name: Set target rust version
+        run: echo "TARGET_RUST_VERSION=$(if [ "${{matrix.rust}}" = "msrv" ]; then grep rust-version Cargo.toml | grep MSRV | cut -d'"' -f2; else echo "${{matrix.rust}}"; fi)" >> $GITHUB_ENV
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a
+        with:
+          toolchain: "${TARGET_RUST_VERSION}"
+          targets: "${{ matrix.target }}"
+
+      - name: Install cross-compilation tools
+        uses: taiki-e/setup-cross-toolchain-action@92417c3484017b78b44195de2e0026e080f1e001 # v1.24.0
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@9bef7e9c3d7c7aa986ef19933b0722880ae377e0 # v2.44.13
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+        with:
+            shared-key: "${{matrix.rust}}-${{matrix.target}}"
+
+      - name: Setup Postgres DB
+        run: |
+          docker compose up db --wait && \
+          cargo install sqlx-cli --no-default-features --features rustls,postgres && \
+          cargo sqlx migrate run --source openadr-vtn/migrations
+
+      - name: cargo build
+        run: cargo build ${{ matrix.features }}
+
+      - name: cargo test
+        run: cargo llvm-cov --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info --features live-db-test
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Bring Postgres DB down
+        run: docker compose down
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673 # v4.5.0
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  unused:
+    name: Check unused dependencies
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+    steps:
+      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        with:
+          persist-credentials: false
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a
+        with:
+          toolchain: nightly
+
+      - name: Install udeps
+        uses: taiki-e/install-action@9bef7e9c3d7c7aa986ef19933b0722880ae377e0 # v2.44.13
+        with:
+          tool: cargo-udeps
+
+      - name: cargo udeps
+        run: cargo udeps --workspace --all-targets
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        with:
+          persist-credentials: false
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo +nightly fmt --all --check -- --config imports_granularity="Crate"
+
+  clippy:
+    name: Clippy
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            use_zig: false
+            zig_args: ""
+          - target: aarch64-unknown-linux-gnu
+            use_zig: true
+            zig_args: "-target aarch64-linux-gnu -g"
+          - target: armv7-unknown-linux-gnueabihf
+            use_zig: true
+            zig_args: "-target arm-linux-gnueabihf -mcpu=generic+v7a+vfp3-d32+thumb2-neon -g"
+          - target: x86_64-unknown-linux-musl
+            use_zig: true
+            zig_args: "-target x86_64-linux-musl"
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+    steps:
+      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        with:
+          persist-credentials: false
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a
+        with:
+          toolchain: stable
+          components: clippy
+          targets: ${{matrix.target}}
+
+      # Use zig as our C compiler for convenient cross-compilation. We run into rustls having a dependency on `ring`.
+      # This crate uses C and assembly code, and because of its build scripts, `cargo clippy` needs to be able to compile
+      # that code for our target.
+      - uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2.2.1
+        with:
+          version: 0.9.0
+        if: ${{matrix.use_zig}}
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@9bef7e9c3d7c7aa986ef19933b0722880ae377e0 # v2.44.13
+        with:
+          tool: cargo-zigbuild
+        if: ${{matrix.use_zig}}
+
+      - name: Set TARGET_CC for zig
+        run: echo "TARGET_CC=/home/runner/.cargo/bin/cargo-zigbuild zig cc -- ${{matrix.zig_args}}" >> $GITHUB_ENV
+        if: ${{matrix.use_zig}}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+        with:
+            shared-key: "stable-${{matrix.target}}"
+
+      - name: Run clippy
+        run: cargo clippy --target ${{matrix.target}} --workspace --all-targets --all-features -- -D warnings
+
+  audit-dependencies:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+
+    - uses: EmbarkStudios/cargo-deny-action@8371184bd11e21dcf8ac82ebf8c9c9f74ebf7268
+      with:
+        arguments: --workspace --all-features

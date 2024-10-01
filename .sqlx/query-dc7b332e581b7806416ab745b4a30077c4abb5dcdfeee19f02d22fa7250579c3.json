@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM event WHERE id = $1 RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "report_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "intervals",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "targets",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "dc7b332e581b7806416ab745b4a30077c4abb5dcdfeee19f02d22fa7250579c3"
+}

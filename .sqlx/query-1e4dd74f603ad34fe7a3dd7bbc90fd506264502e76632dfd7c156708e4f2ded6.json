@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM program p\n                   WHERE id = $1\n                     AND ($2::text IS NULL OR business_id = $2)\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "program_long_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "retailer_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "retailer_long_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "program_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "country",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "principal_subdivision",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "program_descriptions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "binding_events",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "local_price",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "targets",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "1e4dd74f603ad34fe7a3dd7bbc90fd506264502e76632dfd7c156708e4f2ded6"
+}

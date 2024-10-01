@@ -1,0 +1,119 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id AS \"id!\", \n                   p.created_date_time AS \"created_date_time!\", \n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n              LEFT JOIN event e ON p.id = e.program_id\n              LEFT JOIN ven_program vp ON p.id = vp.program_id\n              LEFT JOIN ven v ON v.id = vp.ven_id\n              LEFT JOIN LATERAL ( \n                  SELECT p.id as p_id, \n                         json_array(jsonb_array_elements(p.targets)) <@ $4::jsonb AS target_test )\n                  ON p.id = p_id\n            WHERE ($1::text[] IS NULL OR e.event_name = ANY($1))\n              AND ($2::text[] IS NULL OR p.program_name = ANY($2))\n              AND ($3::text[] IS NULL OR v.ven_name = ANY($3))\n              AND ($4::jsonb = '[]'::jsonb OR target_test)\n              AND (NOT $5 OR v.id IS NULL OR v.id = ANY($6)) -- Filter for VEN ids\n            GROUP BY p.id\n            OFFSET $7 LIMIT $8\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "program_long_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "retailer_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "retailer_long_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "program_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "country",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "principal_subdivision",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "program_descriptions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "binding_events",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "local_price",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "targets",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Jsonb",
+        "Bool",
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b31fb919cc483657a30202f5fa5a4d9d48b71faa68f00888e2dc11a5c232c94f"
+}
