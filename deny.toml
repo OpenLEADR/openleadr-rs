@@ -21,3 +21,9 @@ allow = [
 name = "ring"
 expression = "ISC AND MIT AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2024-0370", reason = "An updated version of the validator library wasn't released yet" }
+]
