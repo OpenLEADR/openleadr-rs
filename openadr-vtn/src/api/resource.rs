@@ -125,3 +125,185 @@ fn validate_target_type_value_pair(query: &QueryParams) -> Result<(), Validation
 fn get_50() -> i64 {
     50
 }
+
+#[cfg(test)]
+mod test {
+    use axum::body::Body;
+    use openadr_wire::resource::Resource;
+    use reqwest::{Method, StatusCode};
+    use sqlx::PgPool;
+
+    use crate::{api::test::ApiTest, jwt::AuthRole};
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn test_get_all(db: PgPool) {
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources", Body::empty())
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 2);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(Method::GET, "/vens/ven-2/resources", Body::empty())
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 3);
+
+        // test with ven user
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources", Body::empty())
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 2);
+
+        let (status, _) = test
+            .request::<serde_json::Value>(Method::GET, "/vens/ven-2/resources", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn get_all_filtered(db: PgPool) {
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources?skip=1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 1);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources?limit=1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 1);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(
+                Method::GET,
+                "/vens/ven-1/resources?targetType=RESOURCE_NAME&targetValues=resource-1-name",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 1);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(
+                Method::GET,
+                "/vens/ven-1/resources?targetType=RESOURCE_NAME&targetValues=resource-2-name",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 0);
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn get_single_resource(db: PgPool) {
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+
+        let (status, resource) = test
+            .request::<Resource>(
+                Method::GET,
+                "/vens/ven-1/resources/resource-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource.id.as_str(), "resource-1");
+
+        // test with ven user
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+
+        let (status, resource) = test
+            .request::<Resource>(
+                Method::GET,
+                "/vens/ven-1/resources/resource-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource.id.as_str(), "resource-1");
+
+        let (status, _) = test
+            .request::<serde_json::Value>(
+                Method::GET,
+                "/vens/ven-1/resources/resource-2",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = test
+            .request::<serde_json::Value>(
+                Method::GET,
+                "/vens/ven-2/resources/resource-2",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn add_edit_delete(db: PgPool) {
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+
+        let (status, resource) = test
+            .request::<Resource>(
+                Method::POST,
+                "/vens/ven-1/resources",
+                Body::from(r#"{"resourceName":"new-resource"}"#),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(resource.content.resource_name, "new-resource");
+
+        let resource_id = resource.id.as_str();
+
+        let (status, resource) = test
+            .request::<Resource>(
+                Method::PUT,
+                &format!("/vens/ven-1/resources/{resource_id}"),
+                Body::from(r#"{"resourceName":"updated-resource"}"#),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource.content.resource_name, "updated-resource");
+
+        let (status, resource) = test
+            .request::<Resource>(
+                Method::GET,
+                &format!("/vens/ven-1/resources/{resource_id}"),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource.content.resource_name, "updated-resource");
+
+        let (status, _) = test
+            .request::<serde_json::Value>(
+                Method::DELETE,
+                &format!("/vens/ven-1/resources/{resource_id}"),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = test
+            .request::<serde_json::Value>(
+                Method::GET,
+                &format!("/vens/ven-1/resources/{resource_id}"),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+}
