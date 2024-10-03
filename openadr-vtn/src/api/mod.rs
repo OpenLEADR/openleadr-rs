@@ -91,14 +91,72 @@ mod test {
     };
     use axum::{
         body::Body,
-        http,
-        http::{Request, StatusCode},
+        http::{self, Request, StatusCode},
         response::Response,
+        Router,
     };
     use http_body_util::BodyExt;
     use openadr_wire::problem::Problem;
+    use serde::de::DeserializeOwned;
     use sqlx::PgPool;
     use tower::ServiceExt;
+
+    pub(crate) struct ApiTest {
+        router: Router,
+        token: String,
+    }
+
+    impl ApiTest {
+        pub(crate) fn new(db: PgPool, roles: Vec<AuthRole>) -> Self {
+            let store = PostgresStorage::new(db).unwrap();
+            let jwt_manager = JwtManager::from_base64_secret("test").unwrap();
+            let app_state = AppState::new(store, jwt_manager);
+
+            let token = app_state
+                .jwt_manager
+                .create(
+                    std::time::Duration::from_secs(60),
+                    "test_admin".to_string(),
+                    roles,
+                )
+                .unwrap();
+
+            let router = app_state.into_router();
+
+            Self { router, token }
+        }
+
+        pub(crate) async fn request<T: DeserializeOwned>(
+            &self,
+            method: http::Method,
+            path: &str,
+            body: Body,
+        ) -> (http::StatusCode, T) {
+            let response = self
+                .router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header(
+                            http::header::AUTHORIZATION,
+                            format!("Bearer {}", self.token),
+                        )
+                        .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                        .body(body)
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            let status = response.status();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let json_body = serde_json::from_slice(&body).unwrap();
+
+            (status, json_body)
+        }
+    }
 
     pub(crate) fn jwt_test_token(state: &AppState, roles: Vec<AuthRole>) -> String {
         state
