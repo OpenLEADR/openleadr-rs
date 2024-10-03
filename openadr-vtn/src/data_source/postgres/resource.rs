@@ -353,3 +353,56 @@ impl PgResourceStorage {
         .collect::<Result<_, _>>()
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "live-db-test")]
+mod test {
+    use crate::{
+        api::resource::QueryParams,
+        data_source::{postgres::resource::PgResourceStorage, VenScopedCrud},
+        jwt::AuthRole,
+    };
+    use sqlx::PgPool;
+
+    impl Default for QueryParams {
+        fn default() -> Self {
+            Self {
+                target_type: None,
+                target_values: None,
+                skip: 0,
+                limit: 50,
+            }
+        }
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn retrieve_all(db: PgPool) {
+        let repo = PgResourceStorage::from(db.clone());
+        let claims = crate::jwt::Claims::new(vec![AuthRole::VenManager]);
+
+        let resources = repo
+            .retrieve_all("ven-1".parse().unwrap(), &Default::default(), &claims)
+            .await
+            .unwrap();
+        assert_eq!(resources.len(), 2);
+
+        let resources = repo
+            .retrieve_all("ven-2".parse().unwrap(), &Default::default(), &claims)
+            .await
+            .unwrap();
+        assert_eq!(resources.len(), 3);
+
+        let filters = QueryParams {
+            target_type: Some(openadr_wire::target::TargetLabel::ResourceName),
+            target_values: Some(vec!["resource-1-name".to_string()]),
+            ..Default::default()
+        };
+
+        let resources = repo
+            .retrieve_all("ven-1".parse().unwrap(), &filters, &claims)
+            .await
+            .unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].content.resource_name, "resource-1-name");
+    }
+}
