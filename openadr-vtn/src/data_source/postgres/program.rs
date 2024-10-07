@@ -11,7 +11,6 @@ use axum::async_trait;
 use chrono::{DateTime, Utc};
 use openadr_wire::{
     program::{ProgramContent, ProgramId},
-    target::TargetLabel,
     Program,
 };
 use sqlx::PgPool;
@@ -124,11 +123,6 @@ impl TryFrom<PostgresProgram> for Program {
 
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
-    ven_names: Option<&'a [String]>,
-    event_names: Option<&'a [String]>,
-    program_names: Option<&'a [String]>,
-    // TODO check whether we also need to extract `PowerServiceLocation`, `ServiceArea`,
-    //  `ResourceNames`, and `Group`, i.e., only leave the `Private`
     targets: Vec<PgTargetsFilter<'a>>,
 
     skip: i64,
@@ -142,22 +136,16 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
             limit: query.limit,
             ..Default::default()
         };
-        match query.target_type {
-            Some(TargetLabel::VENName) => filter.ven_names = query.target_values.as_deref(),
-            Some(TargetLabel::EventName) => filter.event_names = query.target_values.as_deref(),
-            Some(TargetLabel::ProgramName) => filter.program_names = query.target_values.as_deref(),
-            Some(ref label) => {
-                if let Some(values) = query.target_values.as_ref() {
-                    filter.targets = values
-                        .iter()
-                        .map(|value| PgTargetsFilter {
-                            label: label.as_str(),
-                            value: [value.clone()],
-                        })
-                        .collect()
-                }
+        if let Some(ref label) = query.target_type {
+            if let Some(values) = query.target_values.as_ref() {
+                filter.targets = values
+                    .iter()
+                    .map(|value| PgTargetsFilter {
+                        label: label.as_str(),
+                        value: [value.clone()],
+                    })
+                    .collect()
             }
-            None => {}
         };
 
         filter
@@ -329,29 +317,27 @@ impl Crud for PgProgramStorage {
                    p.payload_descriptors,
                    p.targets
             FROM program p
-              LEFT JOIN event e ON p.id = e.program_id
               LEFT JOIN ven_program vp ON p.id = vp.program_id
               LEFT JOIN ven v ON v.id = vp.ven_id
-              LEFT JOIN LATERAL ( 
+              LEFT JOIN LATERAL (
                   SELECT p.id as p_id, 
-                         json_array(jsonb_array_elements(p.targets)) <@ $4::jsonb AS target_test )
+                         json_array(jsonb_array_elements(p.targets)) <@ $1::jsonb AS target_test )
                   ON p.id = p_id
-            WHERE ($1::text[] IS NULL OR e.event_name = ANY($1))
-              AND ($2::text[] IS NULL OR p.program_name = ANY($2))
-              AND ($3::text[] IS NULL OR v.ven_name = ANY($3))
-              AND ($4::jsonb = '[]'::jsonb OR target_test)
-              AND (NOT $5 OR v.id IS NULL OR v.id = ANY($6)) -- Filter for VEN ids
+            WHERE ($1::jsonb = '[]'::jsonb OR target_test)
+              AND (
+                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
+                  OR
+                  ($4)
+                  )
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $7 LIMIT $8
+            OFFSET $5 LIMIT $6
             "#,
-            pg_filter.event_names,
-            pg_filter.program_names,
-            pg_filter.ven_names,
             serde_json::to_value(pg_filter.targets)
                 .map_err(AppError::SerdeJsonInternalServerError)?,
             user.is_ven(),
             &user.ven_ids_string(),
+            user.is_business(),
             pg_filter.skip,
             pg_filter.limit,
         )
