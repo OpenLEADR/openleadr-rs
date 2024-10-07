@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use crate::{
     error::AppError,
-    jwt::{AuthRole, Claims},
+    jwt::{AuthRole, Claims, User},
 };
 
 #[async_trait]
@@ -107,7 +107,7 @@ pub trait ProgramCrud:
     NewType = ProgramContent,
     Error = AppError,
     Filter = crate::api::program::QueryParams,
-    PermissionFilter = Claims,
+    PermissionFilter = User,
 >
 {
 }
@@ -118,7 +118,7 @@ pub trait ReportCrud:
     NewType = ReportContent,
     Error = AppError,
     Filter = crate::api::report::QueryParams,
-    PermissionFilter = Claims,
+    PermissionFilter = User,
 >
 {
 }
@@ -129,7 +129,7 @@ pub trait EventCrud:
     NewType = EventContent,
     Error = AppError,
     Filter = crate::api::event::QueryParams,
-    PermissionFilter = Claims,
+    PermissionFilter = User,
 >
 {
 }
@@ -185,7 +185,7 @@ pub trait ResourceCrud:
     NewType = ResourceContent,
     Error = AppError,
     Filter = crate::api::resource::QueryParams,
-    PermissionFilter = Claims,
+    PermissionFilter = User,
 >
 {
 }
@@ -252,6 +252,6 @@ pub trait DataSource: Send + Sync + 'static {
 
 #[derive(Debug, Clone)]
 pub struct AuthInfo {
-    pub client_id: String,
-    pub roles: Vec<AuthRole>,
+    pub(crate) client_id: String,
+    pub(crate) roles: Vec<AuthRole>,
 }

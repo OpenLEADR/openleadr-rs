@@ -27,7 +27,7 @@ use crate::{
 pub async fn get_all(
     State(report_source): State<Arc<dyn ReportCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Report>> {
     let reports = report_source.retrieve_all(&query_params, &user).await?;
 
@@ -38,7 +38,7 @@ pub async fn get_all(
 pub async fn get(
     State(report_source): State<Arc<dyn ReportCrud>>,
     Path(id): Path<ReportId>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Report> {
     let report: Report = report_source.retrieve(&id, &user).await?;
     Ok(Json(report))
@@ -50,7 +50,7 @@ pub async fn add(
     VENUser(user): VENUser,
     ValidatedJson(new_report): ValidatedJson<ReportContent>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
-    let report = report_source.create(new_report, &user).await?;
+    let report = report_source.create(new_report, &User(user)).await?;
 
     info!(%report.id, report_name=?report.content.report_name, "report created");
 
@@ -64,7 +64,7 @@ pub async fn edit(
     VENUser(user): VENUser,
     ValidatedJson(content): ValidatedJson<ReportContent>,
 ) -> AppResponse<Report> {
-    let report = report_source.update(&id, content, &user).await?;
+    let report = report_source.update(&id, content, &User(user)).await?;
 
     info!(%report.id, report_name=?report.content.report_name, "report updated");
 
@@ -78,7 +78,7 @@ pub async fn delete(
     BusinessUser(user): BusinessUser,
     Path(id): Path<ReportId>,
 ) -> AppResponse<Report> {
-    let report = report_source.delete(&id, &user).await?;
+    let report = report_source.delete(&id, &User(user)).await?;
     info!(%id, "deleted report");
     Ok(Json(report))
 }

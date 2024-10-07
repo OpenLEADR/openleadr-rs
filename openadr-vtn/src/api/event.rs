@@ -26,7 +26,7 @@ use crate::{
 pub async fn get_all(
     State(event_source): State<Arc<dyn EventCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Event>> {
     trace!(?query_params);
 
@@ -39,7 +39,7 @@ pub async fn get_all(
 pub async fn get(
     State(event_source): State<Arc<dyn EventCrud>>,
     Path(id): Path<EventId>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Event> {
     let event = event_source.retrieve(&id, &user).await?;
     trace!(%event.id, event.event_name=event.content.event_name, "retrieved event");
@@ -52,7 +52,7 @@ pub async fn add(
     BusinessUser(user): BusinessUser,
     ValidatedJson(new_event): ValidatedJson<EventContent>,
 ) -> Result<(StatusCode, Json<Event>), AppError> {
-    let event = event_source.create(new_event, &user).await?;
+    let event = event_source.create(new_event, &User(user)).await?;
 
     info!(%event.id, event_name=event.content.event_name, "event created");
 
@@ -65,7 +65,7 @@ pub async fn edit(
     BusinessUser(user): BusinessUser,
     ValidatedJson(content): ValidatedJson<EventContent>,
 ) -> AppResponse<Event> {
-    let event = event_source.update(&id, content, &user).await?;
+    let event = event_source.update(&id, content, &User(user)).await?;
 
     info!(%event.id, event_name=event.content.event_name, "event updated");
 
@@ -77,7 +77,7 @@ pub async fn delete(
     Path(id): Path<EventId>,
     BusinessUser(user): BusinessUser,
 ) -> AppResponse<Event> {
-    let event = event_source.delete(&id, &user).await?;
+    let event = event_source.delete(&id, &User(user)).await?;
     info!(%event.id, event.event_name=event.content.event_name, "deleted event");
     Ok(Json(event))
 }
@@ -173,7 +173,7 @@ mod test {
             events.push(
                 store
                     .events()
-                    .create(event.clone(), &Claims::any_business_user())
+                    .create(event.clone(), &User(Claims::any_business_user()))
                     .await
                     .unwrap(),
             );

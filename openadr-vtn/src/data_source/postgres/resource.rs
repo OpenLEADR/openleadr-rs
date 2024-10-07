@@ -5,7 +5,7 @@ use crate::{
         ResourceCrud, VenScopedCrud,
     },
     error::AppError,
-    jwt::Claims,
+    jwt::User,
 };
 use axum::async_trait;
 use chrono::{DateTime, Utc};
@@ -126,7 +126,7 @@ impl VenScopedCrud for PgResourceStorage {
     type NewType = ResourceContent;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = Claims;
+    type PermissionFilter = User;
 
     async fn create(
         &self,
@@ -361,7 +361,7 @@ mod test {
     use crate::{
         api::resource::QueryParams,
         data_source::{postgres::resource::PgResourceStorage, VenScopedCrud},
-        jwt::AuthRole,
+        jwt::{AuthRole, User},
     };
     use sqlx::PgPool;
 
@@ -379,16 +379,16 @@ mod test {
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn retrieve_all(db: PgPool) {
         let repo = PgResourceStorage::from(db.clone());
-        let claims = crate::jwt::Claims::new(vec![AuthRole::VenManager]);
+        let user = User(crate::jwt::Claims::new(vec![AuthRole::VenManager]));
 
         let resources = repo
-            .retrieve_all("ven-1".parse().unwrap(), &Default::default(), &claims)
+            .retrieve_all("ven-1".parse().unwrap(), &Default::default(), &user)
             .await
             .unwrap();
         assert_eq!(resources.len(), 2);
 
         let resources = repo
-            .retrieve_all("ven-2".parse().unwrap(), &Default::default(), &claims)
+            .retrieve_all("ven-2".parse().unwrap(), &Default::default(), &user)
             .await
             .unwrap();
         assert_eq!(resources.len(), 3);
@@ -400,7 +400,7 @@ mod test {
         };
 
         let resources = repo
-            .retrieve_all("ven-1".parse().unwrap(), &filters, &claims)
+            .retrieve_all("ven-1".parse().unwrap(), &filters, &user)
             .await
             .unwrap();
         assert_eq!(resources.len(), 1);

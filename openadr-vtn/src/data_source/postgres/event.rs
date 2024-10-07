@@ -5,7 +5,7 @@ use crate::{
         Crud, EventCrud,
     },
     error::AppError,
-    jwt::{BusinessIds, Claims},
+    jwt::{BusinessIds, Claims, User},
 };
 use axum::async_trait;
 use chrono::{DateTime, Utc};
@@ -197,12 +197,12 @@ impl Crud for PgEventStorage {
     type NewType = EventContent;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = Claims;
+    type PermissionFilter = User;
 
     async fn create(
         &self,
         new: Self::NewType,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         check_write_permission(new.program_id.as_str(), user, &self.db).await?;
 
@@ -231,7 +231,7 @@ impl Crud for PgEventStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let business_ids = match user.business_ids() {
             BusinessIds::Specific(ids) => Some(ids),
@@ -266,7 +266,7 @@ impl Crud for PgEventStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
         let pg_filter: PostgresFilter = filter.into();
         trace!(?pg_filter);
@@ -326,7 +326,7 @@ impl Crud for PgEventStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         check_write_permission(new.program_id.as_str(), user, &self.db).await?;
 
@@ -377,7 +377,7 @@ impl Crud for PgEventStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let program_id = sqlx::query_as!(
             PgId,
@@ -411,7 +411,7 @@ mod tests {
         api::event::QueryParams,
         data_source::{postgres::event::PgEventStorage, Crud},
         error::AppError,
-        jwt::Claims,
+        jwt::{Claims, User},
     };
     use chrono::{DateTime, Duration, Utc};
     use openadr_wire::{
@@ -525,7 +525,7 @@ mod tests {
         async fn default_get_all(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let mut events = repo
-                .retrieve_all(&Default::default(), &Claims::any_business_user())
+                .retrieve_all(&Default::default(), &User(Claims::any_business_user()))
                 .await
                 .unwrap();
             assert_eq!(events.len(), 3);
@@ -542,7 +542,7 @@ mod tests {
                         limit: 1,
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -559,7 +559,7 @@ mod tests {
                         skip: 1,
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -571,7 +571,7 @@ mod tests {
                         skip: 20,
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -589,7 +589,7 @@ mod tests {
                         target_values: Some(vec!["group-1".to_string()]),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -603,7 +603,7 @@ mod tests {
                         target_values: Some(vec!["target-1".to_string()]),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -618,7 +618,7 @@ mod tests {
                         target_values: Some(vec!["not-existent".to_string()]),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -631,7 +631,7 @@ mod tests {
                         target_values: Some(vec!["target-1".to_string()]),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -644,7 +644,7 @@ mod tests {
                         target_values: Some(vec!["target-1".to_string()]),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -662,7 +662,7 @@ mod tests {
                         target_values: Some(vec!["private value".to_string()]),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -679,7 +679,7 @@ mod tests {
                         program_id: Some("program-1".parse().unwrap()),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -693,7 +693,7 @@ mod tests {
                         target_type: Some(TargetLabel::Group),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -706,7 +706,7 @@ mod tests {
                         program_id: Some("not-existent".parse().unwrap()),
                         ..Default::default()
                     },
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -721,7 +721,10 @@ mod tests {
         async fn get_existing(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .retrieve(&"event-1".parse().unwrap(), &Claims::any_business_user())
+                .retrieve(
+                    &"event-1".parse().unwrap(),
+                    &User(Claims::any_business_user()),
+                )
                 .await
                 .unwrap();
             assert_eq!(event, event_1());
@@ -733,7 +736,7 @@ mod tests {
             let event = repo
                 .retrieve(
                     &"not-existent".parse().unwrap(),
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await;
             assert!(matches!(event, Err(AppError::NotFound)));
@@ -747,7 +750,7 @@ mod tests {
         async fn add(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .create(event_1().content, &Claims::any_business_user())
+                .create(event_1().content, &User(Claims::any_business_user()))
                 .await
                 .unwrap();
             assert_eq!(event.content, event_1().content);
@@ -761,7 +764,7 @@ mod tests {
         async fn add_existing_conflict_name(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .create(event_1().content, &Claims::any_business_user())
+                .create(event_1().content, &User(Claims::any_business_user()))
                 .await;
             assert!(event.is_ok());
         }
@@ -777,7 +780,7 @@ mod tests {
                 .update(
                     &"event-1".parse().unwrap(),
                     event_1().content,
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
@@ -801,13 +804,16 @@ mod tests {
                 .update(
                     &"event-1".parse().unwrap(),
                     updated.clone(),
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
             assert_eq!(event.content, updated);
             let event = repo
-                .retrieve(&"event-1".parse().unwrap(), &Claims::any_business_user())
+                .retrieve(
+                    &"event-1".parse().unwrap(),
+                    &User(Claims::any_business_user()),
+                )
                 .await
                 .unwrap();
             assert_eq!(event.content, updated);
@@ -820,7 +826,7 @@ mod tests {
                 .update(
                     &"event-1".parse().unwrap(),
                     event_2().content,
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await;
             assert!(event.is_ok());
@@ -834,18 +840,27 @@ mod tests {
         async fn delete_existing(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .delete(&"event-1".parse().unwrap(), &Claims::any_business_user())
+                .delete(
+                    &"event-1".parse().unwrap(),
+                    &User(Claims::any_business_user()),
+                )
                 .await
                 .unwrap();
             assert_eq!(event, event_1());
 
             let event = repo
-                .retrieve(&"event-1".parse().unwrap(), &Claims::any_business_user())
+                .retrieve(
+                    &"event-1".parse().unwrap(),
+                    &User(Claims::any_business_user()),
+                )
                 .await;
             assert!(matches!(event, Err(AppError::NotFound)));
 
             let event = repo
-                .retrieve(&"event-2".parse().unwrap(), &Claims::any_business_user())
+                .retrieve(
+                    &"event-2".parse().unwrap(),
+                    &User(Claims::any_business_user()),
+                )
                 .await
                 .unwrap();
             assert_eq!(event, event_2());
@@ -857,7 +872,7 @@ mod tests {
             let event = repo
                 .delete(
                     &"not-existent".parse().unwrap(),
-                    &Claims::any_business_user(),
+                    &User(Claims::any_business_user()),
                 )
                 .await;
             assert!(matches!(event, Err(AppError::NotFound)));
