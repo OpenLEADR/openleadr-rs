@@ -50,11 +50,11 @@ impl AuthRole {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct Claims {
+pub(crate) struct Claims {
     exp: usize,
     nbf: usize,
-    pub sub: String,
-    pub roles: Vec<AuthRole>,
+    pub(crate) sub: String,
+    pub(crate) roles: Vec<AuthRole>,
 }
 
 #[cfg(test)]
@@ -162,7 +162,7 @@ impl JwtManager {
     }
 
     /// Create a new JWT token with the given claims and expiration time
-    pub fn create(
+    pub(crate) fn create(
         &self,
         expires_in: std::time::Duration,
         client_id: String,
@@ -184,7 +184,7 @@ impl JwtManager {
     }
 
     /// Decode and validate a given JWT token, returning the validated claims
-    pub fn decode_and_validate(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
+    fn decode_and_validate(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
         let validation = jsonwebtoken::Validation::default();
         let token_data = jsonwebtoken::decode::<Claims>(token, &self.decoding_key, &validation)?;
         Ok(token_data.claims)
@@ -192,19 +192,20 @@ impl JwtManager {
 }
 
 /// User claims extracted from the request
-pub struct User(pub Claims);
+pub struct User(pub(crate) Claims);
 
 /// User claims extracted from the request, with the requirement that the user is a business user
-pub struct BusinessUser(pub Claims);
+pub struct BusinessUser(pub(crate) Claims);
 
 /// User claims extracted from the request, with the requirement that the user is a VEN user
-pub struct VENUser(pub Claims);
+pub struct VENUser(pub(crate) Claims);
 
 /// User claims extracted from the request, with the requirement that the user is a user manager
-pub struct UserManagerUser(pub Claims);
+#[allow(dead_code)]
+pub struct UserManagerUser(pub(crate) Claims);
 
 /// User claims extracted from the request, with the requirement that the user is a VEN manager
-pub struct VenManagerUser(pub Claims);
+pub struct VenManagerUser(pub(crate) Claims);
 
 #[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for User

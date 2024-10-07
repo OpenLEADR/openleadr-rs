@@ -24,7 +24,7 @@ use crate::{
 pub async fn get_all(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Program>> {
     trace!(?query_params);
 
@@ -36,7 +36,7 @@ pub async fn get_all(
 pub async fn get(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Program> {
     let program = program_source.retrieve(&id, &user).await?;
     Ok(Json(program))
@@ -47,7 +47,7 @@ pub async fn add(
     BusinessUser(user): BusinessUser,
     ValidatedJson(new_program): ValidatedJson<ProgramContent>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
-    let program = program_source.create(new_program, &user).await?;
+    let program = program_source.create(new_program, &User(user)).await?;
 
     Ok((StatusCode::CREATED, Json(program)))
 }
@@ -58,7 +58,7 @@ pub async fn edit(
     BusinessUser(user): BusinessUser,
     ValidatedJson(content): ValidatedJson<ProgramContent>,
 ) -> AppResponse<Program> {
-    let program = program_source.update(&id, content, &user).await?;
+    let program = program_source.update(&id, content, &User(user)).await?;
 
     info!(%program.id, program.program_name=program.content.program_name, "program updated");
 
@@ -70,7 +70,7 @@ pub async fn delete(
     Path(id): Path<ProgramId>,
     BusinessUser(user): BusinessUser,
 ) -> AppResponse<Program> {
-    let program = program_source.delete(&id, &user).await?;
+    let program = program_source.delete(&id, &User(user)).await?;
     info!(%id, "deleted program");
     Ok(Json(program))
 }
@@ -175,7 +175,7 @@ mod test {
         for program in new_programs {
             let p = store
                 .programs()
-                .create(program.clone(), &Claims::any_business_user())
+                .create(program.clone(), &User(Claims::any_business_user()))
                 .await
                 .unwrap();
             assert_eq!(p.content, program);

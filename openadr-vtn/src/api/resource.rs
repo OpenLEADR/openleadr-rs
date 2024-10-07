@@ -19,15 +19,15 @@ use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
     data_source::ResourceCrud,
     error::AppError,
-    jwt::{Claims, User},
+    jwt::User,
 };
 
-fn has_write_permission(user_claims: &Claims, ven_id: &VenId) -> Result<(), AppError> {
-    if user_claims.is_ven_manager() {
+fn has_write_permission(User(claims): &User, ven_id: &VenId) -> Result<(), AppError> {
+    if claims.is_ven_manager() {
         return Ok(());
     }
 
-    if user_claims.is_ven() && user_claims.ven_ids().contains(ven_id) {
+    if claims.is_ven() && claims.ven_ids().contains(ven_id) {
         return Ok(());
     }
 
@@ -40,7 +40,7 @@ pub async fn get_all(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path(ven_id): Path<VenId>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Resource>> {
     has_write_permission(&user, &ven_id)?;
     trace!(?query_params);
@@ -55,7 +55,7 @@ pub async fn get_all(
 pub async fn get(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
     let ven = resource_source.retrieve(&id, ven_id, &user).await?;
@@ -65,7 +65,7 @@ pub async fn get(
 
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    User(user): User,
+    user: User,
     Path(ven_id): Path<VenId>,
     ValidatedJson(new_resource): ValidatedJson<ResourceContent>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
@@ -78,7 +78,7 @@ pub async fn add(
 pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
-    User(user): User,
+    user: User,
     ValidatedJson(content): ValidatedJson<ResourceContent>,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
@@ -92,7 +92,7 @@ pub async fn edit(
 pub async fn delete(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
     let resource = resource_source.delete(&id, ven_id, &user).await?;

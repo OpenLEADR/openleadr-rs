@@ -87,7 +87,7 @@ impl AppState {
     }
 }
 
-pub async fn method_not_allowed(req: Request, next: Next) -> impl IntoResponse {
+async fn method_not_allowed(req: Request, next: Next) -> impl IntoResponse {
     let resp = next.run(req).await;
     let status = resp.status();
     match status {
@@ -96,7 +96,7 @@ pub async fn method_not_allowed(req: Request, next: Next) -> impl IntoResponse {
     }
 }
 
-pub async fn handler_404() -> AppError {
+async fn handler_404() -> AppError {
     AppError::NotFound
 }
 
