@@ -26,7 +26,7 @@ use crate::{
 pub async fn get_all(
     State(event_source): State<Arc<dyn EventCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Event>> {
     trace!(?query_params);
 
@@ -38,7 +38,7 @@ pub async fn get_all(
 pub async fn get(
     State(event_source): State<Arc<dyn EventCrud>>,
     Path(id): Path<EventId>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Event> {
     let event = event_source.retrieve(&id, &user).await?;
     Ok(Json(event))
@@ -49,7 +49,7 @@ pub async fn add(
     BusinessUser(user): BusinessUser,
     ValidatedJson(new_event): ValidatedJson<EventContent>,
 ) -> Result<(StatusCode, Json<Event>), AppError> {
-    let event = event_source.create(new_event, &user).await?;
+    let event = event_source.create(new_event, &User(user)).await?;
 
     info!(%event.id, event_name=?event.content.event_name, "event created");
 
@@ -62,7 +62,7 @@ pub async fn edit(
     BusinessUser(user): BusinessUser,
     ValidatedJson(content): ValidatedJson<EventContent>,
 ) -> AppResponse<Event> {
-    let event = event_source.update(&id, content, &user).await?;
+    let event = event_source.update(&id, content, &User(user)).await?;
 
     info!(%event.id, event_name=?event.content.event_name, "event updated");
 
@@ -74,7 +74,7 @@ pub async fn delete(
     Path(id): Path<EventId>,
     BusinessUser(user): BusinessUser,
 ) -> AppResponse<Event> {
-    let event = event_source.delete(&id, &user).await?;
+    let event = event_source.delete(&id, &User(user)).await?;
     info!(%id, "deleted event");
     Ok(Json(event))
 }
@@ -125,7 +125,10 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use openadr_wire::event::Priority;
+    use openadr_wire::{
+        event::{EventPayloadDescriptor, EventType, Priority},
+        problem::Problem,
+    };
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
 
@@ -164,7 +167,7 @@ mod test {
             events.push(
                 store
                     .events()
-                    .create(event.clone(), &Claims::any_business_user())
+                    .create(event.clone(), &User(Claims::any_business_user()))
                     .await
                     .unwrap(),
             );
@@ -455,6 +458,59 @@ mod test {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
         assert_eq!(programs.len(), 1);
+    }
+
+    #[ignore = "Depends on https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/104"]
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let events = [
+            EventContent {
+                event_name: Some("".to_string()),
+                ..default_event_content()
+            },
+            EventContent {
+                event_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                ..default_event_content()
+            },
+            EventContent {
+                payload_descriptors: Some(vec![
+                    EventPayloadDescriptor{
+                        payload_type: EventType::Private("".to_string()),
+                        units: None,
+                        currency: None,
+                    }
+                ]),
+                ..default_event_content()
+            },
+            EventContent {
+                payload_descriptors: Some(vec![
+                    EventPayloadDescriptor{
+                        payload_type: EventType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                        units: None,
+                        currency: None,
+                    }
+                ]),
+                ..default_event_content()
+            },
+        ];
+
+        for event in &events {
+            let (status, error) = test
+                .request::<Problem>(
+                    http::Method::POST,
+                    "/events",
+                    Body::from(serde_json::to_vec(&event).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
     }
 
     mod permissions {

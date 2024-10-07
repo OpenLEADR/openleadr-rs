@@ -27,7 +27,7 @@ use crate::{
 pub async fn get_all(
     State(report_source): State<Arc<dyn ReportCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Report>> {
     let reports = report_source.retrieve_all(&query_params, &user).await?;
 
@@ -38,7 +38,7 @@ pub async fn get_all(
 pub async fn get(
     State(report_source): State<Arc<dyn ReportCrud>>,
     Path(id): Path<ReportId>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Report> {
     let report: Report = report_source.retrieve(&id, &user).await?;
     Ok(Json(report))
@@ -50,7 +50,7 @@ pub async fn add(
     VENUser(user): VENUser,
     ValidatedJson(new_report): ValidatedJson<ReportContent>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
-    let report = report_source.create(new_report, &user).await?;
+    let report = report_source.create(new_report, &User(user)).await?;
 
     info!(%report.id, report_name=?report.content.report_name, "report created");
 
@@ -64,7 +64,7 @@ pub async fn edit(
     VENUser(user): VENUser,
     ValidatedJson(content): ValidatedJson<ReportContent>,
 ) -> AppResponse<Report> {
-    let report = report_source.update(&id, content, &user).await?;
+    let report = report_source.update(&id, content, &User(user)).await?;
 
     info!(%report.id, report_name=?report.content.report_name, "report updated");
 
@@ -78,7 +78,7 @@ pub async fn delete(
     BusinessUser(user): BusinessUser,
     Path(id): Path<ReportId>,
 ) -> AppResponse<Report> {
-    let report = report_source.delete(&id, &user).await?;
+    let report = report_source.delete(&id, &User(user)).await?;
     info!(%id, "deleted report");
     Ok(Json(report))
 }
@@ -101,4 +101,84 @@ pub struct QueryParams {
 
 fn get_50() -> i64 {
     50
+}
+
+#[cfg(test)]
+#[cfg(feature = "live-db-test")]
+mod test {
+    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use axum::{body::Body, http, http::StatusCode};
+    use openadr_wire::{
+        problem::Problem,
+        report::{ReportContent, ReportPayloadDescriptor, ReportType},
+    };
+    use sqlx::PgPool;
+
+    fn default() -> ReportContent {
+        ReportContent {
+            object_type: None,
+            program_id: "asdf".parse().unwrap(),
+            event_id: "asdf".parse().unwrap(),
+            client_name: "".to_string(),
+            report_name: None,
+            payload_descriptors: None,
+            resources: vec![],
+        }
+    }
+
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+
+        let reports = [
+            ReportContent {
+                report_name: Some("".to_string()),
+                ..default()
+            },
+            ReportContent {
+                report_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                ..default()
+            },
+            ReportContent {
+                payload_descriptors: Some(vec![
+                    ReportPayloadDescriptor{
+                        payload_type: ReportType::Private("".to_string()),
+                        reading_type: Default::default(),
+                        units: None,
+                        accuracy: None,
+                        confidence: None,
+                    }
+                ]),
+                ..default()
+            },
+            ReportContent {
+                payload_descriptors: Some(vec![
+                    ReportPayloadDescriptor{
+                        payload_type: ReportType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                        reading_type: Default::default(),
+                        units: None,
+                        accuracy: None,
+                        confidence: None,
+                    }
+                ]),
+                ..default()
+            },
+        ];
+
+        for report in &reports {
+            let (status, error) = test
+                .request::<Problem>(
+                    http::Method::POST,
+                    "/reports",
+                    Body::from(serde_json::to_vec(&report).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
+    }
 }

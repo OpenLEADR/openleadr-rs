@@ -19,15 +19,15 @@ use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
     data_source::ResourceCrud,
     error::AppError,
-    jwt::{Claims, User},
+    jwt::User,
 };
 
-fn has_write_permission(user_claims: &Claims, ven_id: &VenId) -> Result<(), AppError> {
-    if user_claims.is_ven_manager() {
+fn has_write_permission(User(claims): &User, ven_id: &VenId) -> Result<(), AppError> {
+    if claims.is_ven_manager() {
         return Ok(());
     }
 
-    if user_claims.is_ven() && user_claims.ven_ids().contains(ven_id) {
+    if claims.is_ven() && claims.ven_ids().contains(ven_id) {
         return Ok(());
     }
 
@@ -40,7 +40,7 @@ pub async fn get_all(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path(ven_id): Path<VenId>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Resource>> {
     has_write_permission(&user, &ven_id)?;
     trace!(?query_params);
@@ -55,7 +55,7 @@ pub async fn get_all(
 pub async fn get(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
     let ven = resource_source.retrieve(&id, ven_id, &user).await?;
@@ -65,7 +65,7 @@ pub async fn get(
 
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    User(user): User,
+    user: User,
     Path(ven_id): Path<VenId>,
     ValidatedJson(new_resource): ValidatedJson<ResourceContent>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
@@ -78,7 +78,7 @@ pub async fn add(
 pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
-    User(user): User,
+    user: User,
     ValidatedJson(content): ValidatedJson<ResourceContent>,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
@@ -92,7 +92,7 @@ pub async fn edit(
 pub async fn delete(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
     let resource = resource_source.delete(&id, ven_id, &user).await?;
@@ -128,12 +128,23 @@ fn get_50() -> i64 {
 
 #[cfg(test)]
 mod test {
+    use crate::{api::test::ApiTest, jwt::AuthRole};
     use axum::body::Body;
-    use openadr_wire::resource::Resource;
+    use openadr_wire::{
+        problem::Problem,
+        resource::{Resource, ResourceContent},
+    };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    fn default() -> ResourceContent {
+        ResourceContent {
+            object_type: Default::default(),
+            resource_name: "".to_string(),
+            attributes: None,
+            targets: None,
+        }
+    }
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn test_get_all(db: PgPool) {
@@ -234,7 +245,7 @@ mod test {
         assert_eq!(resource.id.as_str(), "resource-1");
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Problem>(
                 Method::GET,
                 "/vens/ven-1/resources/resource-2",
                 Body::empty(),
@@ -243,7 +254,7 @@ mod test {
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Problem>(
                 Method::GET,
                 "/vens/ven-2/resources/resource-2",
                 Body::empty(),
@@ -289,7 +300,7 @@ mod test {
         assert_eq!(resource.content.resource_name, "updated-resource");
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Resource>(
                 Method::DELETE,
                 &format!("/vens/ven-1/resources/{resource_id}"),
                 Body::empty(),
@@ -298,12 +309,44 @@ mod test {
         assert_eq!(status, StatusCode::OK);
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Problem>(
                 Method::GET,
                 &format!("/vens/ven-1/resources/{resource_id}"),
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let resources = [
+            ResourceContent {
+                resource_name: "".to_string(),
+                ..default()
+            },
+            ResourceContent {
+                resource_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
+                ..default()
+            },
+        ];
+
+        for resource in &resources {
+            let (status, error) = test
+                .request::<Problem>(
+                    Method::POST,
+                    "/vens/ven-1/resources",
+                    Body::from(serde_json::to_vec(&resource).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
     }
 }

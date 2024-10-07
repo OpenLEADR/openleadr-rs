@@ -24,7 +24,7 @@ use crate::{
 pub async fn get_all(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Vec<Program>> {
     trace!(?query_params);
 
@@ -36,7 +36,7 @@ pub async fn get_all(
 pub async fn get(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
-    User(user): User,
+    user: User,
 ) -> AppResponse<Program> {
     let program = program_source.retrieve(&id, &user).await?;
     Ok(Json(program))
@@ -47,7 +47,7 @@ pub async fn add(
     BusinessUser(user): BusinessUser,
     ValidatedJson(new_program): ValidatedJson<ProgramContent>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
-    let program = program_source.create(new_program, &user).await?;
+    let program = program_source.create(new_program, &User(user)).await?;
 
     Ok((StatusCode::CREATED, Json(program)))
 }
@@ -58,7 +58,7 @@ pub async fn edit(
     BusinessUser(user): BusinessUser,
     ValidatedJson(content): ValidatedJson<ProgramContent>,
 ) -> AppResponse<Program> {
-    let program = program_source.update(&id, content, &user).await?;
+    let program = program_source.update(&id, content, &User(user)).await?;
 
     info!(%program.id, program.program_name=program.content.program_name, "program updated");
 
@@ -70,7 +70,7 @@ pub async fn delete(
     Path(id): Path<ProgramId>,
     BusinessUser(user): BusinessUser,
 ) -> AppResponse<Program> {
-    let program = program_source.delete(&id, &user).await?;
+    let program = program_source.delete(&id, &User(user)).await?;
     info!(%id, "deleted program");
     Ok(Json(program))
 }
@@ -121,14 +121,18 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use openadr_wire::Event;
+    use openadr_wire::{
+        problem::Problem,
+        target::{TargetEntry, TargetMap},
+        Event,
+    };
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
     // for `call`, `oneshot`, and `ready`
 
     fn default_content() -> ProgramContent {
         ProgramContent {
-            object_type: None,
+            object_type: Default::default(),
             program_name: "program_name".to_string(),
             program_long_name: Some("program_long_name".to_string()),
             retailer_name: Some("retailer_name".to_string()),
@@ -171,7 +175,7 @@ mod test {
         for program in new_programs {
             let p = store
                 .programs()
-                .create(program.clone(), &Claims::any_business_user())
+                .create(program.clone(), &User(Claims::any_business_user()))
                 .await
                 .unwrap();
             assert_eq!(p.content, program);
@@ -354,6 +358,58 @@ mod test {
 
         let response = help_create_program(&mut app, &token, &default_content()).await;
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let programs = [
+            ProgramContent {
+                program_name: "".to_string(),
+                ..default_content()
+            },
+            ProgramContent {
+                program_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
+                ..default_content()
+            },
+            ProgramContent {
+                targets: Some(TargetMap(
+                    vec![
+                        TargetEntry {
+                            label: TargetLabel::Private("".to_string()),
+                            values: ["test".to_string()]
+                        }
+                    ])),
+                ..default_content()
+            },
+            ProgramContent {
+                targets: Some(TargetMap(
+                    vec![
+                        TargetEntry {
+                            label: TargetLabel::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                            values: ["test".to_string()]
+                        }
+                    ])),
+                ..default_content()
+            }];
+
+        for program in &programs {
+            let (status, error) = test
+                .request::<Problem>(
+                    http::Method::POST,
+                    "/programs",
+                    Body::from(serde_json::to_vec(&program).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            let detail = error.detail.unwrap();
+            assert!(
+                detail.contains("outside of allowed range 1..=128")
+                    || detail.contains("data did not match any variant")
+            );
+        }
     }
 
     async fn retrieve_all_with_filter_help(

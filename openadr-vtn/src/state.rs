@@ -77,6 +77,7 @@ impl AppState {
                 "/users/:user_id/:client_id",
                 delete(user::delete_credential),
             )
+            .fallback(handler_404)
             .layer(middleware::from_fn(method_not_allowed))
             .layer(TraceLayer::new_for_http())
     }
@@ -86,13 +87,17 @@ impl AppState {
     }
 }
 
-pub async fn method_not_allowed(req: Request, next: Next) -> impl IntoResponse {
+async fn method_not_allowed(req: Request, next: Next) -> impl IntoResponse {
     let resp = next.run(req).await;
     let status = resp.status();
     match status {
         StatusCode::METHOD_NOT_ALLOWED => Err(AppError::MethodNotAllowed),
         _ => Ok(resp),
     }
+}
+
+async fn handler_404() -> AppError {
+    AppError::NotFound
 }
 
 impl FromRef<AppState> for Arc<dyn AuthSource> {
