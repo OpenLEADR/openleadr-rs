@@ -128,12 +128,23 @@ fn get_50() -> i64 {
 
 #[cfg(test)]
 mod test {
+    use crate::{api::test::ApiTest, jwt::AuthRole};
     use axum::body::Body;
-    use openadr_wire::resource::Resource;
+    use openadr_wire::{
+        problem::Problem,
+        resource::{Resource, ResourceContent},
+    };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    fn default() -> ResourceContent {
+        ResourceContent {
+            object_type: Default::default(),
+            resource_name: "".to_string(),
+            attributes: None,
+            targets: None,
+        }
+    }
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn test_get_all(db: PgPool) {
@@ -234,7 +245,7 @@ mod test {
         assert_eq!(resource.id.as_str(), "resource-1");
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Problem>(
                 Method::GET,
                 "/vens/ven-1/resources/resource-2",
                 Body::empty(),
@@ -243,7 +254,7 @@ mod test {
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Problem>(
                 Method::GET,
                 "/vens/ven-2/resources/resource-2",
                 Body::empty(),
@@ -289,7 +300,7 @@ mod test {
         assert_eq!(resource.content.resource_name, "updated-resource");
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Resource>(
                 Method::DELETE,
                 &format!("/vens/ven-1/resources/{resource_id}"),
                 Body::empty(),
@@ -298,12 +309,44 @@ mod test {
         assert_eq!(status, StatusCode::OK);
 
         let (status, _) = test
-            .request::<serde_json::Value>(
+            .request::<Problem>(
                 Method::GET,
                 &format!("/vens/ven-1/resources/{resource_id}"),
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let resources = [
+            ResourceContent {
+                resource_name: "".to_string(),
+                ..default()
+            },
+            ResourceContent {
+                resource_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
+                ..default()
+            },
+        ];
+
+        for resource in &resources {
+            let (status, error) = test
+                .request::<Problem>(
+                    Method::POST,
+                    "/vens/ven-1/resources",
+                    Body::from(serde_json::to_vec(&resource).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
     }
 }

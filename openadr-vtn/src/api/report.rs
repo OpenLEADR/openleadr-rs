@@ -102,3 +102,83 @@ pub struct QueryParams {
 fn get_50() -> i64 {
     50
 }
+
+#[cfg(test)]
+#[cfg(feature = "live-db-test")]
+mod test {
+    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use axum::{body::Body, http, http::StatusCode};
+    use openadr_wire::{
+        problem::Problem,
+        report::{ReportContent, ReportPayloadDescriptor, ReportType},
+    };
+    use sqlx::PgPool;
+
+    fn default() -> ReportContent {
+        ReportContent {
+            object_type: None,
+            program_id: "asdf".parse().unwrap(),
+            event_id: "asdf".parse().unwrap(),
+            client_name: "".to_string(),
+            report_name: None,
+            payload_descriptors: None,
+            resources: vec![],
+        }
+    }
+
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+
+        let reports = [
+            ReportContent {
+                report_name: Some("".to_string()),
+                ..default()
+            },
+            ReportContent {
+                report_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                ..default()
+            },
+            ReportContent {
+                payload_descriptors: Some(vec![
+                    ReportPayloadDescriptor{
+                        payload_type: ReportType::Private("".to_string()),
+                        reading_type: Default::default(),
+                        units: None,
+                        accuracy: None,
+                        confidence: None,
+                    }
+                ]),
+                ..default()
+            },
+            ReportContent {
+                payload_descriptors: Some(vec![
+                    ReportPayloadDescriptor{
+                        payload_type: ReportType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                        reading_type: Default::default(),
+                        units: None,
+                        accuracy: None,
+                        confidence: None,
+                    }
+                ]),
+                ..default()
+            },
+        ];
+
+        for report in &reports {
+            let (status, error) = test
+                .request::<Problem>(
+                    http::Method::POST,
+                    "/reports",
+                    Body::from(serde_json::to_vec(&report).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
+    }
+}

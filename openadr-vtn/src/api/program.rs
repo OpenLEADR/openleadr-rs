@@ -121,14 +121,18 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use openadr_wire::Event;
+    use openadr_wire::{
+        problem::Problem,
+        target::{TargetEntry, TargetMap},
+        Event,
+    };
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
     // for `call`, `oneshot`, and `ready`
 
     fn default_content() -> ProgramContent {
         ProgramContent {
-            object_type: None,
+            object_type: Default::default(),
             program_name: "program_name".to_string(),
             program_long_name: Some("program_long_name".to_string()),
             retailer_name: Some("retailer_name".to_string()),
@@ -354,6 +358,58 @@ mod test {
 
         let response = help_create_program(&mut app, &token, &default_content()).await;
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let programs = [
+            ProgramContent {
+                program_name: "".to_string(),
+                ..default_content()
+            },
+            ProgramContent {
+                program_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
+                ..default_content()
+            },
+            ProgramContent {
+                targets: Some(TargetMap(
+                    vec![
+                        TargetEntry {
+                            label: TargetLabel::Private("".to_string()),
+                            values: ["test".to_string()]
+                        }
+                    ])),
+                ..default_content()
+            },
+            ProgramContent {
+                targets: Some(TargetMap(
+                    vec![
+                        TargetEntry {
+                            label: TargetLabel::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                            values: ["test".to_string()]
+                        }
+                    ])),
+                ..default_content()
+            }];
+
+        for program in &programs {
+            let (status, error) = test
+                .request::<Problem>(
+                    http::Method::POST,
+                    "/programs",
+                    Body::from(serde_json::to_vec(&program).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            let detail = error.detail.unwrap();
+            assert!(
+                detail.contains("outside of allowed range 1..=128")
+                    || detail.contains("data did not match any variant")
+            );
+        }
     }
 
     async fn retrieve_all_with_filter_help(

@@ -92,11 +92,11 @@ mod test {
     use axum::{
         body::Body,
         http::{self, Request, StatusCode},
-        response::Response,
         Router,
     };
     use http_body_util::BodyExt;
     use openadr_wire::problem::Problem;
+    use reqwest::Method;
     use serde::de::DeserializeOwned;
     use sqlx::PgPool;
     use tower::ServiceExt;
@@ -128,10 +128,10 @@ mod test {
 
         pub(crate) async fn request<T: DeserializeOwned>(
             &self,
-            method: http::Method,
+            method: Method,
             path: &str,
             body: Body,
-        ) -> (http::StatusCode, T) {
+        ) -> (StatusCode, T) {
             let response = self
                 .router
                 .clone()
@@ -174,23 +174,22 @@ mod test {
         AppState::new(store, JwtManager::from_base64_secret("test").unwrap())
     }
 
-    async fn into_problem(response: Response<Body>) -> Problem {
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        serde_json::from_slice(&body).unwrap()
-    }
-
     #[sqlx::test]
     async fn unsupported_media_type(db: PgPool) {
-        let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness, AuthRole::UserManager]);
-        let mut app = state.into_router();
+        let mut test = ApiTest::new(
+            db.clone(),
+            vec![AuthRole::AnyBusiness, AuthRole::UserManager],
+        );
 
-        let response = (&mut app)
+        let response = (&mut test.router)
             .oneshot(
                 Request::builder()
-                    .method(http::Method::POST)
+                    .method(Method::POST)
                     .uri("/programs")
-                    .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                    .header(
+                        http::header::AUTHORIZATION,
+                        format!("Bearer {}", test.token),
+                    )
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -198,41 +197,32 @@ mod test {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-        into_problem(response).await;
 
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(http::Method::POST)
-                    .uri("/auth/token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let (status, _) = test
+            .request::<Problem>(Method::POST, "/auth/token", Body::empty())
+            .await;
 
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-        into_problem(response).await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
 
     #[sqlx::test]
     async fn method_not_allowed(db: PgPool) {
-        let state = state(db).await;
-        let app = state.into_router();
+        let test = ApiTest::new(db.clone(), vec![]);
 
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(http::Method::DELETE)
-                    .uri("/programs")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let (status, _) = test
+            .request::<Problem>(Method::DELETE, "/programs", Body::empty())
+            .await;
 
-        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    }
 
-        into_problem(response).await;
+    #[sqlx::test]
+    async fn not_found(db: PgPool) {
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+
+        let (status, _) = test
+            .request::<Problem>(Method::GET, "/not-existent", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }

@@ -36,6 +36,7 @@ pub enum TargetLabel {
     ProgramName,
     /// An application specific privately defined target.
     #[serde(untagged)]
+    #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     Private(String),
 }
 
