@@ -29,6 +29,7 @@ pub async fn get_all(
     trace!(?query_params);
 
     let programs = program_source.retrieve_all(&query_params, &user).await?;
+    trace!("retrieved {} programs", programs.len());
 
     Ok(Json(programs))
 }
@@ -39,6 +40,9 @@ pub async fn get(
     user: User,
 ) -> AppResponse<Program> {
     let program = program_source.retrieve(&id, &user).await?;
+
+    trace!(%program.id, program.program_name=program.content.program_name, "program retrieved");
+
     Ok(Json(program))
 }
 
@@ -48,6 +52,8 @@ pub async fn add(
     ValidatedJson(new_program): ValidatedJson<ProgramContent>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
     let program = program_source.create(new_program, &User(user)).await?;
+
+    info!(%program.id, program.program_name=program.content.program_name, "program added");
 
     Ok((StatusCode::CREATED, Json(program)))
 }

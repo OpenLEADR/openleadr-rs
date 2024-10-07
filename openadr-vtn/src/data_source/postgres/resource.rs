@@ -11,7 +11,6 @@ use axum::async_trait;
 use chrono::{DateTime, Utc};
 use openadr_wire::{
     resource::{Resource, ResourceContent, ResourceId},
-    target::TargetLabel,
     ven::VenId,
 };
 use sqlx::PgPool;
@@ -83,7 +82,7 @@ impl TryFrom<PostgresResource> for Resource {
 
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
-    resource_names: Option<&'a [String]>,
+    resource_name: Option<&'a str>,
     targets: Vec<PgTargetsFilter<'a>>,
     skip: i64,
     limit: i64,
@@ -92,27 +91,21 @@ struct PostgresFilter<'a> {
 impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
     fn from(query: &'a QueryParams) -> Self {
         let mut filter = Self {
+            resource_name: query.resource_name.as_deref(),
             skip: query.skip,
             limit: query.limit,
             ..Default::default()
         };
-        match query.target_type {
-            Some(TargetLabel::VENName) => filter.resource_names = query.target_values.as_deref(),
-            Some(TargetLabel::ResourceName) => {
-                filter.resource_names = query.target_values.as_deref()
+        if let Some(ref label) = query.target_type {
+            if let Some(values) = query.target_values.as_ref() {
+                filter.targets = values
+                    .iter()
+                    .map(|value| PgTargetsFilter {
+                        label: label.as_str(),
+                        value: [value.clone()],
+                    })
+                    .collect()
             }
-            Some(ref label) => {
-                if let Some(values) = query.target_values.as_ref() {
-                    filter.targets = values
-                        .iter()
-                        .map(|value| PgTargetsFilter {
-                            label: label.as_str(),
-                            value: [value.clone()],
-                        })
-                        .collect()
-                }
-            }
-            None => {}
         };
 
         filter
@@ -217,13 +210,13 @@ impl VenScopedCrud for PgResourceStorage {
                          json_array(jsonb_array_elements(r.targets)) <@ $3::jsonb AS target_test )
                   ON r.id = r_id
             WHERE r.ven_id = $1
-                AND ($2::text[] IS NULL OR r.resource_name = ANY($2))
+                AND ($2::text IS NULL OR r.resource_name = $2)
                 AND ($3::jsonb = '[]'::jsonb OR target_test)
             ORDER BY r.created_date_time
             OFFSET $4 LIMIT $5
             "#,
             ven_id.as_str(),
-            pg_filter.resource_names,
+            pg_filter.resource_name,
             serde_json::to_value(pg_filter.targets)
                 .map_err(AppError::SerdeJsonInternalServerError)?,
             pg_filter.skip,
@@ -368,6 +361,7 @@ mod test {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
+                resource_name: None,
                 target_type: None,
                 target_values: None,
                 skip: 0,
