@@ -8,10 +8,7 @@ use crate::{
 };
 use axum::async_trait;
 use chrono::{DateTime, Utc};
-use openadr_wire::{
-    target::TargetLabel,
-    ven::{Ven, VenContent, VenId},
-};
+use openadr_wire::ven::{Ven, VenContent, VenId};
 use sqlx::PgPool;
 use tracing::{error, trace};
 
@@ -82,8 +79,7 @@ impl TryFrom<PostgresVen> for Ven {
 
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
-    ven_names: Option<&'a [String]>,
-    resource_names: Option<&'a [String]>,
+    ven_name: Option<&'a str>,
     targets: Vec<PgTargetsFilter<'a>>,
     skip: i64,
     limit: i64,
@@ -92,27 +88,21 @@ struct PostgresFilter<'a> {
 impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
     fn from(query: &'a QueryParams) -> Self {
         let mut filter = Self {
+            ven_name: query.ven_name.as_deref(),
             skip: query.skip,
             limit: query.limit,
             ..Default::default()
         };
-        match query.target_type {
-            Some(TargetLabel::VENName) => filter.ven_names = query.target_values.as_deref(),
-            Some(TargetLabel::ResourceName) => {
-                filter.resource_names = query.target_values.as_deref()
+        if let Some(ref label) = query.target_type {
+            if let Some(values) = query.target_values.as_ref() {
+                filter.targets = values
+                    .iter()
+                    .map(|value| PgTargetsFilter {
+                        label: label.as_str(),
+                        value: [value.clone()],
+                    })
+                    .collect()
             }
-            Some(ref label) => {
-                if let Some(values) = query.target_values.as_ref() {
-                    filter.targets = values
-                        .iter()
-                        .map(|value| PgTargetsFilter {
-                            label: label.as_str(),
-                            value: [value.clone()],
-                        })
-                        .collect()
-                }
-            }
-            None => {}
         };
 
         filter
@@ -212,17 +202,15 @@ impl Crud for PgVenStorage {
               LEFT JOIN resource r ON r.ven_id = v.id
               LEFT JOIN LATERAL (
                   SELECT v.id as v_id, 
-                         json_array(jsonb_array_elements(v.targets)) <@ $3::jsonb AS target_test )
+                         json_array(jsonb_array_elements(v.targets)) <@ $2::jsonb AS target_test )
                   ON v.id = v_id
-            WHERE ($1::text[] IS NULL OR v.ven_name = ANY($1))
-              AND ($2::text[] IS NULL OR r.resource_name = ANY($2))
-              AND ($3::jsonb = '[]'::jsonb OR target_test)
-              AND ($4::text[] IS NULL OR v.id = ANY($4))
+            WHERE ($1::text IS NULL OR v.ven_name = $1)
+              AND ($2::jsonb = '[]'::jsonb OR target_test)
+              AND ($3::text[] IS NULL OR v.id = ANY($3))
             ORDER BY v.created_date_time DESC
-            OFFSET $5 LIMIT $6
+            OFFSET $4 LIMIT $5
             "#,
-            pg_filter.ven_names,
-            pg_filter.resource_names,
+            pg_filter.ven_name,
             serde_json::to_value(pg_filter.targets)
                 .map_err(AppError::SerdeJsonInternalServerError)?,
             ids.as_deref(),
@@ -338,6 +326,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
+                ven_name: None,
                 target_type: None,
                 target_values: None,
                 skip: 0,

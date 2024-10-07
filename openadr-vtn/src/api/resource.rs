@@ -104,6 +104,8 @@ pub async fn delete(
 #[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
+    #[validate(length(min = 1, max = 128))]
+    pub(crate) resource_name: Option<String>,
     pub(crate) target_type: Option<TargetLabel>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
