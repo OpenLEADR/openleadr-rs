@@ -106,12 +106,21 @@ fn get_50() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use axum::{body::Body, http};
-    use openadr_wire::Ven;
+    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use axum::{body::Body, http::StatusCode};
+    use openadr_wire::{problem::Problem, ven::VenContent, Ven};
     use reqwest::Method;
     use sqlx::PgPool;
 
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    fn default() -> VenContent {
+        VenContent {
+            object_type: Default::default(),
+            ven_name: "".to_string(),
+            attributes: None,
+            targets: None,
+            resources: None,
+        }
+    }
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_unfiletred(db: PgPool) {
@@ -120,7 +129,7 @@ mod tests {
         let (status, mut vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
 
         assert_eq!(vens.len(), 2);
         vens.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
@@ -135,13 +144,13 @@ mod tests {
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens?skip=1", Body::empty())
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens?limit=1", Body::empty())
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
 
         let (status, vens) = test
@@ -151,7 +160,7 @@ mod tests {
                 Body::empty(),
             )
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
         assert_eq!(vens[0].id.as_str(), "ven-2");
 
@@ -164,7 +173,7 @@ mod tests {
                 Body::empty(),
             )
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
 
         let (status, vens) = test
@@ -174,7 +183,7 @@ mod tests {
                 Body::empty(),
             )
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 0);
     }
 
@@ -186,7 +195,7 @@ mod tests {
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
             .await;
 
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
         assert_eq!(vens[0].id.as_str(), "ven-1");
     }
@@ -199,7 +208,7 @@ mod tests {
             .request::<Ven>(Method::GET, "/vens/ven-1", Body::empty())
             .await;
 
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.id.as_str(), "ven-1");
     }
 
@@ -212,7 +221,7 @@ mod tests {
             .request::<Ven>(Method::POST, "/vens", Body::from(new_ven))
             .await;
 
-        assert_eq!(status, http::StatusCode::CREATED);
+        assert_eq!(status, StatusCode::CREATED);
         assert_eq!(ven.content.ven_name, "new-ven");
 
         let ven_id = ven.id.as_str();
@@ -220,7 +229,7 @@ mod tests {
         let (status, ven) = test
             .request::<Ven>(Method::GET, &format!("/vens/{ven_id}"), Body::empty())
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.id.as_str(), ven_id);
 
         let new_ven = r#"{"venName":"new-ven-2"}"#;
@@ -228,13 +237,13 @@ mod tests {
             .request::<Ven>(Method::PUT, &format!("/vens/{ven_id}"), Body::from(new_ven))
             .await;
 
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.content.ven_name, "new-ven-2");
 
         let (status, ven) = test
             .request::<Ven>(Method::GET, &format!("/vens/{ven_id}"), Body::empty())
             .await;
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.content.ven_name, "new-ven-2");
         assert_eq!(ven.id.as_str(), ven_id);
 
@@ -242,12 +251,44 @@ mod tests {
             .request::<Ven>(Method::DELETE, &format!("/vens/{ven_id}"), Body::empty())
             .await;
 
-        assert_eq!(status, http::StatusCode::OK);
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.id.as_str(), ven_id);
 
         let (status, _) = test
-            .request::<serde_json::Value>(Method::GET, &format!("/vens/{ven_id}"), Body::empty())
+            .request::<Problem>(Method::GET, &format!("/vens/{ven_id}"), Body::empty())
             .await;
-        assert_eq!(status, http::StatusCode::NOT_FOUND);
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::VenManager]);
+
+        let vens = [
+            VenContent {
+                ven_name: "".to_string(),
+                ..default()
+            },
+            VenContent {
+                ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
+                ..default()
+            },
+        ];
+
+        for ven in &vens {
+            let (status, error) = test
+                .request::<Problem>(
+                    Method::POST,
+                    "/vens",
+                    Body::from(serde_json::to_vec(&ven).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
     }
 }
