@@ -127,13 +127,13 @@ impl AppError {
             AppError::Json(err) => {
                 trace!(%reference,
                     "Received invalid JSON in request: {}",
-                    err
+                    err.body_text(),
                 );
                 Problem {
                     r#type: Default::default(),
                     title: Some(StatusCode::BAD_REQUEST.to_string()),
                     status: StatusCode::BAD_REQUEST,
-                    detail: Some(err.to_string()),
+                    detail: Some(err.body_text()),
                     instance: Some(reference.to_string()),
                 }
             }

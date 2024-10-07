@@ -128,10 +128,15 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
+    use openadr_wire::{
+        event::{EventPayloadDescriptor, EventType, Priority},
+        problem::Problem,
+    };
     use openadr_wire::event::Priority;
     use reqwest::Method;
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
+    use openadr_wire::problem::Problem;
 
     fn default_event_content() -> EventContent {
         EventContent {
@@ -459,6 +464,59 @@ mod test {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
         assert_eq!(programs.len(), 1);
+    }
+
+    #[ignore = "Depends on https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/104"]
+    #[sqlx::test]
+    async fn name_constraint_validation(db: PgPool) {
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let events = [
+            EventContent {
+                event_name: Some("".to_string()),
+                ..default_event_content()
+            },
+            EventContent {
+                event_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                ..default_event_content()
+            },
+            EventContent {
+                payload_descriptors: Some(vec![
+                    EventPayloadDescriptor{
+                        payload_type: EventType::Private("".to_string()),
+                        units: None,
+                        currency: None,
+                    }
+                ]),
+                ..default_event_content()
+            },
+            EventContent {
+                payload_descriptors: Some(vec![
+                    EventPayloadDescriptor{
+                        payload_type: EventType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                        units: None,
+                        currency: None,
+                    }
+                ]),
+                ..default_event_content()
+            },
+        ];
+
+        for event in &events {
+            let (status, error) = test
+                .request::<Problem>(
+                    http::Method::POST,
+                    "/events",
+                    Body::from(serde_json::to_vec(&event).unwrap()),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(error
+                .detail
+                .unwrap()
+                .contains("outside of allowed range 1..=128"))
+        }
     }
 
     #[sqlx::test(fixtures("programs"))]
