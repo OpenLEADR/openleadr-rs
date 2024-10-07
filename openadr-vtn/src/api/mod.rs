@@ -11,24 +11,24 @@ use axum_extra::extract::{Query, QueryRejection};
 use serde::de::DeserializeOwned;
 use validator::Validate;
 
-pub mod auth;
-pub mod event;
-pub mod program;
-pub mod report;
-pub mod resource;
-pub mod user;
-pub mod ven;
+pub(crate) mod auth;
+pub(crate) mod event;
+pub(crate) mod program;
+pub(crate) mod report;
+pub(crate) mod resource;
+pub(crate) mod user;
+pub(crate) mod ven;
 
-pub type AppResponse<T> = Result<Json<T>, AppError>;
-
-#[derive(Debug, Clone)]
-pub struct ValidatedForm<T>(T);
+pub(crate) type AppResponse<T> = Result<Json<T>, AppError>;
 
 #[derive(Debug, Clone)]
-pub struct ValidatedQuery<T>(pub T);
+pub(crate) struct ValidatedForm<T>(T);
 
 #[derive(Debug, Clone)]
-pub struct ValidatedJson<T>(pub T);
+pub(crate) struct ValidatedQuery<T>(pub T);
+
+#[derive(Debug, Clone)]
+pub(crate) struct ValidatedJson<T>(pub T);
 
 #[async_trait]
 impl<T, S> FromRequest<S> for ValidatedJson<T>

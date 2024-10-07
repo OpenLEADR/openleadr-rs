@@ -5,7 +5,7 @@ use crate::{
         Crud, ReportCrud,
     },
     error::AppError,
-    jwt::Claims,
+    jwt::User,
 };
 use axum::async_trait;
 use chrono::{DateTime, Utc};
@@ -85,12 +85,12 @@ impl Crud for PgReportStorage {
     type NewType = ReportContent;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = Claims;
+    type PermissionFilter = User;
 
     async fn create(
         &self,
         new: Self::NewType,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let permitted_vens = sqlx::query_as!(
             PgId,
@@ -156,7 +156,7 @@ impl Crud for PgReportStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let business_ids = extract_business_ids(user);
 
@@ -188,7 +188,7 @@ impl Crud for PgReportStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
         let business_ids = extract_business_ids(user);
 
@@ -235,7 +235,7 @@ impl Crud for PgReportStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let business_ids = extract_business_ids(user);
         let report: Report = sqlx::query_as!(
@@ -280,7 +280,7 @@ impl Crud for PgReportStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        user: &Self::PermissionFilter,
+        User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let business_ids = extract_business_ids(user);
 

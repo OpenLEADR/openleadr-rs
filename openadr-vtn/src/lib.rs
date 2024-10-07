@@ -1,4 +1,4 @@
-pub mod api;
+mod api;
 pub mod data_source;
 mod error;
 pub mod jwt;
