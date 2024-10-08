@@ -341,7 +341,8 @@ impl Crud for PgProgramStorage {
               AND ($3::text[] IS NULL OR v.ven_name = ANY($3))
               AND ($4::jsonb = '[]'::jsonb OR target_test)
               AND (NOT $5 OR v.id IS NULL OR v.id = ANY($6)) -- Filter for VEN ids
-            GROUP BY p.id
+            GROUP BY p.id, p.created_date_time
+            ORDER BY p.created_date_time DESC
             OFFSET $7 LIMIT $8
             "#,
             pg_filter.event_names,

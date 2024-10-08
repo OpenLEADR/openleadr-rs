@@ -31,6 +31,7 @@ pub async fn get_all(
     trace!(?query_params);
 
     let events = event_source.retrieve_all(&query_params, &user).await?;
+    trace!("retrieved {} events", events.len());
 
     Ok(Json(events))
 }
@@ -41,6 +42,8 @@ pub async fn get(
     User(user): User,
 ) -> AppResponse<Event> {
     let event = event_source.retrieve(&id, &user).await?;
+    trace!(%event.id, event.event_name=event.content.event_name, "retrieved event");
+
     Ok(Json(event))
 }
 
@@ -51,7 +54,7 @@ pub async fn add(
 ) -> Result<(StatusCode, Json<Event>), AppError> {
     let event = event_source.create(new_event, &user).await?;
 
-    info!(%event.id, event_name=?event.content.event_name, "event created");
+    info!(%event.id, event_name=event.content.event_name, "event created");
 
     Ok((StatusCode::CREATED, Json(event)))
 }
@@ -64,7 +67,7 @@ pub async fn edit(
 ) -> AppResponse<Event> {
     let event = event_source.update(&id, content, &user).await?;
 
-    info!(%event.id, event_name=?event.content.event_name, "event updated");
+    info!(%event.id, event_name=event.content.event_name, "event updated");
 
     Ok(Json(event))
 }
@@ -75,7 +78,7 @@ pub async fn delete(
     BusinessUser(user): BusinessUser,
 ) -> AppResponse<Event> {
     let event = event_source.delete(&id, &user).await?;
-    info!(%id, "deleted event");
+    info!(%event.id, event.event_name=event.content.event_name, "deleted event");
     Ok(Json(event))
 }
 
@@ -126,8 +129,10 @@ mod test {
     };
     use http_body_util::BodyExt;
     use openadr_wire::event::Priority;
+    use reqwest::Method;
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     fn default_event_content() -> EventContent {
         EventContent {
@@ -455,6 +460,66 @@ mod test {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
         assert_eq!(programs.len(), 1);
+    }
+
+    #[sqlx::test(fixtures("programs"))]
+    async fn ordered_by_priority(db: PgPool) {
+        tracing_subscriber::registry()
+            .with(fmt::layer().with_file(true).with_line_number(true))
+            .with(EnvFilter::from_default_env())
+            .init();
+
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        let events = vec![
+            EventContent {
+                priority: Priority::MAX,
+                ..default_event_content()
+            },
+            EventContent {
+                priority: Priority::MIN,
+                ..default_event_content()
+            },
+            EventContent {
+                priority: Priority::new(32),
+                ..default_event_content()
+            },
+            EventContent {
+                priority: Priority::new(33),
+                ..default_event_content()
+            },
+            EventContent {
+                priority: Priority::UNSPECIFIED,
+                ..default_event_content()
+            },
+            EventContent {
+                priority: Priority::new(33),
+                ..default_event_content()
+            },
+        ];
+
+        let mut ids = vec![];
+        for event in events {
+            ids.push(
+                test.request::<Event>(
+                    Method::POST,
+                    "/events",
+                    Body::from(serde_json::to_vec(&event).unwrap()),
+                )
+                .await
+                .1
+                .id,
+            )
+        }
+
+        let expected_order = [0_usize, 2, 5, 3, 4, 1];
+
+        let (_, events) = test
+            .request::<Vec<Event>>(Method::GET, "/events", Body::empty())
+            .await;
+        for (event, expected_pos) in events.into_iter().zip(expected_order) {
+            assert_eq!(ids[expected_pos], event.id);
+        }
     }
 
     mod permissions {
