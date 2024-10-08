@@ -298,7 +298,8 @@ impl Crud for PgEventStorage {
                   OR 
                   ($8 AND ($9::text[] IS NULL OR p.business_id = ANY ($9)))
                   )
-            GROUP BY e.id
+            GROUP BY e.id, e.priority, e.created_date_time
+            ORDER BY priority ASC , created_date_time DESC
             OFFSET $10 LIMIT $11
             "#,
             pg_filter.program_id,

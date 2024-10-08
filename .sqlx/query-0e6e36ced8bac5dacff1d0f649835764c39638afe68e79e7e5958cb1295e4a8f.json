@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p on p.id = e.program_id\n              LEFT JOIN ven_program vp ON p.id = vp.program_id\n              LEFT JOIN ven v ON v.id = vp.ven_id\n              LEFT JOIN LATERAL ( \n                  SELECT e.id as e_id, \n                         json_array(jsonb_array_elements(e.targets)) <@ $5::jsonb AS target_test )\n                  ON e.id = e_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2::text[] IS NULL OR e.event_name = ANY($2))\n              AND ($3::text[] IS NULL OR p.program_name = ANY($3))\n              AND ($4::text[] IS NULL OR v.ven_name = ANY($4))\n              AND ($5::jsonb = '[]'::jsonb OR target_test)\n              AND (\n                  ($6 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($7))) \n                  OR \n                  ($8 AND ($9::text[] IS NULL OR p.business_id = ANY ($9)))\n                  )\n            GROUP BY e.id\n            OFFSET $10 LIMIT $11\n            ",
+  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p on p.id = e.program_id\n              LEFT JOIN ven_program vp ON p.id = vp.program_id\n              LEFT JOIN ven v ON v.id = vp.ven_id\n              LEFT JOIN LATERAL ( \n                  SELECT e.id as e_id, \n                         json_array(jsonb_array_elements(e.targets)) <@ $5::jsonb AS target_test )\n                  ON e.id = e_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2::text[] IS NULL OR e.event_name = ANY($2))\n              AND ($3::text[] IS NULL OR p.program_name = ANY($3))\n              AND ($4::text[] IS NULL OR v.ven_name = ANY($4))\n              AND ($5::jsonb = '[]'::jsonb OR target_test)\n              AND (\n                  ($6 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($7))) \n                  OR \n                  ($8 AND ($9::text[] IS NULL OR p.business_id = ANY ($9)))\n                  )\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $10 LIMIT $11\n            ",
   "describe": {
     "columns": [
       {
@@ -88,5 +88,5 @@
       true
     ]
   },
-  "hash": "619995c7ecaeac946891546b832cc9f690b0daf08ba3540faa18809276cd6236"
+  "hash": "0e6e36ced8bac5dacff1d0f649835764c39638afe68e79e7e5958cb1295e4a8f"
 }
