@@ -219,6 +219,7 @@ impl VenScopedCrud for PgResourceStorage {
             WHERE r.ven_id = $1
                 AND ($2::text[] IS NULL OR r.resource_name = ANY($2))
                 AND ($3::jsonb = '[]'::jsonb OR target_test)
+            ORDER BY r.created_date_time
             OFFSET $4 LIMIT $5
             "#,
             ven_id.as_str(),

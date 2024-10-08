@@ -207,6 +207,7 @@ impl Crud for PgReportStorage {
                   OR 
                   ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
                   )
+            ORDER BY r.created_date_time DESC
             OFFSET $8 LIMIT $9
             "#,
             filter.program_id.clone().map(|x| x.to_string()),
