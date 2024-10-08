@@ -157,11 +157,13 @@ impl AuthSource for PgAuthSource {
                      LEFT JOIN user_ven ven ON u.id = ven.user_id
                      LEFT JOIN ven_manager vm ON u.id = vm.user_id
             GROUP BY u.id,
+                     u.created,
                      b.user_id,
                      ab.user_id,
                      um.user_id,
                      ven.user_id,
                      vm.user_id
+            ORDER BY u.created
             "#,
         )
         .fetch_all(&self.db)
