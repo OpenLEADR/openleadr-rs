@@ -53,11 +53,12 @@ async fn delete(db: PgPool) {
         ..default_content()
     };
 
+    let mut ids = vec![];
     for content in [program1, program2.clone(), program3] {
-        client.create_program(content).await.unwrap();
+        ids.push(client.create_program(content).await.unwrap());
     }
 
-    let program = client.get_program_by_name("program2").await.unwrap();
+    let program = client.get_program_by_id(ids[1].id()).await.unwrap();
     assert_eq!(program.content(), &program2);
 
     let removed = program.delete().await.unwrap();
