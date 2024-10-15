@@ -101,7 +101,7 @@ impl TryFrom<PostgresProgram> for Program {
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             content: ProgramContent {
-                object_type: Default::default(),
+                object_type: Some(Default::default()),
                 program_name: value.program_name,
                 program_long_name: value.program_long_name,
                 retailer_name: value.retailer_name,
@@ -521,7 +521,7 @@ mod tests {
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             content: ProgramContent {
-                object_type: Default::default(),
+                object_type: Some(Default::default()),
                 program_name: "program-1".to_string(),
                 program_long_name: Some("program long name".to_string()),
                 retailer_name: Some("retailer name".to_string()),
@@ -561,7 +561,7 @@ mod tests {
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             content: ProgramContent {
-                object_type: Default::default(),
+                object_type: Some(Default::default()),
                 program_name: "program-2".to_string(),
                 program_long_name: None,
                 retailer_name: None,

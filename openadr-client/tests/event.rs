@@ -49,14 +49,19 @@ async fn delete(db: PgPool) {
         ..default_content(client.id())
     };
 
-    for content in [event1, event2.clone(), event3] {
-        client.create_event(content).await.unwrap();
+    let mut ids = vec![];
+    for content in [event1.clone(), event2.clone(), event3] {
+        ids.push(client.create_event(content).await.unwrap());
     }
 
-    let pagination = PaginationOptions { skip: 0, limit: 2 };
-    let filter = Filter::By(TargetLabel::EventName, &["event2"]);
-    let mut events = client.get_events_request(filter, pagination).await.unwrap();
-    assert_eq!(events.len(), 1);
+    let pagination = PaginationOptions { skip: 0, limit: 3 };
+    let mut events = client
+        .get_events_request(Filter::None, pagination)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 3);
+    let event = events.pop().unwrap();
+    assert_eq!(event.content(), &event1);
     let event = events.pop().unwrap();
     assert_eq!(event.content(), &event2);
 

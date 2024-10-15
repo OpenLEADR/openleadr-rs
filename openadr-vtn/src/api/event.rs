@@ -800,24 +800,16 @@ mod test {
             assert_eq!(events.len(), 1);
 
             let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response = retrieve_all_with_filter_help(
-                &mut app,
-                "targetType=VEN_NAME&targetValues=ven-1-name",
-                &token,
-            )
-            .await;
+            let response =
+                retrieve_all_with_filter_help(&mut app, "programID=program-3", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
             assert_eq!(events.len(), 1);
 
             let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response = retrieve_all_with_filter_help(
-                &mut app,
-                "targetType=VEN_NAME&targetValues=ven-2-name",
-                &token,
-            )
-            .await;
+            let response =
+                retrieve_all_with_filter_help(&mut app, "programID=program-2", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();

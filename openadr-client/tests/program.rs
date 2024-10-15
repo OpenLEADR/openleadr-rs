@@ -10,7 +10,7 @@ mod common;
 
 fn default_content() -> ProgramContent {
     ProgramContent {
-        object_type: None,
+        object_type: Some(Default::default()),
         program_name: "program_name".to_string(),
         program_long_name: Some("program_long_name".to_string()),
         retailer_name: Some("retailer_name".to_string()),
@@ -53,11 +53,12 @@ async fn delete(db: PgPool) {
         ..default_content()
     };
 
+    let mut ids = vec![];
     for content in [program1, program2.clone(), program3] {
-        client.create_program(content).await.unwrap();
+        ids.push(client.create_program(content).await.unwrap());
     }
 
-    let program = client.get_program_by_name("program2").await.unwrap();
+    let program = client.get_program_by_id(ids[1].id()).await.unwrap();
     assert_eq!(program.content(), &program2);
 
     let removed = program.delete().await.unwrap();
