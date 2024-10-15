@@ -243,23 +243,27 @@ impl Crud for PgReportStorage {
             r#"
             UPDATE report r
             SET modification_date_time = now(),
-                program_id = $5,
-                event_id = $6,
-                client_name = $7,
-                report_name = $8,
-                payload_descriptors = $9,
-                resources = $10
+                program_id = $6,
+                event_id = $7,
+                client_name = $8,
+                report_name = $9,
+                payload_descriptors = $10,
+                resources = $11
             FROM program p
                 LEFT JOIN ven_program v ON p.id = v.program_id
             WHERE r.id = $1
               AND (p.id = r.program_id)
-              AND (NOT $2 OR v.ven_id IS NULL OR v.ven_id = ANY($3)) 
-              AND ($4::text[] IS NULL OR p.business_id = ANY($4))
+              AND (
+                  ($2 AND (v.ven_id IS NULL OR v.ven_id = ANY($3))) 
+                  OR 
+                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
+                  )
             RETURNING r.*
             "#,
             id.as_str(),
             user.is_ven(),
             &user.ven_ids_string(),
+            user.is_business(),
             business_ids.as_deref(),
             new.program_id.as_str(),
             new.event_id.as_str(),
