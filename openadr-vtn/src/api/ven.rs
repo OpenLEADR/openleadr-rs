@@ -164,35 +164,21 @@ mod tests {
         let (status, vens) = test
             .request::<Vec<Ven>>(
                 Method::GET,
-                "/vens?targetType=VEN_NAME&targetValues=ven-2-name",
+                "/vens?targetType=GROUP&targetValues=group-1",
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
-        assert_eq!(vens[0].id.as_str(), "ven-2");
+        assert_eq!(vens[0].id.as_str(), "ven-1");
 
         let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
 
         let (status, vens) = test
-            .request::<Vec<Ven>>(
-                Method::GET,
-                "/vens?targetType=VEN_NAME&targetValues=ven-1-name",
-                Body::empty(),
-            )
+            .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
-
-        let (status, vens) = test
-            .request::<Vec<Ven>>(
-                Method::GET,
-                "/vens?targetType=VEN_NAME&targetValues=ven-2-name",
-                Body::empty(),
-            )
-            .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(vens.len(), 0);
     }
 
     #[sqlx::test(fixtures("users", "vens"))]

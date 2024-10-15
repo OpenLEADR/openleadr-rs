@@ -1,6 +1,9 @@
 use axum::http::StatusCode;
 use openadr_client::{Error, Filter, PaginationOptions};
-use openadr_wire::{program::ProgramContent, target::TargetLabel};
+use openadr_wire::{
+    program::ProgramContent,
+    target::{TargetEntry, TargetLabel, TargetMap},
+};
 use sqlx::PgPool;
 
 mod common;
@@ -150,10 +153,18 @@ async fn retrieve_all_with_filter(db: PgPool) {
     };
     let program2 = ProgramContent {
         program_name: "program2".to_string(),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["Group 2".to_string()],
+        }])),
         ..default_content()
     };
     let program3 = ProgramContent {
         program_name: "program3".to_string(),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["Group 1".to_string()],
+        }])),
         ..default_content()
     };
 
@@ -225,10 +236,28 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetLabel::ProgramName, &["program1", "program2"]),
+            Filter::By(TargetLabel::Group, &["Group 1", "Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
         .unwrap();
     assert_eq!(programs.len(), 2);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetLabel::Group, &["Group 1"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 1);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetLabel::Group, &["Not existent"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 0);
 }

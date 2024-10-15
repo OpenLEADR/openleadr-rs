@@ -493,7 +493,7 @@ mod tests {
         api::program::QueryParams,
         data_source::{postgres::program::PgProgramStorage, Crud},
         error::AppError,
-        jwt::Claims,
+        jwt::{Claims, User},
     };
     use openadr_wire::{
         event::{EventPayloadDescriptor, EventType},
@@ -504,7 +504,6 @@ mod tests {
     };
     use sqlx::PgPool;
 
-    use crate::jwt::User;
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
@@ -674,33 +673,6 @@ mod tests {
                     &QueryParams {
                         target_type: Some(TargetLabel::Group),
                         target_values: Some(vec!["not-existent".to_string()]),
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 0);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        target_type: Some(TargetLabel::ProgramName),
-                        target_values: Some(vec!["program-2".to_string()]),
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 1);
-            assert_eq!(programs, vec![program_2()]);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        target_type: Some(TargetLabel::ProgramName),
-                        target_values: Some(vec!["program-not-existent".to_string()]),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

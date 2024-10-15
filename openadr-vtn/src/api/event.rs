@@ -131,6 +131,7 @@ mod test {
     use openadr_wire::{
         event::{EventPayloadDescriptor, EventType, Priority},
         problem::Problem,
+        target::{TargetEntry, TargetMap},
     };
     use reqwest::Method;
     use sqlx::PgPool;
@@ -350,118 +351,135 @@ mod test {
         let event1 = EventContent {
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event1".to_string()),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Private("Something".to_string()),
+                values: ["group-1".to_string()],
+            }])),
             ..default_event_content()
         };
         let event2 = EventContent {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event2".to_string()),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Group,
+                values: ["group-2".to_string()],
+            }])),
             ..default_event_content()
         };
         let event3 = EventContent {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event3".to_string()),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Group,
+                values: ["group-1".to_string()],
+            }])),
             ..default_event_content()
         };
 
-        let (state, _) = state_with_events(vec![event1, event2, event3], db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
-        let mut app = state.into_router();
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+
+        for event in vec![event1, event2, event3] {
+            let (status, _) = test
+                .request::<Event>(
+                    Method::POST,
+                    "/events",
+                    Body::from(serde_json::to_vec(&event).unwrap()),
+                )
+                .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
 
         // no query params
-        let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 3);
+        let (status, events) = test
+            .request::<Vec<Event>>(Method::GET, "/events", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 3);
 
         // skip
-        let response = retrieve_all_with_filter_help(&mut app, "skip=1", &token).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        let (status, events) = test
+            .request::<Vec<Event>>(Method::GET, "/events?skip=1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 2);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 2);
+        let (status, _) = test
+            .request::<Problem>(Method::GET, "/events?skip=-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let response = retrieve_all_with_filter_help(&mut app, "skip=-1", &token).await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        let response = retrieve_all_with_filter_help(&mut app, "skip=0", &token).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        let (status, _) = test
+            .request::<Vec<Event>>(Method::GET, "/events?skip=0", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
 
         // limit
-        let response = retrieve_all_with_filter_help(&mut app, "limit=2", &token).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        let (status, events) = test
+            .request::<Vec<Event>>(Method::GET, "/events?limit=2", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 2);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 2);
+        let (status, _) = test
+            .request::<Problem>(Method::GET, "/events?limit=-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let response = retrieve_all_with_filter_help(&mut app, "limit=-1", &token).await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let (status, _) = test
+            .request::<Problem>(Method::GET, "/events?limit=0", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let response = retrieve_all_with_filter_help(&mut app, "limit=0", &token).await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        // filter by targets
+        let (status, _) = test
+            .request::<Problem>(Method::GET, "/events?targetType=NONSENSE", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        // program name
-        let response = retrieve_all_with_filter_help(&mut app, "targetType=NONSENSE", &token).await;
-        assert_eq!(
-            response.status(),
-            StatusCode::BAD_REQUEST,
-            "Do return BAD_REQUEST on empty targetValue"
-        );
+        let (status, _) = test
+            .request::<Problem>(
+                Method::GET,
+                "/events?targetType=NONSENSE&targetValues",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let response =
-            retrieve_all_with_filter_help(&mut app, "targetType=NONSENSE&targetValues", &token)
-                .await;
-        assert_eq!(
-            response.status(),
-            StatusCode::BAD_REQUEST,
-            "Do return BAD_REQUEST on empty targetValue"
-        );
+        let (status, events) = test
+            .request::<Vec<Event>>(
+                Method::GET,
+                "/events?targetType=NONSENSE&targetValues=test",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 0);
 
-        let response = retrieve_all_with_filter_help(
-            &mut app,
-            "targetType=NONSENSE&targetValues=test",
-            &token,
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::OK);
+        let (status, events) = test
+            .request::<Vec<Event>>(
+                Method::GET,
+                "/events?targetType=GROUP&targetValues=group-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 1);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 0);
+        let (status, events) = test
+            .request::<Vec<Event>>(
+                Method::GET,
+                "/events?targetType=GROUP&targetValues=group-1&targetValues=group-2",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 2);
 
-        let response = retrieve_all_with_filter_help(
-            &mut app,
-            "targetType=PROGRAM_NAME&targetValues=program-1&targetValues=program-2",
-            &token,
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 3);
-
-        let response = retrieve_all_with_filter_help(
-            &mut app,
-            "targetType=PROGRAM_NAME&targetValues=program-1",
-            &token,
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 1);
-
-        let response = retrieve_all_with_filter_help(&mut app, "programID=program-1", &token).await;
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 1);
+        let (status, events) = test
+            .request::<Vec<Event>>(Method::GET, "/events?programID=program-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(events.len(), 1);
     }
 
     #[ignore = "Depends on https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/104"]

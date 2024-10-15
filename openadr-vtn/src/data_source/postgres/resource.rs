@@ -388,8 +388,7 @@ mod test {
         assert_eq!(resources.len(), 3);
 
         let filters = QueryParams {
-            target_type: Some(openadr_wire::target::TargetLabel::ResourceName),
-            target_values: Some(vec!["resource-1-name".to_string()]),
+            resource_name: Some("resource-1-name".to_string()),
             ..Default::default()
         };
 

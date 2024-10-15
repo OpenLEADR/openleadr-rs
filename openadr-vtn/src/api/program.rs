@@ -138,7 +138,7 @@ mod test {
 
     fn default_content() -> ProgramContent {
         ProgramContent {
-            object_type: Default::default(),
+            object_type: Some(Default::default()),
             program_name: "program_name".to_string(),
             program_long_name: Some("program_long_name".to_string()),
             retailer_name: Some("retailer_name".to_string()),
@@ -447,10 +447,18 @@ mod test {
         };
         let program2 = ProgramContent {
             program_name: "program2".to_string(),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Group,
+                values: ["Group 2".to_string()],
+            }])),
             ..default_content()
         };
         let program3 = ProgramContent {
             program_name: "program3".to_string(),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Group,
+                values: ["Group 1".to_string()],
+            }])),
             ..default_content()
         };
 
@@ -525,7 +533,7 @@ mod test {
 
         let response = retrieve_all_with_filter_help(
             &mut app,
-            "targetType=PROGRAM_NAME&targetValues=program1&targetValues=program2",
+            "targetType=GROUP&targetValues=Group%201&targetValues=Group%202",
             &token,
         )
         .await;
