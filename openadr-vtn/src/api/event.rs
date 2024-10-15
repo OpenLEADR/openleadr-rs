@@ -132,7 +132,6 @@ mod test {
     use reqwest::Method;
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
-    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     fn default_event_content() -> EventContent {
         EventContent {
@@ -464,11 +463,6 @@ mod test {
 
     #[sqlx::test(fixtures("programs"))]
     async fn ordered_by_priority(db: PgPool) {
-        tracing_subscriber::registry()
-            .with(fmt::layer().with_file(true).with_line_number(true))
-            .with(EnvFilter::from_default_env())
-            .init();
-
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
 
         let events = vec![
