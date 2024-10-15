@@ -469,8 +469,7 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::VENName),
-                        target_values: Some(vec!["ven-2-name".to_string()]),
+                        ven_name: Some("ven-2-name".to_string()),
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,
@@ -483,8 +482,7 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::VENName),
-                        target_values: Some(vec!["ven-not-existent".to_string()]),
+                        ven_name: Some("ven-not-existent".to_string()),
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,

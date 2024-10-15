@@ -3,7 +3,7 @@ use openadr_client::{Error, Filter, PaginationOptions};
 use openadr_wire::{
     event::{EventContent, Priority},
     program::{ProgramContent, ProgramId},
-    target::TargetLabel,
+    target::{TargetEntry, TargetLabel, TargetMap},
 };
 use sqlx::PgPool;
 
@@ -149,11 +149,19 @@ async fn retrieve_all_with_filter(db: PgPool) {
     let event2 = EventContent {
         program_id: client.id().clone(),
         event_name: Some("event2".to_string()),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["Group 2".to_string()],
+        }])),
         ..default_content(client.id())
     };
     let event3 = EventContent {
         program_id: client.id().clone(),
         event_name: Some("event3".to_string()),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["Group 1".to_string()],
+        }])),
         ..default_content(client.id())
     };
 
@@ -225,16 +233,25 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let events = client
         .get_events_request(
-            Filter::By(TargetLabel::ProgramName, &["program1", "program2"]),
+            Filter::By(TargetLabel::Group, &["Group 1", "Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
         .unwrap();
-    assert_eq!(events.len(), 3);
+    assert_eq!(events.len(), 2);
 
     let events = client
         .get_events_request(
-            Filter::By(TargetLabel::ProgramName, &["program2"]),
+            Filter::By(TargetLabel::Group, &["Group 1"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1);
+
+    let events = client
+        .get_events_request(
+            Filter::By(TargetLabel::Group, &["Not existent"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

@@ -680,33 +680,6 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(programs.len(), 0);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        target_type: Some(TargetLabel::ProgramName),
-                        target_values: Some(vec!["program-2".to_string()]),
-                        ..Default::default()
-                    },
-                    &Claims::any_business_user(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 1);
-            assert_eq!(programs, vec![program_2()]);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        target_type: Some(TargetLabel::ProgramName),
-                        target_values: Some(vec!["program-not-existent".to_string()]),
-                        ..Default::default()
-                    },
-                    &Claims::any_business_user(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 0);
         }
 
         #[sqlx::test(fixtures("programs"))]

@@ -127,7 +127,10 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use openadr_wire::Event;
+    use openadr_wire::{
+        target::{TargetEntry, TargetMap},
+        Event,
+    };
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
     // for `call`, `oneshot`, and `ready`
@@ -391,10 +394,18 @@ mod test {
         };
         let program2 = ProgramContent {
             program_name: "program2".to_string(),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Group,
+                values: ["Group 2".to_string()],
+            }])),
             ..default_content()
         };
         let program3 = ProgramContent {
             program_name: "program3".to_string(),
+            targets: Some(TargetMap(vec![TargetEntry {
+                label: TargetLabel::Group,
+                values: ["Group 1".to_string()],
+            }])),
             ..default_content()
         };
 
@@ -469,7 +480,7 @@ mod test {
 
         let response = retrieve_all_with_filter_help(
             &mut app,
-            "targetType=PROGRAM_NAME&targetValues=program1&targetValues=program2",
+            "targetType=GROUP&targetValues=Group%201&targetValues=Group%202",
             &token,
         )
         .await;
