@@ -4,7 +4,7 @@ members = [
     "openadr-client",
     "openadr-wire"
 ]
-exclude = [ ]
+exclude = []
 
 resolver = "2"
 
@@ -42,18 +42,18 @@ iso8601-duration = { version = "0.2.0", features = ["chrono"] }
 rangemap = "1.5.1"
 
 thiserror = "1.0.61"
-validator = {version =  "0.18.1", features = ["derive"] }
+validator = { version = "0.18.1", features = ["derive"] }
 uuid = { version = "1.8.0", features = ["v4"] }
 url = "2.5.0"
 http = "^1.0.0"
 mime = "0.3"
-tower-http = { version = "0.5.2" , features = ["trace"]}
+tower-http = { version = "0.5.2", features = ["trace"] }
 http-body-util = "0.1.0"
 jsonwebtoken = "9.3.0"
 async-trait = "0.1.81"
 
 quickcheck = "1.0.3"
 
-sqlx = { version = "0.8.1", features = ["postgres", "runtime-tokio", "chrono", "migrate"] }
+sqlx = { version = "0.8.2", features = ["postgres", "runtime-tokio", "chrono", "migrate", "macros", "json"], default-features = false }
 argon2 = "0.5.3"
 dotenvy = "0.15.7"

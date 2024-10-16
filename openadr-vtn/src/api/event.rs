@@ -132,11 +132,9 @@ mod test {
         event::{EventPayloadDescriptor, EventType, Priority},
         problem::Problem,
     };
-    use openadr_wire::event::Priority;
     use reqwest::Method;
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
-    use openadr_wire::problem::Problem;
 
     fn default_event_content() -> EventContent {
         EventContent {
