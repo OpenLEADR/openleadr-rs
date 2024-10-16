@@ -9,7 +9,7 @@ use argon2::{
 };
 use axum::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{Executor, PgConnection, PgPool, Postgres};
 use tracing::warn;
 
 pub struct PgAuthSource {
@@ -92,13 +92,6 @@ struct IdAndSecret {
 #[async_trait]
 impl AuthSource for PgAuthSource {
     async fn check_credentials(&self, client_id: &str, client_secret: &str) -> Option<AuthInfo> {
-        let mut tx = self
-            .db
-            .begin()
-            .await
-            .inspect_err(|err| warn!(client_id, "failed to open transaction: {err}"))
-            .ok()?;
-
         let db_entry = sqlx::query_as!(
             IdAndSecret,
             r#"
@@ -110,7 +103,7 @@ impl AuthSource for PgAuthSource {
             "#,
             client_id,
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.db)
         .await
         .ok()?;
 
@@ -122,7 +115,7 @@ impl AuthSource for PgAuthSource {
             .verify_password(client_secret.as_bytes(), &parsed_hash)
             .ok()?;
 
-        let user = Self::get_user(&mut tx, &db_entry.id)
+        let user = Self::get_user(&self.db, &db_entry.id)
             .await
             .inspect_err(|err| warn!(client_id, "error fetching user: {err}"))
             .ok()?;
@@ -134,8 +127,7 @@ impl AuthSource for PgAuthSource {
     }
 
     async fn get_user(&self, user_id: &str) -> Result<UserDetails, AppError> {
-        let mut tx = self.db.begin().await?;
-        Self::get_user(&mut tx, user_id).await
+        Self::get_user(&self.db, user_id).await
     }
 
     async fn get_all_users(&self) -> Result<Vec<UserDetails>, AppError> {
@@ -205,7 +197,7 @@ impl AuthSource for PgAuthSource {
                 })?;
         }
 
-        let user = Self::get_user(&mut tx, &user.id)
+        let user = Self::get_user(&mut *tx, &user.id)
             .await
             .inspect_err(|err| warn!("cannot find user just created: {}", err))?;
 
@@ -241,7 +233,7 @@ impl AuthSource for PgAuthSource {
         )
         .execute(&mut *tx)
         .await?;
-        let user = Self::get_user(&mut tx, user_id).await?;
+        let user = Self::get_user(&mut *tx, user_id).await?;
         tx.commit().await?;
 
         Ok(user)
@@ -262,24 +254,22 @@ impl AuthSource for PgAuthSource {
         )
         .execute(&mut *tx)
         .await?;
-        let user = Self::get_user(&mut tx, user_id).await?;
+        let user = Self::get_user(&mut *tx, user_id).await?;
         tx.commit().await?;
         Ok(user)
     }
 
     async fn remove_user(&self, user_id: &str) -> Result<UserDetails, AppError> {
-        let mut tx = self.db.begin().await?;
-        let user = Self::get_user(&mut tx, user_id).await?;
+        let user = Self::get_user(&self.db, user_id).await?;
         sqlx::query!(
             r#"
             DELETE FROM "user" WHERE id = $1
             "#,
             user_id
         )
-        .execute(&mut *tx)
+        .execute(&self.db)
         .await?;
 
-        tx.commit().await?;
         Ok(user)
     }
 
@@ -319,7 +309,7 @@ impl AuthSource for PgAuthSource {
                     )
                 })?;
         }
-        let user = Self::get_user(&mut tx, user_id)
+        let user = Self::get_user(&mut *tx, user_id)
             .await
             .inspect_err(|err| warn!("cannot find user just updated: {}", err))?;
 
@@ -423,7 +413,10 @@ impl PgAuthSource {
         Ok(())
     }
 
-    async fn get_user(tx: &mut PgConnection, user_id: &str) -> Result<UserDetails, AppError> {
+    async fn get_user<'c, E>(db: E, user_id: &str) -> Result<UserDetails, AppError>
+    where
+        E: Executor<'c, Database = Postgres>,
+    {
         sqlx::query_as!(
             IntermediateUser,
             r#"
@@ -451,7 +444,7 @@ impl PgAuthSource {
             "#,
             user_id
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(db)
         .await?
         .try_into()
     }
