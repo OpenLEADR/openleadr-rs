@@ -49,7 +49,9 @@ http = "^1.0.0"
 mime = "0.3"
 tower-http = { version = "0.5.2", features = ["trace"] }
 http-body-util = "0.1.0"
-jsonwebtoken = "9.3.0"
+jsonwebtoken = { version = "9.3.0", default-features = false }
+base64 = "0.22.1"
+rand = "0.8.5"
 async-trait = "0.1.81"
 
 quickcheck = "1.0.3"
