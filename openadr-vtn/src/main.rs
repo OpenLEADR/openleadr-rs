@@ -1,5 +1,11 @@
+use base64::{
+    alphabet,
+    engine::{general_purpose::PAD, GeneralPurpose},
+    Engine,
+};
+use std::env;
 use tokio::{net::TcpListener, signal};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(feature = "postgres")]
@@ -25,8 +31,23 @@ async fn main() {
         "No storage backend selected. Please enable the `postgres` feature flag during compilation"
     );
 
-    // TODO make the JWT secret secure and configurable
-    let state = AppState::new(storage, JwtManager::from_base64_secret("test").unwrap());
+    let secret = env::var("OAUTH_BASE64_SECRET")
+        .map(|base64_secret| {
+            let secret = GeneralPurpose::new(&alphabet::STANDARD, PAD)
+                .decode(base64_secret)
+                .expect("OAUTH_BASE64_SECRET contains invalid base64 string");
+            if secret.len() < 32 {
+                // https://datatracker.ietf.org/doc/html/rfc7518#section-3.2
+                panic!("OAUTH_BASE64_SECRET must have at least 32 bytes");
+            }
+            secret
+        })
+        .unwrap_or_else(|_| {
+            warn!("Generating random secret as OAUTH_BASE64_SECRET env var was not found");
+            let secret: [u8; 32] = rand::random();
+            secret.to_vec()
+        });
+    let state = AppState::new(storage, JwtManager::from_secret(&secret));
     if let Err(e) = axum::serve(listener, state.into_router())
         .with_graceful_shutdown(shutdown_signal())
         .await
