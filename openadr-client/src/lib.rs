@@ -470,25 +470,6 @@ impl Client {
         Ok(programs)
     }
 
-    /// Get a program by name
-    pub async fn get_program_by_name(&self, name: &str) -> Result<ProgramClient> {
-        let target = Target::Program(name);
-
-        let pagination = PaginationOptions { skip: 0, limit: 2 };
-        let mut programs = self
-            .get_programs(
-                Filter::By(target.target_label(), target.target_values()),
-                pagination,
-            )
-            .await?;
-
-        match programs[..] {
-            [] => Err(crate::Error::ObjectNotFound),
-            [_] => Ok(programs.remove(0)),
-            [..] => Err(crate::Error::DuplicateObject),
-        }
-    }
-
     /// Get a program by id
     pub async fn get_program_by_id(&self, id: &ProgramId) -> Result<ProgramClient> {
         let program = self
