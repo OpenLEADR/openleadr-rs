@@ -42,6 +42,18 @@ pub struct VenContent {
     pub resources: Option<Vec<Resource>>,
 }
 
+impl VenContent {
+    pub fn new(name: String) -> Self {
+        Self {
+            object_type: Some(Default::default()),
+            ven_name: name,
+            attributes: None,
+            targets: None,
+            resources: None,
+        }
+    }
+}
+
 /// Used as discriminator, e.g. notification.object.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

@@ -13,6 +13,10 @@ pub struct VenClient {
 }
 
 impl VenClient {
+    pub(super) fn from_ven(client: Arc<ClientRef>, data: Ven) -> Self {
+        Self { client, data }
+    }
+
     pub fn id(&self) -> &VenId {
         &self.data.id
     }

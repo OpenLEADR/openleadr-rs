@@ -114,7 +114,7 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{data_source::PostgresStorage, jwt::JwtManager, state::AppState};
+    use crate::{data_source::PostgresStorage, state::AppState};
 
     use super::*;
     use crate::api::test::*;
@@ -178,10 +178,7 @@ mod test {
             assert_eq!(events[events.len() - 1].content, event)
         }
 
-        (
-            AppState::new(store, JwtManager::from_base64_secret("test").unwrap()),
-            events,
-        )
+        (AppState::new(store), events)
     }
 
     async fn get_help(id: &str, token: &str, app: &mut Router) -> Response<Body> {
