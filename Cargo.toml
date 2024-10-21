@@ -59,3 +59,5 @@ quickcheck = "1.0.3"
 sqlx = { version = "0.8.2", features = ["postgres", "runtime-tokio", "chrono", "migrate", "macros", "json"], default-features = false }
 argon2 = "0.5.3"
 dotenvy = "0.15.7"
+
+serial_test = "3.1.1"

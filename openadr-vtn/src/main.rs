@@ -1,16 +1,10 @@
-use base64::{
-    alphabet,
-    engine::{general_purpose::PAD, GeneralPurpose},
-    Engine,
-};
-use std::env;
 use tokio::{net::TcpListener, signal};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(feature = "postgres")]
 use openadr_vtn::data_source::PostgresStorage;
-use openadr_vtn::{jwt::JwtManager, state::AppState};
+use openadr_vtn::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -31,23 +25,7 @@ async fn main() {
         "No storage backend selected. Please enable the `postgres` feature flag during compilation"
     );
 
-    let secret = env::var("OAUTH_BASE64_SECRET")
-        .map(|base64_secret| {
-            let secret = GeneralPurpose::new(&alphabet::STANDARD, PAD)
-                .decode(base64_secret)
-                .expect("OAUTH_BASE64_SECRET contains invalid base64 string");
-            if secret.len() < 32 {
-                // https://datatracker.ietf.org/doc/html/rfc7518#section-3.2
-                panic!("OAUTH_BASE64_SECRET must have at least 32 bytes");
-            }
-            secret
-        })
-        .unwrap_or_else(|_| {
-            warn!("Generating random secret as OAUTH_BASE64_SECRET env var was not found");
-            let secret: [u8; 32] = rand::random();
-            secret.to_vec()
-        });
-    let state = AppState::new(storage, JwtManager::from_secret(&secret));
+    let state = AppState::new(storage);
     if let Err(e) = axum::serve(listener, state.into_router())
         .with_graceful_shutdown(shutdown_signal())
         .await
