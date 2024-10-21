@@ -60,7 +60,7 @@ async fn delete(db: PgPool) {
     let removed = program.delete().await.unwrap();
     assert_eq!(removed.content, program2);
 
-    let programs = client.get_all_programs().await.unwrap();
+    let programs = client.get_program_list(Filter::None).await.unwrap();
     assert_eq!(programs.len(), 2);
 }
 
