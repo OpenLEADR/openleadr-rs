@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let created_event = program
     //     .create_event(program.new_event().with_event_name("prices3").with_priority(0))
     //     .await?;
-    // let events = program.get_all_events().await?;
+    // let events = program.get_event_list(Filter::None).await?;
     // let reports = events[0].get_all_reports().await?;
     // let event = program.get_event(Target::Event("prices3")).await?;
     // dbg!(events);

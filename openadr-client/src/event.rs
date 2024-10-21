@@ -46,11 +46,10 @@ impl EventClient {
 
     /// Save any modifications of the event to the VTN
     pub async fn update(&mut self) -> Result<()> {
-        let res = self
+        self.data = self
             .client
             .put(&format!("events/{}", self.id()), &self.data.content, &[])
             .await?;
-        self.data = res;
         Ok(())
     }
 
@@ -62,12 +61,12 @@ impl EventClient {
     }
 
     /// Create a new report object
-    pub fn new_report(&self) -> ReportContent {
+    pub fn new_report(&self, client_name: String) -> ReportContent {
         ReportContent {
             object_type: Some(ReportObjectType::Report),
             program_id: self.content().program_id.clone(),
             event_id: self.id().clone(),
-            client_name: "".to_string(),
+            client_name,
             report_name: None,
             payload_descriptors: None,
             resources: vec![],
@@ -115,51 +114,10 @@ impl EventClient {
             .collect())
     }
 
-    /// Get all reports from the VTN for a specific client, trying to paginate whenever possible
-    pub async fn get_client_reports(&self, client_name: &str) -> Result<Vec<ReportClient>> {
-        let page_size = self.client.default_page_size();
-        let mut reports = vec![];
-        let mut page = 0;
-        loop {
-            let received = self
-                .get_reports_req(Some(client_name), page * page_size, page_size)
-                .await?;
-            let received_all = received.len() < page_size;
-            for report in received {
-                reports.push(report);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(reports)
-    }
-
-    /// Get all reports from the VTN, trying to paginate whenever possible
-    pub async fn get_all_reports(&self) -> Result<Vec<ReportClient>> {
-        let page_size = self.client.default_page_size();
-        let mut reports = vec![];
-        let mut page = 0;
-        loop {
-            let received = self
-                .get_reports_req(None, page * page_size, page_size)
-                .await?;
-            let received_all = received.len() < page_size;
-            for report in received {
-                reports.push(report);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(reports)
+    /// Get all reports from the VTN, possibly filtered by `client_name`, trying to paginate whenever possible
+    pub async fn get_reports(&self, client_name: Option<&str>) -> Result<Vec<ReportClient>> {
+        self.client
+            .iterate_pages(|skip, limit| self.get_reports_req(client_name, skip, limit))
+            .await
     }
 }

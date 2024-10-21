@@ -2,13 +2,16 @@ mod error;
 mod event;
 mod program;
 mod report;
+mod resource;
 mod target;
 mod timeline;
+mod ven;
 
 use axum::async_trait;
 use openadr_wire::{event::EventId, Event};
 use std::{
     fmt::Debug,
+    future::Future,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -24,8 +27,10 @@ pub use error::*;
 pub use event::*;
 pub use program::*;
 pub use report::*;
+pub use resource::*;
 pub use target::*;
 pub use timeline::*;
+pub use ven::*;
 
 use crate::error::Result;
 pub(crate) use openadr_wire::{
@@ -261,6 +266,34 @@ impl ClientRef {
     fn default_page_size(&self) -> usize {
         self.default_page_size
     }
+
+    async fn iterate_pages<T, Fut>(
+        &self,
+        single_page_req: impl Fn(usize, usize) -> Fut,
+    ) -> Result<Vec<T>>
+    where
+        Fut: Future<Output = Result<Vec<T>>>,
+    {
+        let page_size = self.default_page_size();
+        let mut items = vec![];
+        let mut page = 0;
+        // TODO: pagination should depend on that the server indicated there are more results
+        loop {
+            let received = single_page_req(page * page_size, page_size).await?;
+            let received_all = received.len() < page_size;
+            for item in received {
+                items.push(item);
+            }
+
+            if received_all {
+                break;
+            } else {
+                page += 1;
+            }
+        }
+
+        Ok(items)
+    }
 }
 
 #[derive(Debug)]
@@ -335,6 +368,7 @@ pub struct PaginationOptions {
     pub limit: usize,
 }
 
+#[derive(Debug, Clone)]
 pub enum Filter<'a> {
     None,
     By(TargetLabel, &'a [&'a str]),
@@ -413,61 +447,12 @@ impl Client {
     }
 
     /// Get a list of programs from the VTN with the given query parameters
-    pub async fn get_program_list(&self, target: Target<'_>) -> Result<Vec<ProgramClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut programs = vec![];
-        let mut page = 0;
-        loop {
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self
-                .get_programs(
-                    Filter::By(target.target_label(), target.target_values()),
-                    pagination,
-                )
-                .await?;
-            let received_all = received.len() < page_size;
-            for program in received {
-                programs.push(program);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(programs)
-    }
-
-    /// Get all programs from the VTN, trying to paginate whenever possible
-    pub async fn get_all_programs(&self) -> Result<Vec<ProgramClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut programs = vec![];
-
-        for page in 0.. {
-            // TODO: this pagination should really depend on that the server indicated there are more results
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self.get_programs(Filter::None, pagination).await?;
-            let received_all = received.len() < page_size;
-            for program in received {
-                programs.push(program);
-            }
-
-            if received_all {
-                break;
-            }
-        }
-
-        Ok(programs)
+    pub async fn get_program_list(&self, filter: Filter<'_>) -> Result<Vec<ProgramClient>> {
+        self.client_ref
+            .iterate_pages(|skip, limit| {
+                self.get_programs(filter.clone(), PaginationOptions { skip, limit })
+            })
+            .await
     }
 
     /// Get a program by id
@@ -525,65 +510,17 @@ impl Client {
     pub async fn get_event_list(
         &self,
         program_id: Option<&ProgramId>,
-        target: Target<'_>,
+        filter: Filter<'_>,
     ) -> Result<Vec<EventClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut events = vec![];
-        let mut page = 0;
-        loop {
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self
-                .get_events(
+        self.client_ref
+            .iterate_pages(|skip, limit| {
+                self.get_events(
                     program_id,
-                    Filter::By(target.target_label(), target.target_values()),
-                    pagination,
+                    filter.clone(),
+                    PaginationOptions { skip, limit },
                 )
-                .await?;
-            let received_all = received.len() < page_size;
-            for event in received {
-                events.push(event);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(events)
-    }
-
-    /// Get all events from the VTN, trying to paginate whenever possible
-    pub async fn get_all_events(&self) -> Result<Vec<EventClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut events = vec![];
-        let mut page = 0;
-        loop {
-            // TODO: this pagination should really depend on that the server indicated there are more results
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self.get_events(None, Filter::None, pagination).await?;
-            let received_all = received.len() < page_size;
-            for event in received {
-                events.push(event);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(events)
+            })
+            .await
     }
 
     /// Get a event by id
