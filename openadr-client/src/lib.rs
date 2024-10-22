@@ -30,7 +30,7 @@ pub use timeline::*;
 pub use ven::*;
 
 use crate::error::Result;
-use openadr_wire::ven::VenContent;
+use openadr_wire::ven::{VenContent, VenId};
 pub(crate) use openadr_wire::{
     event::EventContent,
     program::{ProgramContent, ProgramId},
@@ -492,7 +492,6 @@ impl Client {
         &self,
         skip: usize,
         limit: usize,
-        ven_name: Option<&str>,
         filter: Filter<'_>,
     ) -> Result<Vec<VenClient>> {
         let skip_str = skip.to_string();
@@ -500,10 +499,6 @@ impl Client {
         let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
 
         query.extend_from_slice(filter.to_query_params().as_slice());
-
-        if let Some(ven_name) = ven_name {
-            query.push(("venName", ven_name));
-        }
 
         // send request and return response
         let vens: Vec<Ven> = self.client_ref.get("vens", &query).await?;
@@ -513,13 +508,26 @@ impl Client {
             .collect())
     }
 
-    pub async fn get_ven_list(
-        &self,
-        ven_name: Option<&str>,
-        filter: Filter<'_>,
-    ) -> Result<Vec<VenClient>> {
+    pub async fn get_ven_list(&self, filter: Filter<'_>) -> Result<Vec<VenClient>> {
         self.client_ref
-            .iterate_pages(|skip, limit| self.get_vens(skip, limit, ven_name, filter.clone()))
+            .iterate_pages(|skip, limit| self.get_vens(skip, limit, filter.clone()))
             .await
+    }
+
+    pub async fn get_ven_by_id(&self, id: &VenId) -> Result<VenClient> {
+        let ven = self
+            .client_ref
+            .get(&format!("vens/{}", id.as_str()), &[])
+            .await?;
+        Ok(VenClient::from_ven(self.client_ref.clone(), ven))
+    }
+
+    pub async fn get_ven_by_name(&self, name: &str) -> Result<VenClient> {
+        let mut vens: Vec<Ven> = self.client_ref.get("vens", &[("venName", name)]).await?;
+        match vens[..] {
+            [] => Err(Error::ObjectNotFound),
+            [_] => Ok(VenClient::from_ven(self.client_ref.clone(), vens.remove(0))),
+            [..] => Err(Error::DuplicateObject),
+        }
     }
 }

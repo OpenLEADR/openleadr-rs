@@ -120,16 +120,6 @@ mod tests {
     use reqwest::Method;
     use sqlx::PgPool;
 
-    fn default() -> VenContent {
-        VenContent {
-            object_type: Default::default(),
-            ven_name: "".to_string(),
-            attributes: None,
-            targets: None,
-            resources: None,
-        }
-    }
-
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_unfiletred(db: PgPool) {
         let test = ApiTest::new(db, vec![AuthRole::VenManager]);
@@ -259,14 +249,8 @@ mod tests {
         let test = ApiTest::new(db, vec![AuthRole::VenManager]);
 
         let vens = [
-            VenContent {
-                ven_name: "".to_string(),
-                ..default()
-            },
-            VenContent {
-                ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
-                ..default()
-            },
+            VenContent::new("".to_string(), None, None, None),
+            VenContent::new("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, None, None),
         ];
 
         for ven in &vens {
