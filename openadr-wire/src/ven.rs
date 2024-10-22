@@ -4,7 +4,9 @@ use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{resource::Resource, values_map::ValuesMap, Identifier, IdentifierError};
+use crate::{
+    resource::Resource, target::TargetMap, values_map::ValuesMap, Identifier, IdentifierError,
+};
 
 /// Ven represents a client with the ven role.
 #[skip_serializing_none]
@@ -37,20 +39,29 @@ pub struct VenContent {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<Vec<ValuesMap>>,
+    pub targets: Option<TargetMap>,
     /// A list of resource objects representing end-devices or systems.
-    pub resources: Option<Vec<Resource>>,
+    resources: Option<Vec<Resource>>,
 }
 
 impl VenContent {
-    pub fn new(name: String) -> Self {
+    pub fn new(
+        ven_name: String,
+        attributes: Option<Vec<ValuesMap>>,
+        targets: Option<TargetMap>,
+        resources: Option<Vec<Resource>>,
+    ) -> Self {
         Self {
             object_type: Some(Default::default()),
-            ven_name: name,
-            attributes: None,
-            targets: None,
-            resources: None,
+            ven_name,
+            attributes,
+            targets,
+            resources,
         }
+    }
+
+    pub fn resources(&self) -> Option<&[Resource]> {
+        self.resources.as_deref()
     }
 }
 

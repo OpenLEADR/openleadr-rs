@@ -1,7 +1,11 @@
 use crate::common::setup;
 use openadr_client::Filter;
 use openadr_vtn::jwt::AuthRole;
-use openadr_wire::ven::VenContent;
+use openadr_wire::{
+    target::{TargetEntry, TargetLabel, TargetMap},
+    values_map::{Value, ValueType, ValuesMap},
+    ven::VenContent,
+};
 use serial_test::serial;
 
 mod common;
@@ -11,14 +15,72 @@ mod common;
 #[ignore = "Filtering by ven_name depends on #21"]
 async fn crud() {
     let ctx = setup(AuthRole::VenManager).await;
-    let ven = VenContent::new("test-ven".to_string());
-    let ven = ctx.create_ven(ven).await.unwrap();
-    let vens = ctx
-        .get_ven_list(Some("test-ven"), Filter::None)
-        .await
-        .unwrap();
-    assert_eq!(vens.len(), 1);
-    assert_eq!(vens[0].content().ven_name, "test-ven");
 
-    ven.delete().await.unwrap();
+    // cleanup potentially clashing VEN
+    {
+        if let Ok(old_ven) = ctx.get_ven_by_name("ven-test").await {
+            assert_eq!(old_ven.content().ven_name, "ven-test");
+            old_ven.delete().await.unwrap();
+        }
+    }
+
+    // Create
+    let ven = VenContent::new("test-ven".to_string(), None, None, None);
+    let create_ven = ctx.create_ven(ven).await.unwrap();
+    assert_eq!(create_ven.content().ven_name, "test-ven");
+
+    // Retrieve all
+    let vens = ctx.get_ven_list(Filter::None).await.unwrap();
+    assert!(vens.iter().any(|v| v.content().ven_name == "test-ven"));
+
+    // Retrieve one by ID
+    {
+        let get_ven_id = ctx.get_ven_by_id(create_ven.id()).await.unwrap();
+        assert_eq!(get_ven_id.content(), create_ven.content());
+    }
+
+    // Retrieve one by name
+    let mut get_ven = ctx.get_ven_by_name("ven-test").await.unwrap();
+    assert_eq!(get_ven.content(), create_ven.content());
+    assert_eq!(get_ven.content().ven_name, "test-ven");
+
+    // Update
+    {
+        let updated_name = "ven-test-update".to_string();
+        let updated_attributes = Some(vec![ValuesMap {
+            value_type: ValueType("PRICE".to_string()),
+            values: vec![Value::Number(123.12)],
+        }]);
+        let updated_targets = Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["group-1".to_string()],
+        }]));
+
+        get_ven.content_mut().ven_name = updated_name.clone();
+        get_ven.content_mut().attributes = updated_attributes.clone();
+        get_ven.content_mut().targets = updated_targets.clone();
+        get_ven.update().await.unwrap();
+
+        assert_eq!(get_ven.content().ven_name, updated_name);
+        assert_eq!(get_ven.content().attributes, updated_attributes);
+        assert_eq!(get_ven.content().targets, updated_targets);
+
+        let get_ven2 = ctx.get_ven_by_name("ven-test").await.unwrap();
+        assert_eq!(get_ven2.content().ven_name, updated_name);
+        assert_eq!(get_ven2.content().attributes, updated_attributes);
+        assert_eq!(get_ven2.content().targets, updated_targets);
+
+        assert_eq!(
+            get_ven2.modification_date_time(),
+            get_ven.modification_date_time()
+        );
+        assert_ne!(
+            create_ven.modification_date_time(),
+            get_ven.modification_date_time()
+        );
+        assert_eq!(get_ven2.created_date_time(), create_ven.created_date_time())
+    }
+
+    // Delete
+    get_ven.delete().await.unwrap();
 }
