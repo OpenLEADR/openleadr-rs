@@ -26,12 +26,20 @@ async fn crud() {
 
     // Create
     let ven = VenContent::new("test-ven".to_string(), None, None, None);
-    let create_ven = ctx.create_ven(ven).await.unwrap();
+    let create_ven = ctx.create_ven(ven.clone()).await.unwrap();
     assert_eq!(create_ven.content().ven_name, "test-ven");
 
+    // Create with the same name fails
+    {
+        let err = ctx.create_ven(ven).await.unwrap_err();
+        assert!(err.is_conflict());
+    }
+
     // Retrieve all
-    let vens = ctx.get_ven_list(Filter::None).await.unwrap();
-    assert!(vens.iter().any(|v| v.content().ven_name == "test-ven"));
+    {
+        let vens = ctx.get_ven_list(Filter::None).await.unwrap();
+        assert!(vens.iter().any(|v| v.content().ven_name == "test-ven"));
+    }
 
     // Retrieve one by ID
     {

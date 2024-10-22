@@ -6,6 +6,7 @@ use openadr_wire::{
 };
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct ResourceClient {
     client: Arc<ClientRef>,
     ven_id: VenId,
@@ -46,7 +47,7 @@ impl ResourceClient {
         self.data = self
             .client
             .put(
-                &format!("vens/{}/resource{}", self.ven_id, self.id()),
+                &format!("vens/{}/resources/{}", self.ven_id, self.id()),
                 &self.data.content,
                 &[],
             )
@@ -57,7 +58,10 @@ impl ResourceClient {
     /// Delete the resource from the VTN
     pub async fn delete(self) -> Result<Resource> {
         self.client
-            .delete(&format!("vens/{}/resources{}", self.ven_id, self.id()), &[])
+            .delete(
+                &format!("vens/{}/resources/{}", self.ven_id, self.id()),
+                &[],
+            )
             .await
     }
 }

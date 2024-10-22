@@ -1,12 +1,13 @@
-use crate::{resource::ResourceClient, ClientRef, Result};
+use crate::{resource::ResourceClient, ClientRef, Error, Result};
 use chrono::{DateTime, Utc};
 use openadr_wire::{
-    resource::{Resource, ResourceContent},
+    resource::{Resource, ResourceContent, ResourceId},
     ven::{VenContent, VenId},
     Ven,
 };
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct VenClient {
     client: Arc<ClientRef>,
     data: Ven,
@@ -51,22 +52,13 @@ impl VenClient {
             .await
     }
 
-    pub fn new_resource(&self, name: String) -> ResourceContent {
-        ResourceContent {
-            object_type: Some(Default::default()),
-            resource_name: name,
-            attributes: None,
-            targets: None,
-        }
-    }
-
     pub async fn create_resource(&self, resource: ResourceContent) -> Result<ResourceClient> {
         let resource = self
             .client
             .post(&format!("vens/{}/resources", self.id()), &resource, &[])
             .await?;
         Ok(ResourceClient::from_resource(
-            self.client.clone(),
+            Arc::clone(&self.client),
             self.id().clone(),
             resource,
         ))
@@ -106,5 +98,36 @@ impl VenClient {
         self.client
             .iterate_pages(|skip, limit| self.get_resources_req(resource_name, skip, limit))
             .await
+    }
+
+    pub async fn get_resource_by_id(&self, id: &ResourceId) -> Result<ResourceClient> {
+        let resource = self
+            .client
+            .get(&format!("vens/{}/resources/{}", self.id(), id), &[])
+            .await?;
+        Ok(ResourceClient::from_resource(
+            Arc::clone(&self.client),
+            self.id().clone(),
+            resource,
+        ))
+    }
+
+    pub async fn get_resource_by_name(&self, name: &str) -> Result<ResourceClient> {
+        let mut resources: Vec<Resource> = self
+            .client
+            .get(
+                &format!("vens/{}/resources", self.id()),
+                &[("resourceName", name)],
+            )
+            .await?;
+        match resources[..] {
+            [] => Err(Error::ObjectNotFound),
+            [_] => Ok(ResourceClient::from_resource(
+                Arc::clone(&self.client),
+                self.id().clone(),
+                resources.remove(0),
+            )),
+            [..] => Err(Error::DuplicateObject),
+        }
     }
 }
