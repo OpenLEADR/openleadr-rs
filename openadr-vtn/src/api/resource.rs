@@ -137,15 +137,6 @@ mod test {
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
-    fn default() -> ResourceContent {
-        ResourceContent {
-            object_type: Default::default(),
-            resource_name: "".to_string(),
-            attributes: None,
-            targets: None,
-        }
-    }
-
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn test_get_all(db: PgPool) {
         let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
@@ -323,14 +314,8 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
 
         let resources = [
-            ResourceContent {
-                resource_name: "".to_string(),
-                ..default()
-            },
-            ResourceContent {
-                resource_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
-                ..default()
-            },
+            ResourceContent::new("".to_string(), None, None),
+            ResourceContent::new("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, None),
         ];
 
         for resource in &resources {

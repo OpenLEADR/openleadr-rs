@@ -1,3 +1,5 @@
+use reqwest::StatusCode;
+
 /// Errors that can occur using the [`Client`](crate::Client)
 #[derive(Debug)]
 pub enum Error {
@@ -11,6 +13,26 @@ pub enum Error {
     DuplicateObject,
     InvalidParentObject,
     InvalidInterval,
+}
+
+impl Error {
+    pub fn is_conflict(&self) -> bool {
+        match self {
+            Error::Problem(openadr_wire::problem::Problem { status, .. }) => {
+                *status == StatusCode::CONFLICT
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            Error::Problem(openadr_wire::problem::Problem { status, .. }) => {
+                *status == StatusCode::NOT_FOUND
+            }
+            _ => false,
+        }
+    }
 }
 
 impl From<reqwest::Error> for Error {
