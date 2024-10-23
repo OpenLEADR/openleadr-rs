@@ -44,7 +44,9 @@ impl Clock for ChronoClock {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let client = openadr_client::Client::with_url("http://localhost:3000/".try_into()?, None);
-    let program = client.get_program_by_name("name").await?;
+    let program = client
+        .get_program_by_id(&"program-1".parse().unwrap())
+        .await?;
 
     // channel used to send new timelines
     let (sender, receiver) = mpsc::channel(1);

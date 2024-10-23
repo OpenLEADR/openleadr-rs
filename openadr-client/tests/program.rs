@@ -1,13 +1,16 @@
 use axum::http::StatusCode;
 use openadr_client::{Error, Filter, PaginationOptions};
-use openadr_wire::{program::ProgramContent, target::TargetLabel};
+use openadr_wire::{
+    program::ProgramContent,
+    target::{TargetEntry, TargetLabel, TargetMap},
+};
 use sqlx::PgPool;
 
 mod common;
 
 fn default_content() -> ProgramContent {
     ProgramContent {
-        object_type: None,
+        object_type: Some(Default::default()),
         program_name: "program_name".to_string(),
         program_long_name: Some("program_long_name".to_string()),
         retailer_name: Some("retailer_name".to_string()),
@@ -50,11 +53,12 @@ async fn delete(db: PgPool) {
         ..default_content()
     };
 
+    let mut ids = vec![];
     for content in [program1, program2.clone(), program3] {
-        client.create_program(content).await.unwrap();
+        ids.push(client.create_program(content).await.unwrap());
     }
 
-    let program = client.get_program_by_name("program2").await.unwrap();
+    let program = client.get_program_by_id(ids[1].id()).await.unwrap();
     assert_eq!(program.content(), &program2);
 
     let removed = program.delete().await.unwrap();
@@ -150,10 +154,18 @@ async fn retrieve_all_with_filter(db: PgPool) {
     };
     let program2 = ProgramContent {
         program_name: "program2".to_string(),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["Group 2".to_string()],
+        }])),
         ..default_content()
     };
     let program3 = ProgramContent {
         program_name: "program3".to_string(),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetLabel::Group,
+            values: ["Group 1".to_string()],
+        }])),
         ..default_content()
     };
 
@@ -225,10 +237,28 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetLabel::ProgramName, &["program1", "program2"]),
+            Filter::By(TargetLabel::Group, &["Group 1", "Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
         .unwrap();
     assert_eq!(programs.len(), 2);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetLabel::Group, &["Group 1"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 1);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetLabel::Group, &["Not existent"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 0);
 }

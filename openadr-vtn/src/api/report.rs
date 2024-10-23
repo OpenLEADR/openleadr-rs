@@ -90,6 +90,7 @@ pub struct QueryParams {
     pub(crate) program_id: Option<ProgramId>,
     #[serde(rename = "eventID")]
     pub(crate) event_id: Option<EventId>,
+    #[validate(length(min = 1, max = 128))]
     pub(crate) client_name: Option<String>,
     #[serde(default)]
     pub(crate) skip: i64,

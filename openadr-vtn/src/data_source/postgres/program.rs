@@ -11,7 +11,6 @@ use axum::async_trait;
 use chrono::{DateTime, Utc};
 use openadr_wire::{
     program::{ProgramContent, ProgramId},
-    target::TargetLabel,
     Program,
 };
 use sqlx::PgPool;
@@ -102,7 +101,7 @@ impl TryFrom<PostgresProgram> for Program {
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             content: ProgramContent {
-                object_type: Default::default(),
+                object_type: Some(Default::default()),
                 program_name: value.program_name,
                 program_long_name: value.program_long_name,
                 retailer_name: value.retailer_name,
@@ -124,11 +123,6 @@ impl TryFrom<PostgresProgram> for Program {
 
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
-    ven_names: Option<&'a [String]>,
-    event_names: Option<&'a [String]>,
-    program_names: Option<&'a [String]>,
-    // TODO check whether we also need to extract `PowerServiceLocation`, `ServiceArea`,
-    //  `ResourceNames`, and `Group`, i.e., only leave the `Private`
     targets: Vec<PgTargetsFilter<'a>>,
 
     skip: i64,
@@ -142,22 +136,16 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
             limit: query.limit,
             ..Default::default()
         };
-        match query.target_type {
-            Some(TargetLabel::VENName) => filter.ven_names = query.target_values.as_deref(),
-            Some(TargetLabel::EventName) => filter.event_names = query.target_values.as_deref(),
-            Some(TargetLabel::ProgramName) => filter.program_names = query.target_values.as_deref(),
-            Some(ref label) => {
-                if let Some(values) = query.target_values.as_ref() {
-                    filter.targets = values
-                        .iter()
-                        .map(|value| PgTargetsFilter {
-                            label: label.as_str(),
-                            value: [value.clone()],
-                        })
-                        .collect()
-                }
+        if let Some(ref label) = query.target_type {
+            if let Some(values) = query.target_values.as_ref() {
+                filter.targets = values
+                    .iter()
+                    .map(|value| PgTargetsFilter {
+                        label: label.as_str(),
+                        value: [value.clone()],
+                    })
+                    .collect()
             }
-            None => {}
         };
 
         filter
@@ -329,29 +317,27 @@ impl Crud for PgProgramStorage {
                    p.payload_descriptors,
                    p.targets
             FROM program p
-              LEFT JOIN event e ON p.id = e.program_id
               LEFT JOIN ven_program vp ON p.id = vp.program_id
               LEFT JOIN ven v ON v.id = vp.ven_id
-              LEFT JOIN LATERAL ( 
+              LEFT JOIN LATERAL (
                   SELECT p.id as p_id, 
-                         json_array(jsonb_array_elements(p.targets)) <@ $4::jsonb AS target_test )
+                         json_array(jsonb_array_elements(p.targets)) <@ $1::jsonb AS target_test )
                   ON p.id = p_id
-            WHERE ($1::text[] IS NULL OR e.event_name = ANY($1))
-              AND ($2::text[] IS NULL OR p.program_name = ANY($2))
-              AND ($3::text[] IS NULL OR v.ven_name = ANY($3))
-              AND ($4::jsonb = '[]'::jsonb OR target_test)
-              AND (NOT $5 OR v.id IS NULL OR v.id = ANY($6)) -- Filter for VEN ids
+            WHERE ($1::jsonb = '[]'::jsonb OR target_test)
+              AND (
+                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
+                  OR
+                  ($4)
+                  )
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $7 LIMIT $8
+            OFFSET $5 LIMIT $6
             "#,
-            pg_filter.event_names,
-            pg_filter.program_names,
-            pg_filter.ven_names,
             serde_json::to_value(pg_filter.targets)
                 .map_err(AppError::SerdeJsonInternalServerError)?,
             user.is_ven(),
             &user.ven_ids_string(),
+            user.is_business(),
             pg_filter.skip,
             pg_filter.limit,
         )
@@ -507,7 +493,7 @@ mod tests {
         api::program::QueryParams,
         data_source::{postgres::program::PgProgramStorage, Crud},
         error::AppError,
-        jwt::Claims,
+        jwt::{Claims, User},
     };
     use openadr_wire::{
         event::{EventPayloadDescriptor, EventType},
@@ -518,7 +504,6 @@ mod tests {
     };
     use sqlx::PgPool;
 
-    use crate::jwt::User;
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
@@ -536,7 +521,7 @@ mod tests {
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             content: ProgramContent {
-                object_type: Default::default(),
+                object_type: Some(Default::default()),
                 program_name: "program-1".to_string(),
                 program_long_name: Some("program long name".to_string()),
                 retailer_name: Some("retailer name".to_string()),
@@ -576,7 +561,7 @@ mod tests {
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             content: ProgramContent {
-                object_type: Default::default(),
+                object_type: Some(Default::default()),
                 program_name: "program-2".to_string(),
                 program_long_name: None,
                 retailer_name: None,
@@ -688,33 +673,6 @@ mod tests {
                     &QueryParams {
                         target_type: Some(TargetLabel::Group),
                         target_values: Some(vec!["not-existent".to_string()]),
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 0);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        target_type: Some(TargetLabel::ProgramName),
-                        target_values: Some(vec!["program-2".to_string()]),
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 1);
-            assert_eq!(programs, vec![program_2()]);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        target_type: Some(TargetLabel::ProgramName),
-                        target_values: Some(vec!["program-not-existent".to_string()]),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
