@@ -6,7 +6,7 @@ use openadr_wire::{
 use crate::{
     error::{Error, Result},
     Client, EventClient, EventContent, Filter, PaginationOptions, ProgramContent, ProgramId,
-    Target, Timeline,
+    Timeline,
 };
 
 /// A client for interacting with the data in a specific program and the events
@@ -112,43 +112,12 @@ impl ProgramClient {
     }
 
     /// Get a list of events from the VTN with the given query parameters
-    pub async fn get_event_list(&self, target: Target<'_>) -> Result<Vec<EventClient>> {
-        self.client.get_event_list(Some(self.id()), target).await
-    }
-
-    /// Get all events from the VTN, trying to paginate whenever possible
-    pub async fn get_all_events(&self) -> Result<Vec<EventClient>> {
-        let page_size = self.client.client_ref.default_page_size();
-        let mut events = vec![];
-        let mut page = 0;
-        loop {
-            // TODO: this pagination should really depend on that the server indicated there are more results
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self
-                .client
-                .get_events(Some(self.id()), Filter::None, pagination)
-                .await?;
-            let received_all = received.len() < page_size;
-            for event in received {
-                events.push(event);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(events)
+    pub async fn get_event_list(&self, filter: Filter<'_>) -> Result<Vec<EventClient>> {
+        self.client.get_event_list(Some(self.id()), filter).await
     }
 
     pub async fn get_timeline(&mut self) -> Result<Timeline> {
-        let events = self.get_all_events().await?;
+        let events = self.get_event_list(Filter::None).await?;
         let events = events.iter().map(|e| e.content()).collect();
         Timeline::from_events(self.content(), events).ok_or(Error::InvalidInterval)
     }

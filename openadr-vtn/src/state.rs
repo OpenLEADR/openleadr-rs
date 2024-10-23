@@ -1,4 +1,5 @@
 use crate::{
+    api::{auth, event, program, report, resource, user, ven},
     data_source::{
         AuthSource, DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
@@ -12,11 +13,15 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get, post},
 };
+use base64::{
+    alphabet,
+    engine::{general_purpose::PAD, GeneralPurpose},
+    Engine,
+};
 use reqwest::StatusCode;
-use std::sync::Arc;
+use std::{env, sync::Arc};
 use tower_http::trace::TraceLayer;
-
-use crate::api::{auth, event, program, report, resource, user, ven};
+use tracing::warn;
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -25,10 +30,27 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new<S: DataSource>(storage: S, jwt_manager: JwtManager) -> Self {
+    pub fn new<S: DataSource>(storage: S) -> Self {
+        let secret = env::var("OAUTH_BASE64_SECRET")
+            .map(|base64_secret| {
+                let secret = GeneralPurpose::new(&alphabet::STANDARD, PAD)
+                    .decode(base64_secret)
+                    .expect("OAUTH_BASE64_SECRET contains invalid base64 string");
+                if secret.len() < 32 {
+                    // https://datatracker.ietf.org/doc/html/rfc7518#section-3.2
+                    panic!("OAUTH_BASE64_SECRET must have at least 32 bytes");
+                }
+                secret
+            })
+            .unwrap_or_else(|_| {
+                warn!("Generating random secret as OAUTH_BASE64_SECRET env var was not found");
+                let secret: [u8; 32] = rand::random();
+                secret.to_vec()
+            });
+
         Self {
             storage: Arc::new(storage),
-            jwt_manager: Arc::new(jwt_manager),
+            jwt_manager: Arc::new(JwtManager::from_secret(&secret)),
         }
     }
 

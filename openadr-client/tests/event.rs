@@ -63,7 +63,7 @@ async fn delete(db: PgPool) {
     let removed = event.delete().await.unwrap();
     assert_eq!(removed.content, event2);
 
-    let events = client.get_all_events().await.unwrap();
+    let events = client.get_event_list(Filter::None).await.unwrap();
     assert_eq!(events.len(), 2);
 }
 
@@ -269,8 +269,8 @@ async fn get_program_events(db: PgPool) {
     program1.create_event(event1.clone()).await.unwrap();
     program2.create_event(event2.clone()).await.unwrap();
 
-    let events1 = program1.get_all_events().await.unwrap();
-    let events2 = program2.get_all_events().await.unwrap();
+    let events1 = program1.get_event_list(Filter::None).await.unwrap();
+    let events2 = program2.get_event_list(Filter::None).await.unwrap();
 
     assert_eq!(events1.len(), 1);
     assert_eq!(events2.len(), 1);
