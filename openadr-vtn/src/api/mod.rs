@@ -84,11 +84,7 @@ where
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{
-        data_source::PostgresStorage,
-        jwt::{AuthRole, JwtManager},
-        state::AppState,
-    };
+    use crate::{data_source::PostgresStorage, jwt::AuthRole, state::AppState};
     use axum::{
         body::Body,
         http::{self, Request, StatusCode},
@@ -109,8 +105,7 @@ mod test {
     impl ApiTest {
         pub(crate) fn new(db: PgPool, roles: Vec<AuthRole>) -> Self {
             let store = PostgresStorage::new(db).unwrap();
-            let jwt_manager = JwtManager::from_base64_secret("test").unwrap();
-            let app_state = AppState::new(store, jwt_manager);
+            let app_state = AppState::new(store);
 
             let token = app_state
                 .jwt_manager
@@ -171,7 +166,7 @@ mod test {
 
     pub(crate) async fn state(db: PgPool) -> AppState {
         let store = PostgresStorage::new(db).unwrap();
-        AppState::new(store, JwtManager::from_base64_secret("test").unwrap())
+        AppState::new(store)
     }
 
     #[sqlx::test]

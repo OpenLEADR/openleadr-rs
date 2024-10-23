@@ -4,7 +4,7 @@ use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
+use crate::{target::TargetMap, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
@@ -29,25 +29,15 @@ pub struct Resource {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "RESOURCE")]
 pub struct ResourceContent {
-    /// Used as discriminator, e.g. notification.object
-    pub object_type: Option<ObjectType>,
     /// User generated identifier, resource may be configured with identifier out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub resource_name: String,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<Vec<ValuesMap>>,
-}
-
-/// Used as discriminator, e.g. notification.object
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ObjectType {
-    #[default]
-    Resource,
+    pub targets: Option<TargetMap>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]

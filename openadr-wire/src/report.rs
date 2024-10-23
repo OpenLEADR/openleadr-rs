@@ -36,10 +36,8 @@ pub struct Report {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "REPORT")]
 pub struct ReportContent {
-    /// Used as discriminator, e.g. notification.object
-    pub object_type: Option<ReportObjectType>,
     // FIXME Must likely be EITHER a programID OR an eventID
     /// ID attribute of the program object this report is associated with.
     #[serde(rename = "programID")]
@@ -58,7 +56,7 @@ pub struct ReportContent {
     #[validate(nested)]
     pub payload_descriptors: Option<Vec<ReportPayloadDescriptor>>,
     /// A list of objects containing report data for a set of resources.
-    pub resources: Vec<Resource>,
+    pub resources: Vec<ReportResource>,
 }
 
 impl ReportContent {
@@ -77,7 +75,7 @@ impl ReportContent {
         self
     }
 
-    pub fn with_resources(mut self, resources: Vec<Resource>) -> Self {
+    pub fn with_resources(mut self, resources: Vec<ReportResource>) -> Self {
         self.resources = resources;
         self
     }
@@ -107,20 +105,10 @@ impl FromStr for ReportId {
     }
 }
 
-/// Used as discriminator, e.g. notification.object
-#[derive(
-    Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize,
-)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ReportObjectType {
-    #[default]
-    Report,
-}
-
 /// Report data associated with a resource.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Resource {
+pub struct ReportResource {
     /// User generated identifier. A value of AGGREGATED_REPORT indicates an aggregation of more
     /// that one resource's data
     pub resource_name: ResourceName,
@@ -129,17 +117,6 @@ pub struct Resource {
     pub interval_period: Option<IntervalPeriod>,
     /// A list of interval objects.
     pub intervals: Vec<Interval>,
-}
-
-impl Resource {
-    /// Report data associated with a resource.
-    pub fn new(resource_name: ResourceName, intervals: Vec<Interval>) -> Resource {
-        Resource {
-            resource_name,
-            interval_period: None,
-            intervals,
-        }
-    }
 }
 
 /// An object that may be used to request a report from a VEN. See OpenADR REST User Guide for
@@ -368,7 +345,6 @@ mod tests {
     fn parses_minimal_report() {
         let example = r#"{"programID":"p1","eventID":"e1","clientName":"c","resources":[]}"#;
         let expected = ReportContent {
-            object_type: None,
             program_id: ProgramId("p1".parse().unwrap()),
             event_id: EventId("e1".parse().unwrap()),
             client_name: "c".to_string(),
@@ -451,13 +427,12 @@ mod tests {
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             content: ReportContent {
-                object_type: Some(ReportObjectType::Report),
                 program_id: ProgramId("object-999".parse().unwrap()),
                 event_id: EventId("object-999".parse().unwrap()),
                 client_name: "VEN-999".into(),
                 report_name: Some("Battery_usage_04112023".into()),
                 payload_descriptors: None,
-                resources: vec![Resource {
+                resources: vec![ReportResource {
                     resource_name: ResourceName::Private("RESOURCE-999".into()),
                     interval_period: Some(IntervalPeriod {
                         start: "2023-06-15T09:30:00Z".parse().unwrap(),

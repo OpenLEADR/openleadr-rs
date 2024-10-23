@@ -116,7 +116,6 @@ mod test {
 
     fn default() -> ReportContent {
         ReportContent {
-            object_type: None,
             program_id: "asdf".parse().unwrap(),
             event_id: "asdf".parse().unwrap(),
             client_name: "".to_string(),

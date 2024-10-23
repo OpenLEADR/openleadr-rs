@@ -72,10 +72,9 @@ impl TryFrom<PostgresResource> for Resource {
             modification_date_time: value.modification_date_time,
             ven_id: value.ven_id.parse()?,
             content: ResourceContent {
-                object_type: Default::default(),
                 resource_name: value.resource_name,
-                targets,
                 attributes,
+                targets,
             },
         })
     }

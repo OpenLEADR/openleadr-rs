@@ -4,7 +4,9 @@ use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{resource::Resource, values_map::ValuesMap, Identifier, IdentifierError};
+use crate::{
+    resource::Resource, target::TargetMap, values_map::ValuesMap, Identifier, IdentifierError,
+};
 
 /// Ven represents a client with the ven role.
 #[skip_serializing_none]
@@ -27,27 +29,37 @@ pub struct Ven {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "VEN")]
 pub struct VenContent {
-    /// Used as discriminator, e.g. notification.object.
-    pub object_type: Option<ObjectType>,
     /// User generated identifier, may be VEN identifier provisioned during program enrollment.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub ven_name: String,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<Vec<ValuesMap>>,
+    pub targets: Option<TargetMap>,
     /// A list of resource objects representing end-devices or systems.
-    pub resources: Option<Vec<Resource>>,
+    resources: Option<Vec<Resource>>,
 }
 
-/// Used as discriminator, e.g. notification.object.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ObjectType {
-    #[default]
-    Ven,
+impl VenContent {
+    pub fn new(
+        ven_name: String,
+        attributes: Option<Vec<ValuesMap>>,
+        targets: Option<TargetMap>,
+        resources: Option<Vec<Resource>>,
+    ) -> Self {
+        Self {
+            ven_name,
+            attributes,
+            targets,
+            resources,
+        }
+    }
+
+    pub fn resources(&self) -> Option<&[Resource]> {
+        self.resources.as_deref()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord)]

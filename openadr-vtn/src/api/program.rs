@@ -105,7 +105,7 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{data_source::PostgresStorage, jwt::JwtManager, state::AppState};
+    use crate::{data_source::PostgresStorage, state::AppState};
 
     use crate::api::test::*;
 
@@ -132,7 +132,6 @@ mod test {
 
     fn default_content() -> ProgramContent {
         ProgramContent {
-            object_type: Default::default(),
             program_name: "program_name".to_string(),
             program_long_name: Some("program_long_name".to_string()),
             retailer_name: Some("retailer_name".to_string()),
@@ -182,10 +181,7 @@ mod test {
             programs.push(p);
         }
 
-        (
-            AppState::new(store, JwtManager::from_base64_secret("test").unwrap()),
-            programs,
-        )
+        (AppState::new(store), programs)
     }
 
     async fn get_help(app: &mut Router, token: &str, id: &str) -> Response<Body> {

@@ -33,3 +33,5 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 openadr-vtn = { path = "../openadr-vtn", features = ["postgres"] }
 mime.workspace = true
 sqlx.workspace = true
+serial_test.workspace = true
+dotenvy.workspace = true

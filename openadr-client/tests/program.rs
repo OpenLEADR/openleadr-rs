@@ -7,7 +7,6 @@ mod common;
 
 fn default_content() -> ProgramContent {
     ProgramContent {
-        object_type: None,
         program_name: "program_name".to_string(),
         program_long_name: Some("program_long_name".to_string()),
         retailer_name: Some("retailer_name".to_string()),
@@ -60,7 +59,7 @@ async fn delete(db: PgPool) {
     let removed = program.delete().await.unwrap();
     assert_eq!(removed.content, program2);
 
-    let programs = client.get_all_programs().await.unwrap();
+    let programs = client.get_program_list(Filter::None).await.unwrap();
     assert_eq!(programs.len(), 2);
 }
 
