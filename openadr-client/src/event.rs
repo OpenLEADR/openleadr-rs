@@ -4,11 +4,7 @@ use crate::{
     error::{Error, Result},
     ClientRef, ReportClient,
 };
-use openadr_wire::{
-    event::EventContent,
-    report::{ReportContent, ReportObjectType},
-    Event, Report,
-};
+use openadr_wire::{event::EventContent, report::ReportContent, Event, Report};
 
 #[derive(Debug)]
 pub struct EventClient {
@@ -63,7 +59,6 @@ impl EventClient {
     /// Create a new report object
     pub fn new_report(&self, client_name: String) -> ReportContent {
         ReportContent {
-            object_type: Some(ReportObjectType::Report),
             program_id: self.content().program_id.clone(),
             event_id: self.id().clone(),
             client_name,

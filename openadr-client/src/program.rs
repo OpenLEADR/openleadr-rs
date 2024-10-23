@@ -1,7 +1,4 @@
-use openadr_wire::{
-    event::{EventObjectType, Priority},
-    Program,
-};
+use openadr_wire::{event::Priority, Program};
 
 use crate::{
     error::{Error, Result},
@@ -89,7 +86,6 @@ impl ProgramClient {
     /// Create a new event object within the program
     pub fn new_event(&self) -> EventContent {
         EventContent {
-            object_type: Some(EventObjectType::Event),
             program_id: self.id().clone(),
             event_name: None,
             priority: Priority::UNSPECIFIED,

@@ -20,7 +20,11 @@ async fn crud() {
     let ven = ctx.create_ven(new).await.unwrap();
 
     // Create
-    let new = ResourceContent::new("test-resource".to_string(), None, None);
+    let new = ResourceContent {
+        resource_name: "test-resource".to_string(),
+        attributes: None,
+        targets: None,
+    };
     let created_resource = ven.create_resource(new.clone()).await.unwrap();
     assert_eq!(created_resource.content().resource_name, "test-resource");
 
@@ -53,11 +57,11 @@ async fn crud() {
     // Retrieve one by name
     {
         let resource2 = ven
-            .create_resource(ResourceContent::new(
-                "test-resource2".to_string(),
-                None,
-                None,
-            ))
+            .create_resource(ResourceContent {
+                resource_name: "test-resource2".to_string(),
+                attributes: None,
+                targets: None,
+            })
             .await
             .unwrap();
         let get_resource = ven.get_resource_by_name("test-resource").await.unwrap();

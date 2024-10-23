@@ -29,10 +29,8 @@ pub struct Resource {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "RESOURCE")]
 pub struct ResourceContent {
-    /// Used as discriminator, e.g. notification.object
-    object_type: Option<ObjectType>,
     /// User generated identifier, resource may be configured with identifier out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub resource_name: String,
@@ -40,29 +38,6 @@ pub struct ResourceContent {
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
     pub targets: Option<TargetMap>,
-}
-
-impl ResourceContent {
-    pub fn new(
-        resource_name: String,
-        attributes: Option<Vec<ValuesMap>>,
-        targets: Option<TargetMap>,
-    ) -> Self {
-        Self {
-            object_type: Some(Default::default()),
-            resource_name,
-            attributes,
-            targets,
-        }
-    }
-}
-
-/// Used as discriminator, e.g. notification.object
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ObjectType {
-    #[default]
-    Resource,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]

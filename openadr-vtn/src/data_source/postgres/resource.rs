@@ -70,7 +70,11 @@ impl TryFrom<PostgresResource> for Resource {
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             ven_id: value.ven_id.parse()?,
-            content: ResourceContent::new(value.resource_name, attributes, targets),
+            content: ResourceContent {
+                resource_name: value.resource_name,
+                attributes,
+                targets,
+            },
         })
     }
 }

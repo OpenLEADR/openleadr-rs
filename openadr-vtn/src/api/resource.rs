@@ -316,8 +316,8 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
 
         let resources = [
-            ResourceContent::new("".to_string(), None, None),
-            ResourceContent::new("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, None),
+            ResourceContent{resource_name: "".to_string(), targets: None, attributes:None},
+            ResourceContent{resource_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),targets: None, attributes:None},
         ];
 
         for resource in &resources {

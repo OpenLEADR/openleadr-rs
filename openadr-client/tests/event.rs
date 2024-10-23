@@ -11,7 +11,6 @@ mod common;
 
 fn default_content(program_id: &ProgramId) -> EventContent {
     EventContent {
-        object_type: None,
         program_id: program_id.clone(),
         event_name: Some("event_name".to_string()),
         priority: Priority::MAX,

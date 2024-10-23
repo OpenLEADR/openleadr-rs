@@ -100,7 +100,6 @@ impl TryFrom<PostgresEvent> for Event {
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             content: EventContent {
-                object_type: Default::default(),
                 program_id: value.program_id.parse()?,
                 event_name: value.event_name,
                 priority: value.priority,
@@ -421,7 +420,6 @@ mod tests {
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             content: EventContent {
-                object_type: Default::default(),
                 program_id: "program-1".parse().unwrap(),
                 event_name: Some("event-1-name".to_string()),
                 priority: Some(4).into(),
@@ -464,7 +462,6 @@ mod tests {
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             content: EventContent {
-                object_type: Default::default(),
                 program_id: "program-2".parse().unwrap(),
                 event_name: Some("event-2-name".to_string()),
                 priority: None.into(),

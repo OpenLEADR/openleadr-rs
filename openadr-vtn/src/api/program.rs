@@ -138,7 +138,6 @@ mod test {
 
     fn default_content() -> ProgramContent {
         ProgramContent {
-            object_type: Some(Default::default()),
             program_name: "program_name".to_string(),
             program_long_name: Some("program_long_name".to_string()),
             retailer_name: Some("retailer_name".to_string()),
