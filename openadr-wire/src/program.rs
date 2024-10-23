@@ -42,13 +42,8 @@ pub struct Program {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "PROGRAM")]
 pub struct ProgramContent {
-    /// Used as discriminator, e.g. notification.object
-    ///
-    /// VTN provisioned on object creation.
-    // TODO: Maybe remove this? It is more part of the enum containing this
-    pub object_type: Option<ProgramObjectType>,
     /// Short name to uniquely identify program.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub program_name: String,
@@ -86,7 +81,6 @@ pub struct ProgramContent {
 impl ProgramContent {
     pub fn new(name: impl ToString) -> ProgramContent {
         ProgramContent {
-            object_type: Some(ProgramObjectType::Program),
             program_name: name.to_string(),
             program_long_name: Default::default(),
             retailer_name: Default::default(),
@@ -131,16 +125,6 @@ impl FromStr for ProgramId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(s.parse()?))
     }
-}
-
-/// Used as discriminator, e.g. notification.object
-#[derive(
-    Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize,
-)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProgramObjectType {
-    #[default]
-    Program,
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, Validate)]
@@ -198,7 +182,6 @@ mod test {
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             content: ProgramContent {
-                object_type: Some(ProgramObjectType::Program),
                 program_name: "ResTOU".into(),
                 program_long_name: Some("Residential Time of Use-A".into()),
                 retailer_name: Some("ACME".into()),
@@ -230,7 +213,6 @@ mod test {
         assert_eq!(
             serde_json::from_str::<ProgramContent>(example).unwrap(),
             ProgramContent {
-                object_type: None,
                 program_name: "test".to_string(),
                 program_long_name: None,
                 retailer_name: None,

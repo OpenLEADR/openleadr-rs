@@ -29,10 +29,8 @@ pub struct Ven {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "VEN")]
 pub struct VenContent {
-    /// Used as discriminator, e.g. notification.object.
-    pub object_type: Option<ObjectType>,
     /// User generated identifier, may be VEN identifier provisioned during program enrollment.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub ven_name: String,
@@ -52,7 +50,6 @@ impl VenContent {
         resources: Option<Vec<Resource>>,
     ) -> Self {
         Self {
-            object_type: Some(Default::default()),
             ven_name,
             attributes,
             targets,
@@ -63,14 +60,6 @@ impl VenContent {
     pub fn resources(&self) -> Option<&[Resource]> {
         self.resources.as_deref()
     }
-}
-
-/// Used as discriminator, e.g. notification.object.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ObjectType {
-    #[default]
-    Ven,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord)]
