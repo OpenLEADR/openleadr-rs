@@ -1,9 +1,10 @@
 use axum::http::StatusCode;
 use openadr_client::{Error, Filter, PaginationOptions};
 use openadr_wire::{
-    event::{EventContent, Priority},
+    event::{EventContent, EventInterval, EventType, EventValuesMap, Priority},
     program::{ProgramContent, ProgramId},
     target::{TargetEntry, TargetLabel, TargetMap},
+    values_map::Value,
 };
 use sqlx::PgPool;
 
@@ -17,7 +18,14 @@ fn default_content(program_id: &ProgramId) -> EventContent {
         priority: Priority::MAX,
         report_descriptors: None,
         interval_period: None,
-        intervals: vec![],
+        intervals: vec![EventInterval {
+            id: 0,
+            interval_period: None,
+            payloads: vec![EventValuesMap {
+                value_type: EventType::Price,
+                values: vec![Value::Number(123.4)],
+            }],
+        }],
         payload_descriptors: None,
         targets: None,
     }

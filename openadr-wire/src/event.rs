@@ -54,6 +54,7 @@ pub struct EventContent {
     /// Defines default start and durations of intervals.
     pub interval_period: Option<IntervalPeriod>,
     /// A list of interval objects.
+    #[validate(length(min = 1), nested)]
     pub intervals: Vec<EventInterval>,
 }
 
@@ -235,7 +236,7 @@ pub enum Currency {
 /// An object defining a temporal window and a list of valuesMaps. if intervalPeriod present may set
 /// temporal aspects of interval or override event.intervalPeriod.
 #[skip_serializing_none]
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct EventInterval {
     /// A client generated number assigned an interval object. Not a sequence number.
@@ -243,6 +244,7 @@ pub struct EventInterval {
     /// Defines default start and durations of intervals.
     pub interval_period: Option<IntervalPeriod>,
     /// A list of valuesMap objects.
+    #[validate(length(min = 1))]
     pub payloads: Vec<EventValuesMap>,
 }
 

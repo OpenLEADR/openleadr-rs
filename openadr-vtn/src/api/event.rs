@@ -129,9 +129,10 @@ mod test {
     };
     use http_body_util::BodyExt;
     use openadr_wire::{
-        event::{EventPayloadDescriptor, EventType, Priority},
+        event::{EventInterval, EventPayloadDescriptor, EventType, EventValuesMap, Priority},
         problem::Problem,
         target::{TargetEntry, TargetMap},
+        values_map::Value,
     };
     use reqwest::Method;
     use sqlx::PgPool;
@@ -145,13 +146,20 @@ mod test {
             priority: Priority::MAX,
             report_descriptors: None,
             interval_period: None,
-            intervals: vec![],
+            intervals: vec![EventInterval {
+                id: 0,
+                interval_period: None,
+                payloads: vec![EventValuesMap {
+                    value_type: EventType::Price,
+                    values: vec![Value::Number(123.4)],
+                }],
+            }],
             payload_descriptors: None,
             targets: None,
         }
     }
 
-    fn event_request(method: http::Method, event: Event, token: &str) -> Request<Body> {
+    fn event_request(method: Method, event: Event, token: &str) -> Request<Body> {
         Request::builder()
             .method(method)
             .uri(format!("/events/{}", event.id))

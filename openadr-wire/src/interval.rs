@@ -3,6 +3,7 @@
 use crate::{values_map::ValuesMap, Duration};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 
 /// An object defining a temporal window and a list of valuesMaps. if intervalPeriod present may set
 /// temporal aspects of interval or override event.intervalPeriod.
@@ -30,6 +31,7 @@ impl Interval {
 
 /// Defines temporal aspects of intervals. A duration of default null indicates infinity. A
 /// randomizeStart of default null indicates no randomization.
+#[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntervalPeriod {
@@ -37,10 +39,8 @@ pub struct IntervalPeriod {
     #[serde(with = "crate::serde_rfc3339")]
     pub start: DateTime<Utc>,
     /// The duration of an interval or set of intervals.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<Duration>,
     /// Indicates a randomization time that may be applied to start.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub randomize_start: Option<Duration>,
 }
 
