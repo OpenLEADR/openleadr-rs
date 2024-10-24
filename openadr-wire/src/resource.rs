@@ -4,7 +4,7 @@ use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
+use crate::{target::TargetMap, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
@@ -32,14 +32,29 @@ pub struct Resource {
 #[serde(rename_all = "camelCase")]
 pub struct ResourceContent {
     /// Used as discriminator, e.g. notification.object
-    pub object_type: Option<ObjectType>,
+    object_type: Option<ObjectType>,
     /// User generated identifier, resource may be configured with identifier out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub resource_name: String,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<Vec<ValuesMap>>,
+    pub targets: Option<TargetMap>,
+}
+
+impl ResourceContent {
+    pub fn new(
+        resource_name: String,
+        attributes: Option<Vec<ValuesMap>>,
+        targets: Option<TargetMap>,
+    ) -> Self {
+        Self {
+            object_type: Some(Default::default()),
+            resource_name,
+            attributes,
+            targets,
+        }
+    }
 }
 
 /// Used as discriminator, e.g. notification.object

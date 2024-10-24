@@ -58,7 +58,7 @@ pub struct ReportContent {
     #[validate(nested)]
     pub payload_descriptors: Option<Vec<ReportPayloadDescriptor>>,
     /// A list of objects containing report data for a set of resources.
-    pub resources: Vec<Resource>,
+    pub resources: Vec<ReportResource>,
 }
 
 impl ReportContent {
@@ -77,7 +77,7 @@ impl ReportContent {
         self
     }
 
-    pub fn with_resources(mut self, resources: Vec<Resource>) -> Self {
+    pub fn with_resources(mut self, resources: Vec<ReportResource>) -> Self {
         self.resources = resources;
         self
     }
@@ -120,7 +120,7 @@ pub enum ReportObjectType {
 /// Report data associated with a resource.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Resource {
+pub struct ReportResource {
     /// User generated identifier. A value of AGGREGATED_REPORT indicates an aggregation of more
     /// that one resource's data
     pub resource_name: ResourceName,
@@ -129,17 +129,6 @@ pub struct Resource {
     pub interval_period: Option<IntervalPeriod>,
     /// A list of interval objects.
     pub intervals: Vec<Interval>,
-}
-
-impl Resource {
-    /// Report data associated with a resource.
-    pub fn new(resource_name: ResourceName, intervals: Vec<Interval>) -> Resource {
-        Resource {
-            resource_name,
-            interval_period: None,
-            intervals,
-        }
-    }
 }
 
 /// An object that may be used to request a report from a VEN. See OpenADR REST User Guide for
@@ -457,7 +446,7 @@ mod tests {
                 client_name: "VEN-999".into(),
                 report_name: Some("Battery_usage_04112023".into()),
                 payload_descriptors: None,
-                resources: vec![Resource {
+                resources: vec![ReportResource {
                     resource_name: ResourceName::Private("RESOURCE-999".into()),
                     interval_period: Some(IntervalPeriod {
                         start: "2023-06-15T09:30:00Z".parse().unwrap(),
