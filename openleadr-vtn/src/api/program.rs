@@ -11,7 +11,7 @@ use validator::{Validate, ValidationError};
 
 use openleadr_wire::{
     program::{ProgramContent, ProgramId},
-    target::TargetLabel,
+    target::TargetType,
     Program,
 };
 
@@ -85,7 +85,7 @@ pub async fn delete(
 #[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
-    pub(crate) target_type: Option<TargetLabel>,
+    pub(crate) target_type: Option<TargetType>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
     #[validate(range(min = 0))]
@@ -379,7 +379,7 @@ mod test {
                 targets: Some(TargetMap(
                     vec![
                         TargetEntry {
-                            label: TargetLabel::Private("".to_string()),
+                            label: TargetType::Private("".to_string()),
                             values: ["test".to_string()]
                         }
                     ])),
@@ -389,7 +389,7 @@ mod test {
                 targets: Some(TargetMap(
                     vec![
                         TargetEntry {
-                            label: TargetLabel::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
+                            label: TargetType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
                             values: ["test".to_string()]
                         }
                     ])),
@@ -444,7 +444,7 @@ mod test {
         let program2 = ProgramContent {
             program_name: "program2".to_string(),
             targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetLabel::Group,
+                label: TargetType::Group,
                 values: ["Group 2".to_string()],
             }])),
             ..default_content()
@@ -452,7 +452,7 @@ mod test {
         let program3 = ProgramContent {
             program_name: "program3".to_string(),
             targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetLabel::Group,
+                label: TargetType::Group,
                 values: ["Group 1".to_string()],
             }])),
             ..default_content()
@@ -612,7 +612,7 @@ mod test {
 
             let content = ProgramContent {
                 targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetLabel::VENName,
+                    label: TargetType::VENName,
                     values: ["ven-1-name".to_string()],
                 }])),
                 ..default_content()

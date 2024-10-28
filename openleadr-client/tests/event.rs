@@ -3,7 +3,7 @@ use openleadr_client::{Error, Filter, PaginationOptions};
 use openleadr_wire::{
     event::{EventContent, EventInterval, EventType, EventValuesMap, Priority},
     program::{ProgramContent, ProgramId},
-    target::{TargetEntry, TargetLabel, TargetMap},
+    target::{TargetEntry, TargetType, TargetMap},
     values_map::Value,
 };
 use sqlx::PgPool;
@@ -162,7 +162,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         program_id: client.id().clone(),
         event_name: Some("event2".to_string()),
         targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetLabel::Group,
+            label: TargetType::Group,
             values: ["Group 2".to_string()],
         }])),
         ..default_content(client.id())
@@ -171,7 +171,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         program_id: client.id().clone(),
         event_name: Some("event3".to_string()),
         targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetLabel::Group,
+            label: TargetType::Group,
             values: ["Group 1".to_string()],
         }])),
         ..default_content(client.id())
@@ -204,7 +204,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
     // event name
     let events = client
         .get_events_request(
-            Filter::By(TargetLabel::Private("NONSENSE".to_string()), &["test"]),
+            Filter::By(TargetType::Private("NONSENSE".to_string()), &["test"]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await
@@ -213,7 +213,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let err = client
         .get_events_request(
-            Filter::By(TargetLabel::Private("NONSENSE".to_string()), &[""]),
+            Filter::By(TargetType::Private("NONSENSE".to_string()), &[""]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await
@@ -229,7 +229,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let err = client
         .get_events_request(
-            Filter::By(TargetLabel::Private("NONSENSE".to_string()), &[]),
+            Filter::By(TargetType::Private("NONSENSE".to_string()), &[]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await
@@ -245,7 +245,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let events = client
         .get_events_request(
-            Filter::By(TargetLabel::Group, &["Group 1", "Group 2"]),
+            Filter::By(TargetType::Group, &["Group 1", "Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -254,7 +254,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let events = client
         .get_events_request(
-            Filter::By(TargetLabel::Group, &["Group 1"]),
+            Filter::By(TargetType::Group, &["Group 1"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -263,7 +263,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let events = client
         .get_events_request(
-            Filter::By(TargetLabel::Group, &["Not existent"]),
+            Filter::By(TargetType::Group, &["Not existent"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

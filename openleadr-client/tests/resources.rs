@@ -2,7 +2,7 @@ use crate::common::setup;
 use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
     resource::ResourceContent,
-    target::{TargetEntry, TargetLabel, TargetMap},
+    target::{TargetEntry, TargetType, TargetMap},
     values_map::{Value, ValueType, ValuesMap},
     ven::VenContent,
 };
@@ -81,7 +81,7 @@ async fn crud() {
             values: vec![Value::Number(123.12)],
         }]);
         let updated_targets = Some(TargetMap(vec![TargetEntry {
-            label: TargetLabel::Group,
+            label: TargetType::Group,
             values: ["group-1".to_string()],
         }]));
 

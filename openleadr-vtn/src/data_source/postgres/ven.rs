@@ -332,7 +332,7 @@ mod tests {
         error::AppError,
     };
     use openleadr_wire::{
-        target::{TargetEntry, TargetLabel, TargetMap},
+        target::{TargetEntry, TargetType, TargetMap},
         ven::{Ven, VenContent},
     };
     use sqlx::PgPool;
@@ -359,11 +359,11 @@ mod tests {
                 None,
                 Some(TargetMap(vec![
                     TargetEntry {
-                        label: TargetLabel::Group,
+                        label: TargetType::Group,
                         values: ["group-1".to_string()],
                     },
                     TargetEntry {
-                        label: TargetLabel::Private("PRIVATE_LABEL".into()),
+                        label: TargetType::Private("PRIVATE_LABEL".into()),
                         values: ["private value".to_string()],
                     },
                 ])),
@@ -385,7 +385,7 @@ mod tests {
         use crate::data_source::postgres::ven::{PgVenStorage, VenPermissions};
 
         use super::*;
-        use openleadr_wire::target::TargetLabel;
+        use openleadr_wire::target::TargetType;
 
         #[sqlx::test(fixtures("users", "vens"))]
         async fn default_get_all(db: PgPool) {
@@ -450,7 +450,7 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["group-1".to_string()]),
                         ..Default::default()
                     },
@@ -463,7 +463,7 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["not-existent".to_string()]),
                         ..Default::default()
                     },

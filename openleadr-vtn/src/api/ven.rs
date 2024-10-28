@@ -10,7 +10,7 @@ use tracing::{info, trace};
 use validator::{Validate, ValidationError};
 
 use openleadr_wire::{
-    target::TargetLabel,
+    target::TargetType,
     ven::{Ven, VenContent, VenId},
 };
 
@@ -90,7 +90,7 @@ pub async fn delete(
 pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) ven_name: Option<String>,
-    pub(crate) target_type: Option<TargetLabel>,
+    pub(crate) target_type: Option<TargetType>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
     #[validate(range(min = 0))]

@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use openleadr_client::{Error, Filter, PaginationOptions};
 use openleadr_wire::{
     program::ProgramContent,
-    target::{TargetEntry, TargetLabel, TargetMap},
+    target::{TargetEntry, TargetType, TargetMap},
 };
 use sqlx::PgPool;
 
@@ -154,7 +154,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
     let program2 = ProgramContent {
         program_name: "program2".to_string(),
         targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetLabel::Group,
+            label: TargetType::Group,
             values: ["Group 2".to_string()],
         }])),
         ..default_content()
@@ -162,7 +162,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
     let program3 = ProgramContent {
         program_name: "program3".to_string(),
         targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetLabel::Group,
+            label: TargetType::Group,
             values: ["Group 1".to_string()],
         }])),
         ..default_content()
@@ -195,7 +195,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
     // program name
     let err = client
         .get_programs(
-            Filter::By(TargetLabel::Private("NONSENSE".to_string()), &[]),
+            Filter::By(TargetType::Private("NONSENSE".to_string()), &[]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await
@@ -211,7 +211,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let err = client
         .get_programs(
-            Filter::By(TargetLabel::Private("NONSENSE".to_string()), &[""]),
+            Filter::By(TargetType::Private("NONSENSE".to_string()), &[""]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await
@@ -227,7 +227,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetLabel::Private("NONSENSE".to_string()), &["test"]),
+            Filter::By(TargetType::Private("NONSENSE".to_string()), &["test"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -236,7 +236,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetLabel::Group, &["Group 1", "Group 2"]),
+            Filter::By(TargetType::Group, &["Group 1", "Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -245,7 +245,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetLabel::Group, &["Group 1"]),
+            Filter::By(TargetType::Group, &["Group 1"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -254,7 +254,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetLabel::Group, &["Not existent"]),
+            Filter::By(TargetType::Group, &["Not existent"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

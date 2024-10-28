@@ -34,7 +34,7 @@ use openleadr_wire::ven::{VenContent, VenId};
 pub(crate) use openleadr_wire::{
     event::EventContent,
     program::{ProgramContent, ProgramId},
-    target::TargetLabel,
+    target::TargetType,
     Program,
 };
 
@@ -318,7 +318,7 @@ pub struct PaginationOptions {
 #[derive(Debug, Clone)]
 pub enum Filter<'a> {
     None,
-    By(TargetLabel, &'a [&'a str]),
+    By(TargetType, &'a [&'a str]),
 }
 
 impl<'a> Filter<'a> {

@@ -498,7 +498,7 @@ mod tests {
         event::{EventPayloadDescriptor, EventType},
         interval::IntervalPeriod,
         program::{PayloadDescriptor, ProgramContent, ProgramDescription},
-        target::{TargetEntry, TargetLabel, TargetMap},
+        target::{TargetEntry, TargetType, TargetMap},
         Program,
     };
     use sqlx::PgPool;
@@ -541,11 +541,11 @@ mod tests {
                 )]),
                 targets: Some(TargetMap(vec![
                     TargetEntry {
-                        label: TargetLabel::Group,
+                        label: TargetType::Group,
                         values: ["group-1".to_string()],
                     },
                     TargetEntry {
-                        label: TargetLabel::Private("PRIVATE_LABEL".to_string()),
+                        label: TargetType::Private("PRIVATE_LABEL".to_string()),
                         values: ["private value".to_string()],
                     },
                 ])),
@@ -590,7 +590,7 @@ mod tests {
 
     mod get_all {
         use super::*;
-        use openleadr_wire::target::TargetLabel;
+        use openleadr_wire::target::TargetType;
 
         #[sqlx::test(fixtures("programs"))]
         async fn default_get_all(db: PgPool) {
@@ -655,7 +655,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["group-1".to_string()]),
                         ..Default::default()
                     },
@@ -668,7 +668,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["not-existent".to_string()]),
                         ..Default::default()
                     },
@@ -686,7 +686,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["private value".to_string()]),
                         ..Default::default()
                     },

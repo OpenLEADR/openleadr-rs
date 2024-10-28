@@ -1,4 +1,4 @@
-use openleadr_wire::target::TargetLabel;
+use openleadr_wire::target::TargetType;
 
 /// Target for a query to the VTN
 #[derive(Copy, Clone, Debug)]
@@ -54,18 +54,18 @@ pub enum Target<'a> {
 
 impl<'a> Target<'a> {
     /// Get the target label for this specific target
-    pub fn target_label(&self) -> TargetLabel {
+    pub fn target_label(&self) -> TargetType {
         match self {
-            Target::Program(_) | Target::Programs(_) => TargetLabel::ProgramName,
-            Target::Event(_) | Target::Events(_) => TargetLabel::EventName,
-            Target::VEN(_) | Target::VENs(_) => TargetLabel::VENName,
-            Target::Group(_) | Target::Groups(_) => TargetLabel::Group,
-            Target::Resource(_) | Target::Resources(_) => TargetLabel::ResourceName,
-            Target::ServiceArea(_) | Target::ServiceAreas(_) => TargetLabel::ServiceArea,
+            Target::Program(_) | Target::Programs(_) => TargetType::ProgramName,
+            Target::Event(_) | Target::Events(_) => TargetType::EventName,
+            Target::VEN(_) | Target::VENs(_) => TargetType::VENName,
+            Target::Group(_) | Target::Groups(_) => TargetType::Group,
+            Target::Resource(_) | Target::Resources(_) => TargetType::ResourceName,
+            Target::ServiceArea(_) | Target::ServiceAreas(_) => TargetType::ServiceArea,
             Target::PowerServiceLocation(_) | Target::PowerServiceLocations(_) => {
-                TargetLabel::PowerServiceLocation
+                TargetType::PowerServiceLocation
             }
-            Target::Other(p, _) | Target::Others(p, _) => TargetLabel::Private(p.to_string()),
+            Target::Other(p, _) | Target::Others(p, _) => TargetType::Private(p.to_string()),
         }
     }
 
