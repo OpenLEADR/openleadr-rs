@@ -6,6 +6,25 @@ use crate::{
 };
 use openleadr_wire::{event::EventContent, report::ReportContent, Event, Report};
 
+/// Client to manage the data of a specific event and the reports contained in that event
+///
+/// Can be created by a [`ProgramClient`](crate::ProgramClient)
+/// ```no_run
+/// use openadr_client::{Client, Filter};
+/// use openadr_wire::event::Priority;
+/// let client = Client::with_url("https://your-vtn.com".try_into().unwrap(), None);
+/// # tokio_test::block_on(async {
+/// let program = client.get_program_by_id(&"program-1".parse().unwrap()).await.unwrap();
+///
+/// // retrieve all events in that specific program
+/// let mut events = program.get_event_list(Filter::None).await.unwrap();
+/// let mut event = events.remove(0);
+///
+/// // Set event priority to maximum
+/// event.content_mut().priority = Priority::MAX;
+/// event.update().await.unwrap()
+/// # })
+/// ```
 #[derive(Debug)]
 pub struct EventClient {
     client: Arc<ClientRef>,

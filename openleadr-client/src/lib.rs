@@ -1,3 +1,39 @@
+#![warn(missing_docs)]
+
+//! # OpenADR 3.0 VEN client
+//!
+//! This is a client library to interact with an OpenADR 3.0 complaint VTN server.
+//! It mainly wraps the HTTP REST interface into an easy-to-use Rust API.
+//!
+//! Basic usage
+//! ```no_run
+//! # use openadr_client::{Client, ClientCredentials};
+//! # use openadr_wire::event::{EventInterval, EventType, EventValuesMap, Priority};
+//! # use openadr_wire::program::ProgramContent;
+//! # use openadr_wire::values_map::Value;
+//! # tokio_test::block_on(async {
+//! let credentials =
+//!     ClientCredentials::new("client_id".to_string(), "client_secret".to_string());
+//! let client = Client::with_url(
+//!     "https://your-vtn.com".try_into().unwrap(),
+//!     Some(credentials),
+//! );
+//! let new_program = ProgramContent::new("example-program-name".to_string());
+//! let example_program = client.create_program(new_program).await.unwrap();
+//! let mut new_event = example_program.new_event(vec![EventInterval {
+//!     id: 0,
+//!     interval_period: None,
+//!     payloads: vec![EventValuesMap {
+//!         value_type: EventType::Price,
+//!         values: vec![Value::Number(1.23)],
+//!     }],
+//! }]);
+//! new_event.priority = Priority::new(10);
+//! new_event.event_name = Some("Some descriptive name".to_string());
+//! example_program.create_event(new_event).await.unwrap();
+//! # })
+//! ```
+
 mod error;
 mod event;
 mod program;
@@ -39,23 +75,42 @@ pub(crate) use openleadr_wire::{
 };
 
 #[async_trait]
+/// Abstracts the implementation used for actual requests.
+///
+/// This is used for testing purposes such that we don't need
+/// to run an actual server instance but instead directly call into the axum router
 pub trait HttpClient: Debug {
+    #[allow(missing_docs)]
     fn request_builder(&self, method: Method, url: Url) -> RequestBuilder;
+    #[allow(missing_docs)]
     async fn send(&self, req: RequestBuilder) -> reqwest::Result<Response>;
 }
 
-/// Client used for interaction with a VTN.
+/// Client for managing top-level entities on a VTN, i.e., programs and VENs.
 ///
-/// Can be used to implement both, the VEN and the business logic
+/// Can be used to implement both, the VEN and the business logic.
+///
+/// If using the VTN of this project with the built-in OAuth authentication provider,
+/// the [`Client`] also allows managing the users.  
 #[derive(Debug, Clone)]
 pub struct Client {
     client_ref: Arc<ClientRef>,
 }
 
+/// Credentials necessary for authentication at the VTN
 pub struct ClientCredentials {
+    #[allow(missing_docs)]
     pub client_id: String,
     client_secret: String,
+    /// Margin to refresh the authentication token with the client_id and client_secret before it expired
+    /// This is helpful to prevent an "unauthorized"
+    /// due to small differences in client/server times and network latency
+    ///
+    /// **Default:** 60 sec
     pub refresh_margin: Duration,
+    /// Time the authorization token is typically valid for.
+    ///
+    /// **Default:** 3600 sec, i.e., one hour
     pub default_credential_expires_in: Duration,
 }
 
@@ -73,6 +128,10 @@ impl Debug for ClientCredentials {
 }
 
 impl ClientCredentials {
+    /// Creates new [`ClientCredentials`] with default values for
+    /// [`refresh_margin`](ClientCredentials::refresh_margin) and
+    /// [`default_credential_expires_in`](ClientCredentials::default_credential_expires_in)
+    /// (60 and 3600 sec, respectively)
     pub fn new(client_id: String, client_secret: String) -> Self {
         Self {
             client_id,
@@ -80,10 +139,6 @@ impl ClientCredentials {
             refresh_margin: Duration::from_secs(60),
             default_credential_expires_in: Duration::from_secs(3600),
         }
-    }
-
-    pub fn admin() -> Self {
-        Self::new("admin".to_string(), "admin".to_string())
     }
 }
 
@@ -103,7 +158,7 @@ impl Debug for AuthToken {
 }
 
 #[derive(Debug)]
-pub struct ClientRef {
+struct ClientRef {
     client: Box<dyn HttpClient + Send + Sync>,
     base_url: Url,
     default_page_size: usize,
@@ -118,12 +173,12 @@ impl ClientRef {
     /// credentials grant). The client id and secret are by default sent via
     /// HTTP Basic Auth.
     async fn ensure_auth(&self) -> Result<()> {
-        // if there is no auth data we don't do any authentication
+        // if there is no auth data, we don't do any authentication
         let Some(auth_data) = &self.auth_data else {
             return Ok(());
         };
 
-        // if there is a token and it is valid long enough, we don't have to do anything
+        // if there is a token, and it is valid long enough, we don't have to do anything
         if let Some(token) = self.auth_token.read().await.as_ref() {
             if token.since.elapsed() < token.expires_in - auth_data.refresh_margin {
                 return Ok(());
@@ -295,7 +350,7 @@ impl ClientRef {
 }
 
 #[derive(Debug)]
-pub struct ReqwestClientRef {
+struct ReqwestClientRef {
     client: reqwest::Client,
 }
 
@@ -310,14 +365,39 @@ impl HttpClient for ReqwestClientRef {
     }
 }
 
+/// Allows setting specific `skip` and `limit` values for list queries.
+///
+/// In most cases, you should not need this functionality
+/// but use the `_list` functions
+/// that automatically try to iterate though all pages to retrieve all entities
 pub struct PaginationOptions {
+    #[allow(missing_docs)]
     pub skip: usize,
+    #[allow(missing_docs)]
     pub limit: usize,
 }
 
+/// Filter based on TargetType and TargetValues as specified for various items.
+///
+/// **Please note:** This does only filter based on what is stored in the `target` field of an item
+/// (e.g., [`ProgramContent::targets`]) and should not get interpreted by the server.
+/// For example, setting the [`TargetType`] to [`ProgramName`](TargetType::ProgramName)
+/// will not filter based on the [`program_name`](ProgramContent::program_name)
+/// value but only consider what is stored in the [`targets`](`ProgramContent::targets`)
+/// of that program.
+///
+/// Unfortunately, the specification is not very clear about this behavior,
+/// so some servers might interpret it differently.
+/// There has been some discussion with the authors of the standard in
+/// <https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/83> (sadly not public).
 #[derive(Debug, Clone)]
 pub enum Filter<'a> {
+    /// Do not apply any filtering
     None,
+    /// Filter by [`TargetType`] and a list of values.
+    ///
+    /// It will be encoded to the request as query parameters,
+    /// e.g., `/programs?targetType=GROUP&targetValues=Group-1&targetValues=Group-2`.
     By(TargetType, &'a [&'a str]),
 }
 
@@ -342,8 +422,8 @@ impl Client {
         Self::with_reqwest(base_url, client, auth)
     }
 
-    /// Create a new client, but use the specific reqwest client instead of
-    /// the default one. This allows you to configure proxy settings, timeouts, etc.
+    /// Create a new client with a specific [`reqwest::Client`] instead of
+    /// the default one. This allows configuring proxy settings, timeouts, etc.
     pub fn with_reqwest(
         base_url: Url,
         client: reqwest::Client,
@@ -352,6 +432,11 @@ impl Client {
         Self::with_http_client(base_url, Box::new(ReqwestClientRef { client }), auth)
     }
 
+    /// Create a new client with anything that implements the [`HttpClient`] trait.
+    ///
+    /// This is mainly helpful for the integration tests
+    /// and should most likely not be used for other purposes.
+    /// Please use [`Client::with_reqwest`] for detailed HTTP client configuration.
     pub fn with_http_client(
         base_url: Url,
         client: Box<dyn HttpClient + Send + Sync>,
@@ -373,7 +458,7 @@ impl Client {
         }
     }
 
-    /// Create a new program on the VTN
+    /// Create a new program on the VTN.
     pub async fn create_program(&self, program_content: ProgramContent) -> Result<ProgramClient> {
         let program = self.client_ref.post("programs", &program_content).await?;
         Ok(ProgramClient::from_program(self.clone(), program))
@@ -506,7 +591,7 @@ impl Client {
 
     /// Get all VENs from the VTN with the given query parameters.
     ///
-    /// It automatically tries to iterate pages where necessary.
+    /// The client automatically tries to iterate pages where necessary.
     pub async fn get_ven_list(&self, filter: Filter<'_>) -> Result<Vec<VenClient>> {
         self.client_ref
             .iterate_pages(|skip, limit| self.get_vens(skip, limit, filter.clone()))

@@ -7,6 +7,7 @@ use openleadr_wire::{
 };
 use std::sync::Arc;
 
+/// A client for interacting with the data in a specific VEN and the resources contained in the VEN.
 #[derive(Debug)]
 pub struct VenClient {
     client: Arc<ClientRef>,
@@ -18,31 +19,35 @@ impl VenClient {
         Self { client, data }
     }
 
+    /// Get the VEN ID
     pub fn id(&self) -> &VenId {
         &self.data.id
     }
 
+    /// Get the time the VEN was created on the VTN
     pub fn created_date_time(&self) -> DateTime<Utc> {
         self.data.created_date_time
     }
 
+    /// Get the time the VEN was last modified on the VTN
     pub fn modification_date_time(&self) -> DateTime<Utc> {
         self.data.modification_date_time
     }
 
+    /// Read the content of the VEN
     pub fn content(&self) -> &VenContent {
         &self.data.content
     }
 
-    /// Modify the data of the VEN.
+    /// Modify the content of the VEN.
     /// Make sure to call [`update`](Self::update)
-    /// after your modifications to store them on the VTN
+    /// after your modifications to store them on the VTN.
     pub fn content_mut(&mut self) -> &mut VenContent {
         &mut self.data.content
     }
 
-    /// Stores any modifications made to the VEN content at the server
-    /// and refreshes the locally stored data with the returned VTN data
+    /// Stores any modifications made to the VEN content at the VTN
+    /// and refreshes the data stored locally with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
         self.data = self
             .client
@@ -59,6 +64,7 @@ impl VenClient {
         self.client.delete(&format!("vens/{}", self.id())).await
     }
 
+    /// Create a resource as a child of this VEN
     pub async fn create_resource(&self, resource: ResourceContent) -> Result<ResourceClient> {
         let resource = self
             .client
@@ -98,6 +104,9 @@ impl VenClient {
             .collect())
     }
 
+    /// Get all resources stored as children of this VEN.
+    ///
+    /// The client automatically tries to iterate pages where necessary.
     pub async fn get_all_resources(
         &self,
         resource_name: Option<&str>,
@@ -107,6 +116,7 @@ impl VenClient {
             .await
     }
 
+    /// Get a resource by its ID
     pub async fn get_resource_by_id(&self, id: &ResourceId) -> Result<ResourceClient> {
         let resource = self
             .client
@@ -119,6 +129,8 @@ impl VenClient {
         ))
     }
 
+    /// Get VEN by name from VTN.
+    /// According to the spec, a [`resource_name`](ResourceContent::resource_name) must be unique per VEN.
     pub async fn get_resource_by_name(&self, name: &str) -> Result<ResourceClient> {
         let mut resources: Vec<Resource> = self
             .client

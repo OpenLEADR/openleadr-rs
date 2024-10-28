@@ -2,6 +2,7 @@ use reqwest::StatusCode;
 
 /// Errors that can occur using the [`Client`](crate::Client)
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub enum Error {
     Reqwest(reqwest::Error),
     Serde(serde_json::Error),
@@ -11,11 +12,19 @@ pub enum Error {
     OAuthTokenNotBearer,
     ObjectNotFound,
     DuplicateObject,
+    /// Error if you try
+    /// to create an event underneath a program
+    /// where the [`program_id`](crate::EventContent::program_id)
+    /// in the [`EventContent`](crate::EventContent)
+    /// does not match the program ID of the [`ProgramClient`](crate::ProgramClient),
+    /// for example.
     InvalidParentObject,
     InvalidInterval,
 }
 
 impl Error {
+    /// Checks if the [`Problem`](openadr_wire::problem::Problem) response of the VTN is a
+    /// `409 Conflict` HTTP status code.
     pub fn is_conflict(&self) -> bool {
         match self {
             Error::Problem(openleadr_wire::problem::Problem { status, .. }) => {
@@ -25,6 +34,7 @@ impl Error {
         }
     }
 
+    #[allow(missing_docs)]
     pub fn is_not_found(&self) -> bool {
         match self {
             Error::Problem(openleadr_wire::problem::Problem { status, .. }) => {

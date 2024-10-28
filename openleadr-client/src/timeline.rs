@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::{collections::HashSet, ops::Range};
 
 use chrono::{DateTime, Utc};
@@ -12,7 +11,7 @@ use openleadr_wire::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InternalInterval {
-    /// Id so that split itervals with a randomized start don't start randomly twice
+    /// Id so that split intervals with a randomized start don't start randomly twice
     id: u32,
     /// Relative priority of event
     priority: Priority,
@@ -33,6 +32,7 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    /// Create an empty [`Timeline`]
     pub fn new() -> Self {
         Self {
             data: rangemap::RangeMap::new(),
@@ -57,7 +57,7 @@ impl Timeline {
                 .or(program.interval_period.as_ref());
 
             for event_interval in &event.intervals {
-                // use the even't interval period when the interval doesn't specify one
+                // use the event interval period when the interval doesn't specify one
                 let period = event_interval.interval_period.as_ref().or(default_period)?;
 
                 let IntervalPeriod {
@@ -147,7 +147,7 @@ impl<'a> Iterator for Iter<'a> {
         let (range, internal) = self.iter.next()?;
 
         let interval = Interval {
-            // only the first occurence of an id should randomize its start
+            // only the first occurrence of an id should randomize its start
             randomize_start: match self.seen.insert(internal.id) {
                 true => internal.randomize_start,
                 false => None,
@@ -220,9 +220,10 @@ mod test {
         )
     }
 
-    // the spec does not specify the behavior when two intervals with the same priority overlap.
+    // The spec does not specify the behavior when two intervals with the same priority overlap.
     // Our current implementation uses `RangeMap`, and its behavior is to overwrite the existing
-    // range with a new one. In other words: the event that is inserted last wins.
+    // range with a new one.
+    // In other words: the event which is inserted last wins.
     #[test]
     fn overlap_same_priority() {
         let program = ProgramContent::new("p");
