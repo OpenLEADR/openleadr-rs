@@ -23,6 +23,11 @@ services:
       POSTGRES_DB: $PG_DB
       POSTGRES_PASSWORD: $PG_PASSWORD
       TZ: $PG_TZ
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U openadr" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     ports: 
       - ${PG_PORT}:5432
     volumes:

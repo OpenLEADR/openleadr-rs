@@ -12,9 +12,6 @@ RUN SQLX_OFFLINE=true cargo build --release --bin openadr-vtn
 RUN cp /app/target/release/openadr-vtn /app/openadr-vtn
 
 FROM debian:bookworm-slim as final
-#These are needed in the final container to correctly support ssl
-RUN apt-get update && apt-get install openssl libssl-dev -y
-RUN apt-get install -y --no-install-recommends ca-certificates
 
 #create a non root user to run the binary
 ARG user=nonroot
