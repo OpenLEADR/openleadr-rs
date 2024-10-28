@@ -2,7 +2,7 @@ use crate::common::setup;
 use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
     resource::ResourceContent,
-    target::{TargetEntry, TargetType, TargetMap},
+    target::{TargetEntry, TargetMap, TargetType},
     values_map::{Value, ValueType, ValuesMap},
     ven::VenContent,
 };

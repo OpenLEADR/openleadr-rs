@@ -34,28 +34,35 @@ impl VenClient {
         &self.data.content
     }
 
+    /// Modify the data of the VEN.
+    /// Make sure to call [`update`](Self::update)
+    /// after your modifications to store them on the VTN
     pub fn content_mut(&mut self) -> &mut VenContent {
         &mut self.data.content
     }
 
+    /// Stores any modifications made to the VEN content at the server
+    /// and refreshes the locally stored data with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
         self.data = self
             .client
-            .put(&format!("vens/{}", self.id()), &self.data.content, &[])
+            .put(&format!("vens/{}", self.id()), &self.data.content)
             .await?;
         Ok(())
     }
 
+    /// Delete the VEN from the VTN.
+    ///
+    /// Depending on the VTN implementation,
+    /// you may need to delete all associated resources before you can delete the VEN
     pub async fn delete(self) -> Result<Ven> {
-        self.client
-            .delete(&format!("vens/{}", self.id()), &[])
-            .await
+        self.client.delete(&format!("vens/{}", self.id())).await
     }
 
     pub async fn create_resource(&self, resource: ResourceContent) -> Result<ResourceClient> {
         let resource = self
             .client
-            .post(&format!("vens/{}/resources", self.id()), &resource, &[])
+            .post(&format!("vens/{}/resources", self.id()), &resource)
             .await?;
         Ok(ResourceClient::from_resource(
             Arc::clone(&self.client),

@@ -232,33 +232,33 @@ impl ClientRef {
         self.request(request, query).await
     }
 
-    async fn post<S, T>(&self, path: &str, body: &S, query: &[(&str, &str)]) -> Result<T>
+    async fn post<S, T>(&self, path: &str, body: &S) -> Result<T>
     where
         S: serde::ser::Serialize + Sync,
         T: serde::de::DeserializeOwned,
     {
         let url = self.base_url.join(path)?;
         let request = self.client.request_builder(Method::POST, url).json(body);
-        self.request(request, query).await
+        self.request(request, &[]).await
     }
 
-    async fn put<S, T>(&self, path: &str, body: &S, query: &[(&str, &str)]) -> Result<T>
+    async fn put<S, T>(&self, path: &str, body: &S) -> Result<T>
     where
         S: serde::ser::Serialize + Sync,
         T: serde::de::DeserializeOwned,
     {
         let url = self.base_url.join(path)?;
         let request = self.client.request_builder(Method::PUT, url).json(body);
-        self.request(request, query).await
+        self.request(request, &[]).await
     }
 
-    async fn delete<T>(&self, path: &str, query: &[(&str, &str)]) -> Result<T>
+    async fn delete<T>(&self, path: &str) -> Result<T>
     where
         T: serde::de::DeserializeOwned,
     {
         let url = self.base_url.join(path)?;
         let request = self.client.request_builder(Method::DELETE, url);
-        self.request(request, query).await
+        self.request(request, &[]).await
     }
 
     fn default_page_size(&self) -> usize {
@@ -375,10 +375,7 @@ impl Client {
 
     /// Create a new program on the VTN
     pub async fn create_program(&self, program_content: ProgramContent) -> Result<ProgramClient> {
-        let program = self
-            .client_ref
-            .post("programs", &program_content, &[])
-            .await?;
+        let program = self.client_ref.post("programs", &program_content).await?;
         Ok(ProgramClient::from_program(self.clone(), program))
     }
 
@@ -404,7 +401,9 @@ impl Client {
             .collect())
     }
 
-    /// Get a list of programs from the VTN with the given query parameters
+    /// Get all programs from the VTN with the given query parameters
+    ///
+    /// It automatically tries to iterate pages where necessary.
     pub async fn get_program_list(&self, filter: Filter<'_>) -> Result<Vec<ProgramClient>> {
         self.client_ref
             .iterate_pages(|skip, limit| {
@@ -421,12 +420,6 @@ impl Client {
             .await?;
 
         Ok(ProgramClient::from_program(self.clone(), program))
-    }
-
-    /// Create a new event on the VTN
-    pub async fn create_event(&self, event_data: EventContent) -> Result<EventClient> {
-        let event = self.client_ref.post("events", &event_data, &[]).await?;
-        Ok(EventClient::from_event(self.client_ref.clone(), event))
     }
 
     /// Lowlevel operation that gets a list of events from the VTN with the given query parameters
@@ -456,7 +449,9 @@ impl Client {
             .collect())
     }
 
-    /// Get a list of events from the VTN with the given query parameters
+    /// Get all events from the VTN with the given query parameters.
+    ///
+    /// It automatically tries to iterate pages where necessary.
     pub async fn get_event_list(
         &self,
         program_id: Option<&ProgramId>,
@@ -483,8 +478,9 @@ impl Client {
         Ok(EventClient::from_event(self.client_ref.clone(), event))
     }
 
+    /// Create a new VEN entity at the VTN. The content should be created with [`VenContent::new`].
     pub async fn create_ven(&self, ven: VenContent) -> Result<VenClient> {
-        let ven = self.client_ref.post("vens", &ven, &[]).await?;
+        let ven = self.client_ref.post("vens", &ven).await?;
         Ok(VenClient::from_ven(self.client_ref.clone(), ven))
     }
 
@@ -508,12 +504,16 @@ impl Client {
             .collect())
     }
 
+    /// Get all VENs from the VTN with the given query parameters.
+    ///
+    /// It automatically tries to iterate pages where necessary.
     pub async fn get_ven_list(&self, filter: Filter<'_>) -> Result<Vec<VenClient>> {
         self.client_ref
             .iterate_pages(|skip, limit| self.get_vens(skip, limit, filter.clone()))
             .await
     }
 
+    /// Get VEN by id from VTN
     pub async fn get_ven_by_id(&self, id: &VenId) -> Result<VenClient> {
         let ven = self
             .client_ref
@@ -522,6 +522,8 @@ impl Client {
         Ok(VenClient::from_ven(self.client_ref.clone(), ven))
     }
 
+    /// Get VEN by name from VTN.
+    /// According to the spec, a [`ven_name`](VenContent::ven_name) must be unique for the whole VTN instance.
     pub async fn get_ven_by_name(&self, name: &str) -> Result<VenClient> {
         let mut vens: Vec<Ven> = self.client_ref.get("vens", &[("venName", name)]).await?;
         match vens[..] {

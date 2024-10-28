@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use openleadr_client::{Error, Filter, PaginationOptions};
 use openleadr_wire::{
     program::ProgramContent,
-    target::{TargetEntry, TargetType, TargetMap},
+    target::{TargetEntry, TargetMap, TargetType},
 };
 use sqlx::PgPool;
 

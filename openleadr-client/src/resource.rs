@@ -49,7 +49,6 @@ impl ResourceClient {
             .put(
                 &format!("vens/{}/resources/{}", self.ven_id, self.id()),
                 &self.data.content,
-                &[],
             )
             .await?;
         Ok(())
@@ -58,10 +57,7 @@ impl ResourceClient {
     /// Delete the resource from the VTN
     pub async fn delete(self) -> Result<Resource> {
         self.client
-            .delete(
-                &format!("vens/{}/resources/{}", self.ven_id, self.id()),
-                &[],
-            )
+            .delete(&format!("vens/{}/resources/{}", self.ven_id, self.id()))
             .await
     }
 }

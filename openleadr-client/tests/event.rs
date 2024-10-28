@@ -3,7 +3,7 @@ use openleadr_client::{Error, Filter, PaginationOptions};
 use openleadr_wire::{
     event::{EventContent, EventInterval, EventType, EventValuesMap, Priority},
     program::{ProgramContent, ProgramId},
-    target::{TargetEntry, TargetType, TargetMap},
+    target::{TargetEntry, TargetMap, TargetType},
     values_map::Value,
 };
 use sqlx::PgPool;

@@ -498,7 +498,7 @@ mod tests {
         event::{EventPayloadDescriptor, EventType},
         interval::IntervalPeriod,
         program::{PayloadDescriptor, ProgramContent, ProgramDescription},
-        target::{TargetEntry, TargetType, TargetMap},
+        target::{TargetEntry, TargetMap, TargetType},
         Program,
     };
     use sqlx::PgPool;

@@ -10,7 +10,7 @@ use crate::{
     jwt::{BusinessIds, Claims},
 };
 use dotenvy::dotenv;
-use openleadr_wire::target::{TargetType, TargetMap};
+use openleadr_wire::target::{TargetMap, TargetType};
 use resource::PgResourceStorage;
 use serde::Serialize;
 use sqlx::PgPool;

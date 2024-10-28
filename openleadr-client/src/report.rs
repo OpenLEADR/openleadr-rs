@@ -42,7 +42,7 @@ impl ReportClient {
     pub async fn update(&mut self) -> Result<()> {
         let res = self
             .client
-            .put(&format!("reports/{}", self.id()), &self.data.content, &[])
+            .put(&format!("reports/{}", self.id()), &self.data.content)
             .await?;
         self.data = res;
         Ok(())
@@ -50,8 +50,6 @@ impl ReportClient {
 
     /// Delete the report from the VTN
     pub async fn delete(self) -> Result<()> {
-        self.client
-            .delete(&format!("reports/{}", self.id()), &[])
-            .await
+        self.client.delete(&format!("reports/{}", self.id())).await
     }
 }

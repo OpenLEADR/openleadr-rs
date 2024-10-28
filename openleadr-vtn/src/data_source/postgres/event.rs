@@ -397,7 +397,7 @@ mod tests {
     use openleadr_wire::{
         event::{EventContent, EventInterval, EventType, EventValuesMap},
         interval::IntervalPeriod,
-        target::{TargetEntry, TargetType, TargetMap},
+        target::{TargetEntry, TargetMap, TargetType},
         values_map::Value,
         Event,
     };

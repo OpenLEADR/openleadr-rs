@@ -44,16 +44,14 @@ impl EventClient {
     pub async fn update(&mut self) -> Result<()> {
         self.data = self
             .client
-            .put(&format!("events/{}", self.id()), &self.data.content, &[])
+            .put(&format!("events/{}", self.id()), &self.data.content)
             .await?;
         Ok(())
     }
 
     /// Delete the event from the VTN
     pub async fn delete(self) -> Result<Event> {
-        self.client
-            .delete(&format!("events/{}", self.id()), &[])
-            .await
+        self.client.delete(&format!("events/{}", self.id())).await
     }
 
     /// Create a new report object
@@ -78,7 +76,7 @@ impl EventClient {
             return Err(Error::InvalidParentObject);
         }
 
-        let report = self.client.post("events", &report_data, &[]).await?;
+        let report = self.client.post("events", &report_data).await?;
         Ok(ReportClient::from_report(self.client.clone(), report))
     }
 

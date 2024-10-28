@@ -332,7 +332,7 @@ mod tests {
         error::AppError,
     };
     use openleadr_wire::{
-        target::{TargetEntry, TargetType, TargetMap},
+        target::{TargetEntry, TargetMap, TargetType},
         ven::{Ven, VenContent},
     };
     use sqlx::PgPool;
