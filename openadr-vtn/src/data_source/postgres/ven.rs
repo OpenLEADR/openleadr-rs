@@ -1,7 +1,7 @@
 use crate::{
     api::ven::QueryParams,
     data_source::{
-        postgres::{to_json_value, PgTargetsFilter},
+        postgres::{resource::PgResourceStorage, to_json_value, PgTargetsFilter},
         Crud, VenCrud, VenPermissions,
     },
     error::AppError,
@@ -10,7 +10,6 @@ use axum::async_trait;
 use chrono::{DateTime, Utc};
 use openadr_wire::{
     resource::Resource,
-    target::TargetLabel,
     ven::{Ven, VenContent, VenId},
 };
 use sqlx::PgPool;
@@ -341,6 +340,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
+                ven_name: None,
                 target_type: None,
                 target_values: None,
                 skip: 0,

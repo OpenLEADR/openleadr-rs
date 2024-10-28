@@ -12,7 +12,6 @@ mod common;
 
 #[tokio::test]
 #[serial]
-#[ignore = "Filtering by ven_name depends on #21"]
 async fn crud() {
     let ctx = setup(AuthRole::VenManager).await;
 
@@ -48,7 +47,7 @@ async fn crud() {
     }
 
     // Retrieve one by name
-    let mut get_ven = ctx.get_ven_by_name("ven-test").await.unwrap();
+    let mut get_ven = ctx.get_ven_by_name("test-ven").await.unwrap();
     assert_eq!(get_ven.content(), create_ven.content());
     assert_eq!(get_ven.content().ven_name, "test-ven");
 
@@ -73,7 +72,7 @@ async fn crud() {
         assert_eq!(get_ven.content().attributes, updated_attributes);
         assert_eq!(get_ven.content().targets, updated_targets);
 
-        let get_ven2 = ctx.get_ven_by_name("ven-test").await.unwrap();
+        let get_ven2 = ctx.get_ven_by_name("ven-test-update").await.unwrap();
         assert_eq!(get_ven2.content().ven_name, updated_name);
         assert_eq!(get_ven2.content().attributes, updated_attributes);
         assert_eq!(get_ven2.content().targets, updated_targets);

@@ -12,7 +12,6 @@ mod common;
 
 #[tokio::test]
 #[serial]
-#[ignore = "Filtering by resource_name depends on #21"]
 async fn crud() {
     let ctx = setup(AuthRole::VenManager).await;
 
