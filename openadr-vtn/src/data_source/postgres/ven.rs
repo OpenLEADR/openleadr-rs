@@ -1,18 +1,20 @@
 use crate::{
     api::ven::QueryParams,
     data_source::{
-        postgres::{to_json_value, PgTargetsFilter},
+        postgres::{resource::PgResourceStorage, to_json_value, PgTargetsFilter},
         Crud, VenCrud, VenPermissions,
     },
     error::AppError,
 };
 use axum::async_trait;
 use chrono::{DateTime, Utc};
-use openadr_wire::ven::{Ven, VenContent, VenId};
+use openadr_wire::{
+    resource::Resource,
+    ven::{Ven, VenContent, VenId},
+};
 use sqlx::PgPool;
+use std::collections::{hash_map::Entry, HashMap};
 use tracing::{error, trace};
-
-use super::resource::PgResourceStorage;
 
 #[async_trait]
 impl VenCrud for PgVenStorage {}
@@ -37,12 +39,13 @@ struct PostgresVen {
     targets: Option<serde_json::Value>,
 }
 
-impl TryFrom<PostgresVen> for Ven {
-    type Error = AppError;
-
-    #[tracing::instrument(name = "TryFrom<PostgresVen> for Ven")]
-    fn try_from(value: PostgresVen) -> Result<Self, Self::Error> {
-        let attributes = match value.attributes {
+impl PostgresVen {
+    #[tracing::instrument]
+    fn try_into_ven_with_resources(
+        self,
+        resources: Option<Vec<Resource>>,
+    ) -> Result<Ven, AppError> {
+        let attributes = match self.attributes {
             None => None,
             Some(t) => serde_json::from_value(t)
                 .inspect_err(|err| {
@@ -53,7 +56,7 @@ impl TryFrom<PostgresVen> for Ven {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = match value.targets {
+        let targets = match self.targets {
             None => None,
             Some(t) => serde_json::from_value(t)
                 .inspect_err(|err| {
@@ -62,17 +65,11 @@ impl TryFrom<PostgresVen> for Ven {
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
 
-        Ok(Self {
-            id: value.id.parse()?,
-            created_date_time: value.created_date_time,
-            modification_date_time: value.modification_date_time,
-            content: VenContent {
-                object_type: Default::default(),
-                ven_name: value.ven_name,
-                targets,
-                attributes,
-                resources: Default::default(),
-            },
+        Ok(Ven {
+            id: self.id.parse()?,
+            created_date_time: self.created_date_time,
+            modification_date_time: self.modification_date_time,
+            content: VenContent::new(self.ven_name, attributes, targets, resources),
         })
     }
 }
@@ -143,7 +140,7 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?;
+        .try_into_ven_with_resources(None)?;
 
         trace!(ven_id = ven.id.as_str(), "created ven");
 
@@ -157,7 +154,14 @@ impl Crud for PgVenStorage {
     ) -> Result<Self::Type, Self::Error> {
         let ids = permissions.as_value();
 
-        let mut ven: Ven = sqlx::query_as!(
+        let resources = PgResourceStorage::retrieve_by_ven(&self.db, id).await?;
+        let resources = if resources.is_empty() {
+            None
+        } else {
+            Some(resources)
+        };
+
+        let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
             SELECT *
@@ -170,9 +174,8 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?;
+        .try_into_ven_with_resources(resources)?;
 
-        ven.content.resources = Some(PgResourceStorage::retrieve_by_ven(&self.db, id).await?);
         trace!(ven_id = ven.id.as_str(), "retrieved ven");
 
         Ok(ven)
@@ -188,7 +191,7 @@ impl Crud for PgVenStorage {
 
         let ids = permissions.as_value();
 
-        let mut vens: Vec<Ven> = sqlx::query_as!(
+        let pg_vens: Vec<PostgresVen> = sqlx::query_as!(
             PostgresVen,
             r#"
             SELECT DISTINCT
@@ -218,26 +221,32 @@ impl Crud for PgVenStorage {
             pg_filter.limit,
         )
         .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()?;
+        .await?;
 
-        let ven_ids: Vec<String> = vens.iter().map(|v| v.id.to_string()).collect();
+        let ven_ids: Vec<String> = pg_vens.iter().map(|v| v.id.to_string()).collect();
         let resources = PgResourceStorage::retrieve_by_vens(&self.db, &ven_ids).await?;
 
-        for ven in &mut vens {
-            ven.content.resources = Some(vec![]);
-
-            for resource in &resources {
-                if resource.ven_id == ven.id {
-                    ven.content
-                        .resources
-                        .get_or_insert_with(Vec::new)
-                        .push(resource.clone());
+        let mut resources_map = resources.into_iter().fold(
+            HashMap::new(),
+            |mut map: HashMap<String, Vec<Resource>>, resource| {
+                match map.entry(resource.ven_id.to_string()) {
+                    Entry::Occupied(mut e) => e.get_mut().push(resource),
+                    Entry::Vacant(e) => {
+                        e.insert(vec![resource]);
+                    }
                 }
-            }
-        }
+                map
+            },
+        );
+
+        let vens = pg_vens
+            .into_iter()
+            .map(|ven| {
+                let id = ven.id.to_string();
+                ven.try_into_ven_with_resources(resources_map.remove(&id))
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+
         trace!("retrieved {} ven(s)", vens.len());
 
         Ok(vens)
@@ -249,7 +258,14 @@ impl Crud for PgVenStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let mut ven: Ven = sqlx::query_as!(
+        let resources = PgResourceStorage::retrieve_by_ven(&self.db, id).await?;
+        let resources = if resources.is_empty() {
+            None
+        } else {
+            Some(resources)
+        };
+
+        let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
             UPDATE ven
@@ -267,9 +283,8 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?;
+        .try_into_ven_with_resources(resources)?;
 
-        ven.content.resources = Some(PgResourceStorage::retrieve_by_ven(&self.db, id).await?);
         trace!(ven_id = id.as_str(), "updated ven");
 
         Ok(ven)
@@ -289,7 +304,7 @@ impl Crud for PgVenStorage {
             ))?
         }
 
-        let mut ven: Ven = sqlx::query_as!(
+        let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
             DELETE FROM ven
@@ -300,9 +315,8 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?;
+        .try_into_ven_with_resources(None)?;
 
-        ven.content.resources = Some(vec![]);
         trace!(ven_id = id.as_str(), "deleted ven");
 
         Ok(ven)
@@ -318,7 +332,7 @@ mod tests {
         error::AppError,
     };
     use openadr_wire::{
-        values_map::{Value, ValueType, ValuesMap},
+        target::{TargetEntry, TargetLabel, TargetMap},
         ven::{Ven, VenContent},
     };
     use sqlx::PgPool;
@@ -340,22 +354,21 @@ mod tests {
             id: "ven-1".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: VenContent {
-                object_type: Default::default(),
-                ven_name: "ven-1-name".to_string(),
-                targets: Some(vec![
-                    ValuesMap {
-                        value_type: ValueType("GROUP".into()),
-                        values: vec![Value::String("group-1".into())],
+            content: VenContent::new(
+                "ven-1-name".to_string(),
+                None,
+                Some(TargetMap(vec![
+                    TargetEntry {
+                        label: TargetLabel::Group,
+                        values: ["group-1".to_string()],
                     },
-                    ValuesMap {
-                        value_type: ValueType("PRIVATE_LABEL".into()),
-                        values: vec![Value::String("private value".into())],
+                    TargetEntry {
+                        label: TargetLabel::Private("PRIVATE_LABEL".into()),
+                        values: ["private value".to_string()],
                     },
-                ]),
-                attributes: None,
-                resources: Some(vec![]),
-            },
+                ])),
+                None,
+            ),
         }
     }
 
@@ -364,13 +377,7 @@ mod tests {
             id: "ven-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: VenContent {
-                object_type: Default::default(),
-                ven_name: "ven-2-name".to_string(),
-                targets: None,
-                attributes: None,
-                resources: Some(vec![]),
-            },
+            content: VenContent::new("ven-2-name".to_string(), None, None, None),
         }
     }
 

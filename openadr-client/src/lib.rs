@@ -2,32 +2,35 @@ mod error;
 mod event;
 mod program;
 mod report;
+mod resource;
 mod target;
 mod timeline;
+mod ven;
 
 use axum::async_trait;
-use openadr_wire::{event::EventId, Event};
+use openadr_wire::{event::EventId, Event, Ven};
 use std::{
     fmt::Debug,
+    future::Future,
     sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::RwLock;
 
-use axum::body::Body;
-use http_body_util::BodyExt;
 use reqwest::{Method, RequestBuilder, Response};
-use tower::{Service, ServiceExt};
 use url::Url;
 
 pub use error::*;
 pub use event::*;
 pub use program::*;
 pub use report::*;
+pub use resource::*;
 pub use target::*;
 pub use timeline::*;
+pub use ven::*;
 
 use crate::error::Result;
+use openadr_wire::ven::{VenContent, VenId};
 pub(crate) use openadr_wire::{
     event::EventContent,
     program::{ProgramContent, ProgramId},
@@ -36,7 +39,7 @@ pub(crate) use openadr_wire::{
 };
 
 #[async_trait]
-trait HttpClient: Debug {
+pub trait HttpClient: Debug {
     fn request_builder(&self, method: Method, url: Url) -> RequestBuilder;
     async fn send(&self, req: RequestBuilder) -> reqwest::Result<Response>;
 }
@@ -261,6 +264,34 @@ impl ClientRef {
     fn default_page_size(&self) -> usize {
         self.default_page_size
     }
+
+    async fn iterate_pages<T, Fut>(
+        &self,
+        single_page_req: impl Fn(usize, usize) -> Fut,
+    ) -> Result<Vec<T>>
+    where
+        Fut: Future<Output = Result<Vec<T>>>,
+    {
+        let page_size = self.default_page_size();
+        let mut items = vec![];
+        let mut page = 0;
+        // TODO: pagination should depend on that the server indicated there are more results
+        loop {
+            let received = single_page_req(page * page_size, page_size).await?;
+            let received_all = received.len() < page_size;
+            for item in received {
+                items.push(item);
+            }
+
+            if received_all {
+                break;
+            } else {
+                page += 1;
+            }
+        }
+
+        Ok(items)
+    }
 }
 
 #[derive(Debug)]
@@ -279,65 +310,29 @@ impl HttpClient for ReqwestClientRef {
     }
 }
 
-#[derive(Debug)]
-pub struct MockClientRef {
-    router: Arc<tokio::sync::Mutex<axum::Router>>,
-}
-
-impl MockClientRef {
-    pub fn new(router: axum::Router) -> Self {
-        MockClientRef {
-            router: Arc::new(tokio::sync::Mutex::new(router)),
-        }
-    }
-
-    pub fn into_client(self, auth: Option<ClientCredentials>) -> Client {
-        let client = ClientRef {
-            client: Box::new(self),
-            base_url: Url::parse("https://example.com/").unwrap(),
-            default_page_size: 50,
-            auth_data: auth,
-            auth_token: RwLock::new(None),
-        };
-
-        Client::new(client)
-    }
-}
-
-#[async_trait]
-impl HttpClient for MockClientRef {
-    fn request_builder(&self, method: Method, url: Url) -> RequestBuilder {
-        reqwest::Client::new().request(method, url)
-    }
-
-    async fn send(&self, req: RequestBuilder) -> reqwest::Result<Response> {
-        let request = axum::http::Request::try_from(req.build().unwrap()).unwrap();
-
-        let response =
-            ServiceExt::<axum::http::Request<Body>>::ready(&mut *self.router.lock().await)
-                .await
-                .unwrap()
-                .call(request)
-                .await
-                .unwrap();
-
-        let (parts, body) = response.into_parts();
-        let body = body.collect().await.unwrap().to_bytes();
-        let body = reqwest::Body::from(body);
-        let response = axum::http::Response::from_parts(parts, body);
-
-        Ok(response.into())
-    }
-}
-
 pub struct PaginationOptions {
     pub skip: usize,
     pub limit: usize,
 }
 
+#[derive(Debug, Clone)]
 pub enum Filter<'a> {
     None,
     By(TargetLabel, &'a [&'a str]),
+}
+
+impl<'a> Filter<'a> {
+    pub(crate) fn to_query_params(&'a self) -> Vec<(&'a str, &'a str)> {
+        let mut query = vec![];
+        if let Filter::By(ref target_label, target_values) = self {
+            query.push(("targetType", target_label.as_str()));
+
+            for target_value in *target_values {
+                query.push(("targetValues", *target_value));
+            }
+        }
+        query
+    }
 }
 
 impl Client {
@@ -354,14 +349,21 @@ impl Client {
         client: reqwest::Client,
         auth: Option<ClientCredentials>,
     ) -> Self {
+        Self::with_http_client(base_url, Box::new(ReqwestClientRef { client }), auth)
+    }
+
+    pub fn with_http_client(
+        base_url: Url,
+        client: Box<dyn HttpClient + Send + Sync>,
+        auth: Option<ClientCredentials>,
+    ) -> Self {
         let client_ref = ClientRef {
-            client: Box::new(ReqwestClientRef { client }),
+            client,
             base_url,
             default_page_size: 50,
             auth_data: auth,
             auth_token: RwLock::new(None),
         };
-
         Self::new(client_ref)
     }
 
@@ -389,20 +391,10 @@ impl Client {
         // convert query params
         let skip_str = pagination.skip.to_string();
         let limit_str = pagination.limit.to_string();
-
         // insert into query params
-        let mut query = vec![];
+        let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
 
-        if let Filter::By(ref target_label, target_values) = filter {
-            query.push(("targetType", target_label.as_str()));
-
-            for target_value in target_values {
-                query.push(("targetValues", *target_value));
-            }
-        }
-
-        query.push(("skip", &skip_str));
-        query.push(("limit", &limit_str));
+        query.extend_from_slice(filter.to_query_params().as_slice());
 
         // send request and return response
         let programs: Vec<Program> = self.client_ref.get("programs", &query).await?;
@@ -413,61 +405,12 @@ impl Client {
     }
 
     /// Get a list of programs from the VTN with the given query parameters
-    pub async fn get_program_list(&self, target: Target<'_>) -> Result<Vec<ProgramClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut programs = vec![];
-        let mut page = 0;
-        loop {
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self
-                .get_programs(
-                    Filter::By(target.target_label(), target.target_values()),
-                    pagination,
-                )
-                .await?;
-            let received_all = received.len() < page_size;
-            for program in received {
-                programs.push(program);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(programs)
-    }
-
-    /// Get all programs from the VTN, trying to paginate whenever possible
-    pub async fn get_all_programs(&self) -> Result<Vec<ProgramClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut programs = vec![];
-
-        for page in 0.. {
-            // TODO: this pagination should really depend on that the server indicated there are more results
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self.get_programs(Filter::None, pagination).await?;
-            let received_all = received.len() < page_size;
-            for program in received {
-                programs.push(program);
-            }
-
-            if received_all {
-                break;
-            }
-        }
-
-        Ok(programs)
+    pub async fn get_program_list(&self, filter: Filter<'_>) -> Result<Vec<ProgramClient>> {
+        self.client_ref
+            .iterate_pages(|skip, limit| {
+                self.get_programs(filter.clone(), PaginationOptions { skip, limit })
+            })
+            .await
     }
 
     /// Get a program by id
@@ -493,25 +436,17 @@ impl Client {
         filter: Filter<'_>,
         pagination: PaginationOptions,
     ) -> Result<Vec<EventClient>> {
-        let mut query = vec![];
+        // convert query params
+        let skip_str = pagination.skip.to_string();
+        let limit_str = pagination.limit.to_string();
+        // insert into query params
+        let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
 
-        if let Filter::By(ref target_label, target_values) = filter {
-            query.push(("targetType", target_label.as_str()));
-
-            for target_value in target_values {
-                query.push(("targetValues", *target_value));
-            }
-        }
+        query.extend_from_slice(filter.to_query_params().as_slice());
 
         if let Some(program_id) = program_id {
             query.push(("programID", program_id.as_str()));
         }
-
-        let skip_str = pagination.skip.to_string();
-        let limit_str = pagination.limit.to_string();
-
-        query.push(("skip", &skip_str));
-        query.push(("limit", &limit_str));
 
         // send request and return response
         let events: Vec<Event> = self.client_ref.get("events", &query).await?;
@@ -525,68 +460,20 @@ impl Client {
     pub async fn get_event_list(
         &self,
         program_id: Option<&ProgramId>,
-        target: Target<'_>,
+        filter: Filter<'_>,
     ) -> Result<Vec<EventClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut events = vec![];
-        let mut page = 0;
-        loop {
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self
-                .get_events(
+        self.client_ref
+            .iterate_pages(|skip, limit| {
+                self.get_events(
                     program_id,
-                    Filter::By(target.target_label(), target.target_values()),
-                    pagination,
+                    filter.clone(),
+                    PaginationOptions { skip, limit },
                 )
-                .await?;
-            let received_all = received.len() < page_size;
-            for event in received {
-                events.push(event);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(events)
+            })
+            .await
     }
 
-    /// Get all events from the VTN, trying to paginate whenever possible
-    pub async fn get_all_events(&self) -> Result<Vec<EventClient>> {
-        let page_size = self.client_ref.default_page_size();
-        let mut events = vec![];
-        let mut page = 0;
-        loop {
-            // TODO: this pagination should really depend on that the server indicated there are more results
-            let pagination = PaginationOptions {
-                skip: page * page_size,
-                limit: page_size,
-            };
-
-            let received = self.get_events(None, Filter::None, pagination).await?;
-            let received_all = received.len() < page_size;
-            for event in received {
-                events.push(event);
-            }
-
-            if received_all {
-                break;
-            } else {
-                page += 1;
-            }
-        }
-
-        Ok(events)
-    }
-
-    /// Get a event by id
+    /// Get an event by id
     pub async fn get_event_by_id(&self, id: &EventId) -> Result<EventClient> {
         let event = self
             .client_ref
@@ -594,5 +481,53 @@ impl Client {
             .await?;
 
         Ok(EventClient::from_event(self.client_ref.clone(), event))
+    }
+
+    pub async fn create_ven(&self, ven: VenContent) -> Result<VenClient> {
+        let ven = self.client_ref.post("vens", &ven, &[]).await?;
+        Ok(VenClient::from_ven(self.client_ref.clone(), ven))
+    }
+
+    async fn get_vens(
+        &self,
+        skip: usize,
+        limit: usize,
+        filter: Filter<'_>,
+    ) -> Result<Vec<VenClient>> {
+        let skip_str = skip.to_string();
+        let limit_str = limit.to_string();
+        let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
+
+        query.extend_from_slice(filter.to_query_params().as_slice());
+
+        // send request and return response
+        let vens: Vec<Ven> = self.client_ref.get("vens", &query).await?;
+        Ok(vens
+            .into_iter()
+            .map(|ven| VenClient::from_ven(self.client_ref.clone(), ven))
+            .collect())
+    }
+
+    pub async fn get_ven_list(&self, filter: Filter<'_>) -> Result<Vec<VenClient>> {
+        self.client_ref
+            .iterate_pages(|skip, limit| self.get_vens(skip, limit, filter.clone()))
+            .await
+    }
+
+    pub async fn get_ven_by_id(&self, id: &VenId) -> Result<VenClient> {
+        let ven = self
+            .client_ref
+            .get(&format!("vens/{}", id.as_str()), &[])
+            .await?;
+        Ok(VenClient::from_ven(self.client_ref.clone(), ven))
+    }
+
+    pub async fn get_ven_by_name(&self, name: &str) -> Result<VenClient> {
+        let mut vens: Vec<Ven> = self.client_ref.get("vens", &[("venName", name)]).await?;
+        match vens[..] {
+            [] => Err(Error::ObjectNotFound),
+            [_] => Ok(VenClient::from_ven(self.client_ref.clone(), vens.remove(0))),
+            [..] => Err(Error::DuplicateObject),
+        }
     }
 }

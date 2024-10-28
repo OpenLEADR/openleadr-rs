@@ -118,12 +118,16 @@ create table resource
             primary key,
     created_date_time      timestamptz not null,
     modification_date_time timestamptz not null,
-    resource_name          text        not null unique,
+    resource_name          text        not null,
     ven_id                 text        not null references ven (id), -- TODO is this actually 'NOT NULL'?
     attributes             jsonb,
     targets                jsonb
 
 );
+
+create unique index resource_ven_id_resource_name_uindex
+    on resource (ven_id, resource_name);
+
 
 create table ven_program
 (
