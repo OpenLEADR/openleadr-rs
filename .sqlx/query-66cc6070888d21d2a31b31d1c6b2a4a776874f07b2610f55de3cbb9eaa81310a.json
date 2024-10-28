@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                r.id AS \"id!\", \n                r.created_date_time AS \"created_date_time!\", \n                r.modification_date_time AS \"modification_date_time!\",\n                r.resource_name AS \"resource_name!\",\n                r.ven_id AS \"ven_id!\",\n                r.attributes,\n                r.targets\n            FROM resource r\n              LEFT JOIN LATERAL ( \n                  SELECT r.id as r_id, \n                         json_array(jsonb_array_elements(r.targets)) <@ $3::jsonb AS target_test )\n                  ON r.id = r_id\n            WHERE r.ven_id = $1\n                AND ($2::text[] IS NULL OR r.resource_name = ANY($2))\n                AND ($3::jsonb = '[]'::jsonb OR target_test)\n            ORDER BY r.created_date_time\n            OFFSET $4 LIMIT $5\n            ",
+  "query": "\n            SELECT\n                r.id AS \"id!\", \n                r.created_date_time AS \"created_date_time!\", \n                r.modification_date_time AS \"modification_date_time!\",\n                r.resource_name AS \"resource_name!\",\n                r.ven_id AS \"ven_id!\",\n                r.attributes,\n                r.targets\n            FROM resource r\n              LEFT JOIN LATERAL ( \n                  SELECT r.id as r_id, \n                         json_array(jsonb_array_elements(r.targets)) <@ $3::jsonb AS target_test )\n                  ON r.id = r_id\n            WHERE r.ven_id = $1\n                AND ($2::text IS NULL OR r.resource_name = $2)\n                AND ($3::jsonb = '[]'::jsonb OR target_test)\n            ORDER BY r.created_date_time\n            OFFSET $4 LIMIT $5\n            ",
   "describe": {
     "columns": [
       {
@@ -42,7 +42,7 @@
     "parameters": {
       "Left": [
         "Text",
-        "TextArray",
+        "Text",
         "Jsonb",
         "Int8",
         "Int8"
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "e750cc97eedc6b2ac3b7c1dcd50018a32e6c07dcea2fd0bd95426a7ca69a9fcb"
+  "hash": "66cc6070888d21d2a31b31d1c6b2a4a776874f07b2610f55de3cbb9eaa81310a"
 }

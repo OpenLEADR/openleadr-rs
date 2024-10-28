@@ -104,6 +104,8 @@ pub async fn delete(
 #[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
+    #[validate(length(min = 1, max = 128))]
+    pub(crate) resource_name: Option<String>,
     pub(crate) target_type: Option<TargetLabel>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
@@ -199,7 +201,7 @@ mod test {
         let (status, resources) = test
             .request::<Vec<Resource>>(
                 Method::GET,
-                "/vens/ven-1/resources?targetType=RESOURCE_NAME&targetValues=resource-1-name",
+                "/vens/ven-1/resources?targetType=GROUP&targetValues=group-1",
                 Body::empty(),
             )
             .await;
@@ -209,12 +211,12 @@ mod test {
         let (status, resources) = test
             .request::<Vec<Resource>>(
                 Method::GET,
-                "/vens/ven-1/resources?targetType=RESOURCE_NAME&targetValues=resource-2-name",
+                "/vens/ven-1/resources?targetType=GROUP&targetValues=group-1&targetValues=group-2",
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(resources.len(), 0);
+        assert_eq!(resources.len(), 2);
     }
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]

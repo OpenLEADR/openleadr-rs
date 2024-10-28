@@ -32,6 +32,8 @@ pub async fn get_all(
         .retrieve_all(&query_params, &user.try_into()?)
         .await?;
 
+    trace!("retrieved {} VENs", vens.len());
+
     Ok(Json(vens))
 }
 
@@ -42,6 +44,8 @@ pub async fn get(
 ) -> AppResponse<Ven> {
     let ven = ven_source.retrieve(&id, &user.try_into()?).await?;
 
+    trace!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN retrieved");
+
     Ok(Json(ven))
 }
 
@@ -51,6 +55,8 @@ pub async fn add(
     ValidatedJson(new_ven): ValidatedJson<VenContent>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
     let ven = ven_source.create(new_ven, &user.try_into()?).await?;
+
+    info!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN added");
 
     Ok((StatusCode::CREATED, Json(ven)))
 }
@@ -63,7 +69,7 @@ pub async fn edit(
 ) -> AppResponse<Ven> {
     let ven = ven_source.update(&id, content, &user.try_into()?).await?;
 
-    info!(%ven.id, ven.ven_name=ven.content.ven_name, "ven updated");
+    info!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN updated");
 
     Ok(Json(ven))
 }
@@ -74,7 +80,7 @@ pub async fn delete(
     VenManagerUser(user): VenManagerUser,
 ) -> AppResponse<Ven> {
     let ven = ven_source.delete(&id, &user.try_into()?).await?;
-    info!(%id, "deleted ven");
+    info!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN deleted");
     Ok(Json(ven))
 }
 
@@ -82,6 +88,8 @@ pub async fn delete(
 #[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
+    #[validate(length(min = 1, max = 128))]
+    pub(crate) ven_name: Option<String>,
     pub(crate) target_type: Option<TargetLabel>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
@@ -156,35 +164,21 @@ mod tests {
         let (status, vens) = test
             .request::<Vec<Ven>>(
                 Method::GET,
-                "/vens?targetType=VEN_NAME&targetValues=ven-2-name",
+                "/vens?targetType=GROUP&targetValues=group-1",
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
-        assert_eq!(vens[0].id.as_str(), "ven-2");
+        assert_eq!(vens[0].id.as_str(), "ven-1");
 
         let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
 
         let (status, vens) = test
-            .request::<Vec<Ven>>(
-                Method::GET,
-                "/vens?targetType=VEN_NAME&targetValues=ven-1-name",
-                Body::empty(),
-            )
+            .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
-
-        let (status, vens) = test
-            .request::<Vec<Ven>>(
-                Method::GET,
-                "/vens?targetType=VEN_NAME&targetValues=ven-2-name",
-                Body::empty(),
-            )
-            .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(vens.len(), 0);
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
