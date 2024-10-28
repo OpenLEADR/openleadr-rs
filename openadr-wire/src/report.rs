@@ -36,10 +36,8 @@ pub struct Report {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "REPORT")]
 pub struct ReportContent {
-    /// Used as discriminator, e.g. notification.object
-    pub object_type: Option<ReportObjectType>,
     // FIXME Must likely be EITHER a programID OR an eventID
     /// ID attribute of the program object this report is associated with.
     #[serde(rename = "programID")]
@@ -105,16 +103,6 @@ impl FromStr for ReportId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(s.parse()?))
     }
-}
-
-/// Used as discriminator, e.g. notification.object
-#[derive(
-    Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize,
-)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ReportObjectType {
-    #[default]
-    Report,
 }
 
 /// Report data associated with a resource.
@@ -357,7 +345,6 @@ mod tests {
     fn parses_minimal_report() {
         let example = r#"{"programID":"p1","eventID":"e1","clientName":"c","resources":[]}"#;
         let expected = ReportContent {
-            object_type: None,
             program_id: ProgramId("p1".parse().unwrap()),
             event_id: EventId("e1".parse().unwrap()),
             client_name: "c".to_string(),
@@ -440,7 +427,6 @@ mod tests {
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             content: ReportContent {
-                object_type: Some(ReportObjectType::Report),
                 program_id: ProgramId("object-999".parse().unwrap()),
                 event_id: EventId("object-999".parse().unwrap()),
                 client_name: "VEN-999".into(),

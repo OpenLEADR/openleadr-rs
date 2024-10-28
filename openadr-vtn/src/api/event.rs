@@ -139,7 +139,6 @@ mod test {
 
     fn default_event_content() -> EventContent {
         EventContent {
-            object_type: None,
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event_name".to_string()),
             priority: Priority::MAX,

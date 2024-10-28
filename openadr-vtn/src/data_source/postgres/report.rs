@@ -66,7 +66,6 @@ impl TryFrom<PostgresReport> for Report {
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             content: ReportContent {
-                object_type: Default::default(),
                 program_id: value.program_id.parse()?,
                 event_id: value.event_id.parse()?,
                 client_name: value.client_name,

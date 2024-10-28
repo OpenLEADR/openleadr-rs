@@ -33,11 +33,8 @@ pub struct Event {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "EVENT")]
 pub struct EventContent {
-    /// Used as discriminator, e.g. notification.object
-    // TODO: remove this?
-    pub object_type: Option<EventObjectType>,
     /// URL safe VTN assigned object ID.
     #[serde(rename = "programID")]
     pub program_id: ProgramId,
@@ -65,7 +62,6 @@ impl EventContent {
         );
 
         Self {
-            object_type: None,
             program_id,
             event_name: None,
             priority: Priority::UNSPECIFIED,
@@ -137,16 +133,6 @@ impl FromStr for EventId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(s.parse()?))
     }
-}
-
-/// Used as discriminator, e.g. notification.object
-#[derive(
-    Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize,
-)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EventObjectType {
-    #[default]
-    Event,
 }
 
 /// Relative priority of an event
@@ -348,7 +334,6 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<EventContent>(example).unwrap(),
             EventContent {
-                object_type: None,
                 program_id: ProgramId("foo".parse().unwrap()),
                 event_name: None,
                 priority: Priority::MIN,
@@ -404,7 +389,6 @@ mod tests {
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             content: EventContent {
-                object_type: Some(EventObjectType::Event),
                 program_id: ProgramId("object-999".parse().unwrap()),
                 event_name: Some("price event 11-18-2022".into()),
                 priority: Priority::MAX,
