@@ -61,7 +61,7 @@ impl PostgresStorage {
     }
 
     pub async fn from_env() -> Result<Self, sqlx::Error> {
-        dotenv().unwrap();
+        dotenv().ok();
         let db_url = std::env::var("DATABASE_URL")
             .expect("Missing DATABASE_URL env var even though the 'postgres' feature is active");
 
