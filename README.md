@@ -39,21 +39,23 @@ docker compose up -d
 
 ### Note on prepared SQL
 
-This workspace uses SQLX macro to type check sql statements. In order to build the crate without a running SQL server release builds (such as in the docker) must be run in offline mode. In this mode
-Type checking is done via a cached variant of the db (the .sqlx directory). In order for this to work as intended each time a change is made to sql schemas or queries please run
+This workspace uses SQLX macro to type check SQL statements.
+In order to build the crate without a running SQL server (such as in the docker), SQLX must be run in offline mode.
+In this mode type checking is done via a cached variant of the DB (the .sqlx directory).
+For this to work as intended, each time a change is made to SQL schemas or queries, please run
 
-```
+```bash
 cargo sqlx prepare --workspace
 ```
 
-This will update the cached sql in the .sqlx directory which should be committed to github.
+This will update the cached SQL in the `.sqlx` directory which should be committed to GitHub.
 
 ### Invalidating the docker build cache
 
-To expedite the slow cargo release builds the Dockerfile uses a multi stage build.
-If changes have been made and are not being reflected in the binary running inside docker try
+To expedite the slow cargo release builds, the Dockerfile uses a multi-stage build.
+If changes have been made and are not being reflected in the binary running inside docker, try
 
-```
+```bash
 docker compose up --force-recreate --build --no-deps vtn
 ```
 This will force a rebuild

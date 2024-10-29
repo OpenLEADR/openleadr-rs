@@ -22,6 +22,7 @@ services:
       POSTGRES_USER: $PG_USER 
       POSTGRES_DB: $PG_DB
       POSTGRES_PASSWORD: $PG_PASSWORD
+      POSTGRES_HOST_AUTH_METHOD: trust
       TZ: $PG_TZ
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U openadr" ]

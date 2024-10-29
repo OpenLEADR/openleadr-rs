@@ -61,8 +61,6 @@ impl PostgresStorage {
     }
 
     pub async fn from_env() -> Result<Self, sqlx::Error> {
-        //dotenv is a development convenience. We should not panic if .env is missing as
-        //it may not be present in all deployment scenarios.
         dotenv().ok();
         let db_url = std::env::var("DATABASE_URL")
             .expect("Missing DATABASE_URL env var even though the 'postgres' feature is active");
