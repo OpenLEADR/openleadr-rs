@@ -1,5 +1,5 @@
 use crate::{
-    api::{auth, event, program, report, resource, user, ven},
+    api::{auth, event, healthcheck, program, report, resource, user, ven},
     data_source::{
         AuthSource, DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
@@ -56,6 +56,7 @@ impl AppState {
 
     fn router_without_state() -> axum::Router<Self> {
         axum::Router::new()
+            .route("/health", get(healthcheck))
             .route("/programs", get(program::get_all).post(program::add))
             .route(
                 "/programs/:id",

@@ -248,6 +248,7 @@ pub trait DataSource: Send + Sync + 'static {
     fn vens(&self) -> Arc<dyn VenCrud>;
     fn resources(&self) -> Arc<dyn ResourceCrud>;
     fn auth(&self) -> Arc<dyn AuthSource>;
+    fn connection_active(&self) -> bool;
 }
 
 #[derive(Debug, Clone)]

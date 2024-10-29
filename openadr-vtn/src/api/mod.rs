@@ -1,13 +1,17 @@
 use crate::error::AppError;
+use crate::state::AppState;
+use axum::extract::State;
 use axum::{
     async_trait,
     extract::{
         rejection::{FormRejection, JsonRejection},
         FromRequest, FromRequestParts, Request,
     },
+    response::IntoResponse,
     Form, Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
+use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use validator::Validate;
 
@@ -81,6 +85,14 @@ where
     }
 }
 
+pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    if !app_state.storage.connection_active() {
+        return Err(AppError::SqlConnectionPoolClosed);
+    }
+
+    Ok((StatusCode::OK, "OK"))
+}
+
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
@@ -151,6 +163,30 @@ mod test {
 
             (status, json_body)
         }
+
+        ///Helper added because request would panic at the serde_json step if no body was returned
+        pub(crate) async fn empty_request(&self, method: Method, path: &str) -> StatusCode {
+            let response = self
+                .router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header(
+                            http::header::AUTHORIZATION,
+                            format!("Bearer {}", self.token),
+                        )
+                        .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            let status = response.status();
+            status
+        }
     }
 
     pub(crate) fn jwt_test_token(state: &AppState, roles: Vec<AuthRole>) -> String {
@@ -219,5 +255,13 @@ mod test {
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test]
+    async fn healthcheck(db: PgPool) {
+        let test = ApiTest::new(db.clone(), vec![]);
+
+        let status = test.empty_request(Method::GET, "/health").await;
+        assert_eq!(status, StatusCode::OK);
     }
 }

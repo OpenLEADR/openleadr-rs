@@ -40,8 +40,10 @@ pub enum AppError {
     #[error("Authentication error: {0}")]
     Auth(String),
     #[cfg(feature = "sqlx")]
-    #[error("Database error: {0}")]
+    #[error("database error: {0}")]
     Sql(sqlx::Error),
+    #[error("Sql connection pool closed")]
+    SqlConnectionPoolClosed,
     #[cfg(feature = "sqlx")]
     #[error("Json (de)serialization error : {0}")]
     SerdeJsonInternalServerError(serde_json::Error),
@@ -241,6 +243,16 @@ impl AppError {
                     title: Some(StatusCode::INTERNAL_SERVER_ERROR.to_string()),
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     detail: Some("A database error occurred".to_string()),
+                    instance: Some(reference.to_string()),
+                }
+            }
+            AppError::SqlConnectionPoolClosed => {
+                error!(%reference, "Sql connection pool closed");
+                Problem {
+                    r#type: Default::default(),
+                    title: Some(StatusCode::INTERNAL_SERVER_ERROR.to_string()),
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    detail: Some("Sql connection pool closed".to_string()),
                     instance: Some(reference.to_string()),
                 }
             }
