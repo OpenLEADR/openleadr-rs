@@ -7,6 +7,7 @@ use openleadr_wire::{
     event::{EventContent, EventValuesMap, Priority},
     interval::IntervalPeriod,
     program::ProgramContent,
+    Program,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,22 +40,48 @@ impl Timeline {
         }
     }
 
-    /// Returns:
+    /// Creates a [`Timeline`] form a [`Program`], and the [`Event`](crate::Event)s that belong to it.
     ///
-    /// - `None` if no interval is specified in the input
-    /// - `Some(timeline)` otherwise
-    pub fn from_events(program: &ProgramContent, mut events: Vec<&EventContent>) -> Option<Self> {
+    /// It sorts events according to their priority and builds the timeline accordingly.
+    /// The event with the highest priority always takes presence at a specific time point.
+    /// Therefore, a long-lasting, low-priority event can be interrupted by a short, high-priority event,
+    /// for example.
+    /// In this case, the long-lasting event will be split into two parts,
+    /// such that the high-priority event fits in between.
+    ///
+    /// ```text
+    /// |------------------------long, low prio--------------------------|
+    ///                    |-----short, high prio---|
+    /// Result:
+    /// |--long, low prio--|-----short, high prio---|---long, low prio---|
+    /// ```
+    ///
+    /// This function logs at `warn` level if provided with an [`Event`](crate::Event)
+    /// those [`program_id`](crate::EventContent::program_id) does not match with the [`Program::id`].\
+    /// The corresponding event will be ignored then building the timeline.
+    ///
+    /// This function also logs at `warn`
+    /// level if there are two overlapping events at the same priority.
+    /// There is no guarantee which event will take precedence, though in the current implementation
+    /// the event stored later in the `events` param will take precedence.
+    ///
+    /// There must be an [`IntervalPeriod`] present on the event level,
+    /// or the individual intervals.
+    /// If both are specified, the individual period takes precedence over the one specified in the event.
+    /// If for an interval, there is no period present, and none specified in the event,
+    /// then this function will return [`None`]
+    pub fn from_events(program: &Program, mut events: Vec<&EventContent>) -> Option<Self> {
         let mut data = Self::default();
 
         events.sort_by_key(|e| e.priority);
 
         for (id, event) in events.iter().enumerate() {
-            // SPEC ASSUMPTION: At least one of the following `interval_period`s must be given on the program,
-            // on the event, or on the interval
-            let default_period = event
-                .interval_period
-                .as_ref()
-                .or(program.interval_period.as_ref());
+            if event.program_id != program.id {
+                warn!(?event, %program.id, "skipping event that does not belong into the program; different program id");
+                continue;
+            }
+
+            let default_period = event.interval_period.as_ref();
 
             for event_interval in &event.intervals {
                 // use the event interval period when the interval doesn't specify one
@@ -93,6 +120,7 @@ impl Timeline {
         Some(data)
     }
 
+    /// Get an iterator over the [`Interval`]s in this [`Timeline`]
     pub fn iter(&self) -> Iter<'_> {
         Iter {
             iter: self.data.iter(),
@@ -100,6 +128,7 @@ impl Timeline {
         }
     }
 
+    /// Returns the [`Interval`] applicable at the requested time point and the range it is valid for.
     pub fn at_datetime(
         &self,
         datetime: &DateTime<Utc>,
@@ -180,6 +209,15 @@ mod test {
         )
     }
 
+    fn test_program(name: &str) -> Program {
+        Program {
+            id: test_program_id(),
+            created_date_time: Default::default(),
+            modification_date_time: Default::default(),
+            content: ProgramContent::new(name),
+        }
+    }
+
     fn event_interval_with_value(range: Range<u32>, value: i64) -> EventInterval {
         EventInterval {
             id: range.start as _,
@@ -226,7 +264,7 @@ mod test {
     // In other words: the event which is inserted last wins.
     #[test]
     fn overlap_same_priority() {
-        let program = ProgramContent::new("p");
+        let program = test_program("p");
 
         let event1 = test_event_content(0..10, 42);
         let event2 = test_event_content(5..15, 43);
@@ -257,7 +295,7 @@ mod test {
         let event1 = test_event_content(0..10, 42).with_priority(Priority::new(1));
         let event2 = test_event_content(5..15, 43).with_priority(Priority::new(2));
 
-        let tl = Timeline::from_events(&ProgramContent::new("p"), vec![&event1, &event2]).unwrap();
+        let tl = Timeline::from_events(&test_program("p"), vec![&event1, &event2]).unwrap();
         assert_eq!(
             tl.data.into_iter().collect::<Vec<_>>(),
             vec![
@@ -267,7 +305,7 @@ mod test {
             "a lower priority event MUST NOT overwrite a higher priority one",
         );
 
-        let tl = Timeline::from_events(&ProgramContent::new("p"), vec![&event2, &event1]).unwrap();
+        let tl = Timeline::from_events(&test_program("p"), vec![&event2, &event1]).unwrap();
         assert_eq!(
             tl.data.into_iter().collect::<Vec<_>>(),
             vec![
@@ -283,7 +321,7 @@ mod test {
         let event1 = test_event_content(0..10, 42).with_priority(Priority::new(2));
         let event2 = test_event_content(5..15, 43).with_priority(Priority::new(1));
 
-        let tl = Timeline::from_events(&ProgramContent::new("p"), vec![&event1, &event2]).unwrap();
+        let tl = Timeline::from_events(&test_program("p"), vec![&event1, &event2]).unwrap();
         assert_eq!(
             tl.data.into_iter().collect::<Vec<_>>(),
             vec![
@@ -293,7 +331,7 @@ mod test {
             "a higher priority event MUST overwrite a lower priority one",
         );
 
-        let tl = Timeline::from_events(&ProgramContent::new("p"), vec![&event2, &event1]).unwrap();
+        let tl = Timeline::from_events(&test_program("p"), vec![&event2, &event1]).unwrap();
         assert_eq!(
             tl.data.into_iter().collect::<Vec<_>>(),
             vec![
@@ -301,6 +339,54 @@ mod test {
                 interval_with_value(1, 5..15, 43, Priority::new(1)),
             ],
             "a higher priority event MUST overwrite a lower priority one",
+        );
+    }
+
+    #[test]
+    fn default_interval() {
+        let program = test_program("p");
+
+        let event_intervals = vec![
+            EventInterval::new(
+                0,
+                vec![EventValuesMap {
+                    value_type: openadr_wire::event::EventType::Price,
+                    values: vec![Value::Number(1.23)],
+                }],
+            ),
+            EventInterval::new(
+                1,
+                vec![EventValuesMap {
+                    value_type: openadr_wire::event::EventType::Simple,
+                    values: vec![Value::Number(2.34)],
+                }],
+            ),
+        ];
+
+        let mut event = EventContent::new(program.id.clone(), event_intervals);
+
+        event.interval_period = Some(IntervalPeriod {
+            start: DateTime::UNIX_EPOCH,
+            duration: Some(openadr_wire::Duration::hours(5.)),
+            randomize_start: None,
+        });
+
+        let timeline = Timeline::from_events(&program, vec![&event]).unwrap();
+
+        let interval = timeline
+            .at_datetime(&(DateTime::UNIX_EPOCH + Duration::hours(2)))
+            .unwrap();
+        assert_eq!(
+            interval.1.value_map[0].value_type,
+            openadr_wire::event::EventType::Price
+        );
+
+        let interval = timeline
+            .at_datetime(&(DateTime::UNIX_EPOCH + Duration::hours(8)))
+            .unwrap();
+        assert_eq!(
+            interval.1.value_map[0].value_type,
+            openadr_wire::event::EventType::Simple
         );
     }
 
@@ -330,7 +416,7 @@ mod test {
             )
         };
 
-        let tl = Timeline::from_events(&ProgramContent::new("p"), vec![&event1, &event2]).unwrap();
+        let tl = Timeline::from_events(&test_program("p"), vec![&event1, &event2]).unwrap();
         assert_eq!(
             tl.iter().map(|(_, i)| i).collect::<Vec<_>>(),
             vec![

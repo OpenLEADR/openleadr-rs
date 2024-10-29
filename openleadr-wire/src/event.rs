@@ -133,9 +133,10 @@ impl FromStr for EventId {
 
 /// Relative priority of an event
 ///
-/// 0 indicates the highest priority.
+/// `0` indicates the highest priority.
 ///
-/// SPEC ASSUMPTION: [`Self::UNSPECIFIED`] has lower priority then any other value.
+/// **Interpretation of the specification:** [`Priority::UNSPECIFIED`] has a lower priority than any other value,
+/// i.e., equals to [`Priority::MIN`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Priority(Option<u32>);
@@ -301,6 +302,16 @@ mod tests {
     use crate::{values_map::Value, Duration};
 
     use super::*;
+    
+    #[test]
+    fn priority_order() {
+        assert_eq!(Priority::MAX, Priority::new(0));
+        assert!(Priority::MAX > Priority::MIN);
+        assert_eq!(Priority::MIN, Priority::UNSPECIFIED);
+        assert!(Priority::new(5) > Priority::UNSPECIFIED);
+        assert!(Priority::new(5) > Priority::new(6));
+        assert!(Priority::new(u32::MAX) > Priority::UNSPECIFIED);
+    }
 
     #[test]
     fn test_event_serialization() {
