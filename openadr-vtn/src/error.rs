@@ -42,8 +42,8 @@ pub enum AppError {
     #[cfg(feature = "sqlx")]
     #[error("database error: {0}")]
     Sql(sqlx::Error),
-    #[error("Sql connection pool closed")]
-    SqlConnectionPoolClosed,
+    #[error("Storage connection pool closed")]
+    StorageConnectionError,
     #[cfg(feature = "sqlx")]
     #[error("Json (de)serialization error : {0}")]
     SerdeJsonInternalServerError(serde_json::Error),
@@ -246,13 +246,13 @@ impl AppError {
                     instance: Some(reference.to_string()),
                 }
             }
-            AppError::SqlConnectionPoolClosed => {
-                error!(%reference, "Sql connection pool closed");
+            AppError::StorageConnectionError => {
+                error!(%reference, "Storage connection pool closed");
                 Problem {
                     r#type: Default::default(),
                     title: Some(StatusCode::INTERNAL_SERVER_ERROR.to_string()),
                     status: StatusCode::INTERNAL_SERVER_ERROR,
-                    detail: Some("Sql connection pool closed".to_string()),
+                    detail: Some("Storage connection pool closed".to_string()),
                     instance: Some(reference.to_string()),
                 }
             }

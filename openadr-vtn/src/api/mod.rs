@@ -1,11 +1,9 @@
-use crate::error::AppError;
-use crate::state::AppState;
-use axum::extract::State;
+use crate::{error::AppError, state::AppState};
 use axum::{
     async_trait,
     extract::{
         rejection::{FormRejection, JsonRejection},
-        FromRequest, FromRequestParts, Request,
+        FromRequest, FromRequestParts, Request, State,
     },
     response::IntoResponse,
     Form, Json,
@@ -87,7 +85,7 @@ where
 
 pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     if !app_state.storage.connection_active() {
-        return Err(AppError::SqlConnectionPoolClosed);
+        return Err(AppError::StorageConnectionError);
     }
 
     Ok((StatusCode::OK, "OK"))
@@ -164,7 +162,6 @@ mod test {
             (status, json_body)
         }
 
-        ///Helper added because request would panic at the serde_json step if no body was returned
         pub(crate) async fn empty_request(&self, method: Method, path: &str) -> StatusCode {
             let response = self
                 .router
@@ -177,15 +174,13 @@ mod test {
                             http::header::AUTHORIZATION,
                             format!("Bearer {}", self.token),
                         )
-                        .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::empty())
                         .unwrap(),
                 )
                 .await
                 .unwrap();
 
-            let status = response.status();
-            status
+            response.status()
         }
     }
 

@@ -54,7 +54,7 @@ impl DataSource for PostgresStorage {
         Arc::<PgAuthSource>::new(self.db.clone().into())
     }
 
-    ///Verify the connection pool is open and has at least one connection
+    /// Verify the connection pool is open and has at least one connection
     fn connection_active(&self) -> bool {
         !self.db.is_closed() && self.db.size() > 0
     }
