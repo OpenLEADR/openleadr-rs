@@ -1,0 +1,37 @@
+[package]
+name = "openleadr-client"
+description = "OpenADR 3.0 client"
+readme = "../README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+openleadr-wire.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+
+reqwest.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+http-body-util.workspace = true
+tower.workspace = true
+
+url.workspace = true
+chrono.workspace = true
+rangemap.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+openleadr-vtn.workspace = true
+mime.workspace = true
+sqlx.workspace = true
+serial_test.workspace = true
+dotenvy.workspace = true

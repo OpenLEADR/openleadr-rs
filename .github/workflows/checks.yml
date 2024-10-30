@@ -68,7 +68,7 @@ jobs:
         run: |
           docker compose up db --wait && \
           cargo install sqlx-cli --no-default-features --features rustls,postgres && \
-          cargo sqlx migrate run --source openadr-vtn/migrations && \
+          cargo sqlx migrate run --source openleadr-vtn/migrations && \
           psql -U openadr -W openadr -h localhost openadr < fixtures/test_user_credentials.sql
           
       - name: cargo build
