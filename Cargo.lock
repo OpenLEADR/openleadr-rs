@@ -1206,16 +1206,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
 
 [[package]]
-name = "openadr-client"
-version = "0.1.0"
+name = "openleadr-client"
+version = "0.0.1"
 dependencies = [
  "axum",
  "chrono",
  "dotenvy",
  "http-body-util",
  "mime",
- "openadr-vtn",
- "openadr-wire",
+ "openleadr-vtn",
+ "openleadr-wire",
  "rangemap",
  "reqwest",
  "serde",
@@ -1230,8 +1230,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "openadr-vtn"
-version = "0.1.0"
+name = "openleadr-vtn"
+version = "0.0.1"
 dependencies = [
  "argon2",
  "axum",
@@ -1242,7 +1242,7 @@ dependencies = [
  "http-body-util",
  "jsonwebtoken",
  "mime",
- "openadr-wire",
+ "openleadr-wire",
  "rand",
  "reqwest",
  "serde",
@@ -1261,8 +1261,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "openadr-wire"
-version = "0.1.0"
+name = "openleadr-wire"
+version = "0.0.1"
 dependencies = [
  "chrono",
  "http",
@@ -2477,15 +2477,14 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.5.2"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
+checksum = "8437150ab6bbc8c5f0f519e3d5ed4aa883a83dd4cdd3d1b21f9482936046cb97"
 dependencies = [
  "bitflags",
  "bytes",
  "http",
  "http-body",
- "http-body-util",
  "pin-project-lite",
  "tower-layer",
  "tower-service",
