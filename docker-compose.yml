@@ -9,8 +9,8 @@ services:
       RUST_LOG: debug
       DATABASE_URL: postgres://openadr:openadr@db:5432/openadr
     healthcheck:
-      test: curl --fail http://127.0.0.1:3000/programs || exit 1
-      interval: 60s
+      test: curl --fail http://127.0.0.1:3000/health || exit 1
+      interval: 15s
       timeout: 5s
       retries: 3
     depends_on:
