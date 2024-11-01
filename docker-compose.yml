@@ -1,7 +1,7 @@
 services:
   vtn:
     build:
-      dockerfile: vtn.Dockerfile
+      dockerfile: Dockerfile
       context: .
     ports:
       - ${VTN_PORT}:3000

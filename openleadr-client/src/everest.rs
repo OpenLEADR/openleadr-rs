@@ -4,7 +4,7 @@ use openleadr_wire::{
     values_map::Value,
 };
 
-use openleadr_client::{ProgramClient, Timeline};
+use crate::{Client, Error as ClientError, ProgramClient, Timeline};
 use std::{error::Error, time::Duration};
 use tokio::{
     select,
@@ -41,9 +41,8 @@ impl Clock for ChronoClock {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let client = openleadr_client::Client::with_url("http://localhost:3000/".try_into()?, None);
+pub async fn start_everest() -> Result<(), Box<dyn Error>> {
+    let client = Client::with_url("http://localhost:3000/".try_into()?, None);
     let program = client
         .get_program_by_id(&"program-1".parse().unwrap())
         .await?;
@@ -69,7 +68,7 @@ async fn poll_timeline(
     mut program: ProgramClient,
     poll_interval: Duration,
     sender: Sender<Timeline>,
-) -> Result<(), openleadr_client::Error> {
+) -> Result<(), ClientError> {
     loop {
         tokio::time::sleep(poll_interval).await;
 

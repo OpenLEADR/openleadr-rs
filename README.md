@@ -28,7 +28,7 @@ cargo sqlx migrate run
 Running the VTN using cargo:
 
 ```bash
-RUST_LOG=trace cargo run --bin openleadr-vtn
+RUST_LOG=trace cargo run vtn  
 ```
 
 Running the VTN using docker-compose:
@@ -64,5 +64,5 @@ This will force a rebuild
 Running the client
 
 ```bash
-cargo run --bin openleadr
+cargo run ven
 ```
