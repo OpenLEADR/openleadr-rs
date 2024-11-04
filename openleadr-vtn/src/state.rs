@@ -1,10 +1,17 @@
 use crate::{
-    api::{auth, event, healthcheck, program, report, resource, user, ven},
+    api::{auth, event, healthcheck, program, report, resource, serve_api, user, ven},
     data_source::{
         AuthSource, DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
     error::AppError,
     jwt::JwtManager,
+};
+use aide::{
+    axum::{
+        routing::get_with,
+        ApiRouter,
+    },
+    openapi::{Info, OpenApi, Server},
 };
 use axum::{
     extract::{FromRef, Request},
@@ -12,6 +19,7 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
     routing::{delete, get, post},
+    Extension,
 };
 use base64::{
     alphabet,
@@ -55,7 +63,28 @@ impl AppState {
     }
 
     fn router_without_state() -> axum::Router<Self> {
-        axum::Router::new()
+        // TODO Consider moving this OpenApi definition out into a state field or global value or something.
+        let mut openapi = OpenApi {
+            info: Info {
+                title: "OpenADR 3 API".to_string(),
+                version: "3.0.1".to_string(),
+                description: Some("The OpenADR 3.0.0 API supports energy retailer to energy customer Demand Response programs.".to_string()),
+                ..Info::default()
+            },
+            servers: vec![Server {
+                url: "http://localhost:3000".to_string(),
+                description: Some("base path".to_string()),
+                ..Server::default()
+            }],
+            ..OpenApi::default()
+        };
+        ApiRouter::new()
+            .api_route(
+                "/vens/:ven_id/resources",
+                get_with(resource::get_all, resource::get_all_openapi)
+                    .post_with(resource::add, resource::add_openapi)
+            )
+            .finish_api(&mut openapi)
             .route("/health", get(healthcheck))
             .route("/programs", get(program::get_all).post(program::add))
             .route(
@@ -78,10 +107,6 @@ impl AppState {
                 get(ven::get).put(ven::edit).delete(ven::delete),
             )
             .route(
-                "/vens/:ven_id/resources",
-                get(resource::get_all).post(resource::add),
-            )
-            .route(
                 "/vens/:ven_id/resources/:id",
                 get(resource::get)
                     .put(resource::edit)
@@ -100,9 +125,13 @@ impl AppState {
                 "/users/:user_id/:client_id",
                 delete(user::delete_credential),
             )
+            // We'll serve our generated document here.
+            .route("/docs/openapi.json", get(serve_api))
             .fallback(handler_404)
             .layer(middleware::from_fn(method_not_allowed))
             .layer(TraceLayer::new_for_http())
+            // Expose the documentation to the handlers.
+            .layer(Extension(openapi))
     }
 
     pub fn into_router(self) -> axum::Router {

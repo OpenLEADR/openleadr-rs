@@ -1,4 +1,8 @@
 use argon2::password_hash;
+use aide::{
+    openapi,
+    OperationOutput,
+};
 use axum::{
     extract::rejection::{FormRejection, JsonRejection},
     http::StatusCode,
@@ -12,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::error::DatabaseError;
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
+
+use crate::api::{BadRequest, Forbidden, InternalServerError, IntoStatusCode, NotFound};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -348,6 +354,31 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let problem = self.into_problem();
         (problem.status, Json(problem)).into_response()
+    }
+}
+
+impl OperationOutput for AppError {
+    type Inner = Problem;
+
+    fn operation_response(
+        ctx: &mut aide::gen::GenContext,
+        operation: &mut openapi::Operation,
+    ) -> Option<openapi::Response> {
+        Json::<Problem>::operation_response(ctx, operation)
+    }
+
+    fn inferred_responses(
+        ctx: &mut aide::gen::GenContext,
+        operation: &mut openapi::Operation,
+    ) -> Vec<(Option<u16>, openapi::Response)> {
+        let response = Self::operation_response(ctx, operation)
+            .unwrap_or_default();
+        vec![
+            BadRequest::describe_with_status_code(response.clone()),
+            Forbidden::describe_with_status_code(response.clone()),
+            NotFound::describe_with_status_code(response.clone()),
+            InternalServerError::describe_with_status_code(response)
+        ]
     }
 }
 

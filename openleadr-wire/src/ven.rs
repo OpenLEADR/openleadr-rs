@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
@@ -62,22 +63,26 @@ impl VenContent {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord)]
-pub struct VenId(pub(crate) Identifier);
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord, JsonSchema)]
+pub struct VenId {
+    pub(crate) ven_id: Identifier
+}
 
 impl Display for VenId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.ven_id)
     }
 }
 
 impl VenId {
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        self.ven_id.as_str()
     }
 
     pub fn new(identifier: &str) -> Option<Self> {
-        Some(Self(identifier.parse().ok()?))
+        Some(Self {
+            ven_id: identifier.parse().ok()?
+        })
     }
 }
 
@@ -85,6 +90,8 @@ impl FromStr for VenId {
     type Err = IdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(s.parse()?))
+        Ok(Self {
+            ven_id: s.parse()?
+        })
     }
 }

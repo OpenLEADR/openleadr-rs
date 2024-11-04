@@ -1,16 +1,25 @@
 use crate::{error::AppError, state::AppState};
+use aide::{
+    axum::IntoApiResponse,
+    gen::GenContext,
+    openapi,
+    OperationIo, OperationInput, OperationOutput,
+};
 use axum::{
     async_trait,
     extract::{
         rejection::{FormRejection, JsonRejection},
         FromRequest, FromRequestParts, Request, State,
     },
-    response::IntoResponse,
-    Form, Json,
+    response::{IntoResponse, Response},
+    Extension, Form, Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
 use reqwest::StatusCode;
+use schemars::JsonSchema;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::marker::PhantomData;
 use validator::Validate;
 
 pub(crate) mod auth;
@@ -23,13 +32,117 @@ pub(crate) mod ven;
 
 pub(crate) type AppResponse<T> = Result<Json<T>, AppError>;
 
+pub(crate) trait IntoStatusCode {
+    fn status_code() -> StatusCode;
+
+    fn description() -> String;
+
+    fn describe(mut response: openapi::Response) -> openapi::Response {
+        response.description = Self::description();
+        response
+    }
+
+    fn with_status_code(response: openapi::Response) -> (Option<u16>, openapi::Response) {
+        let status_code = Self::status_code()
+            .into();
+        (Some(status_code), response)
+    }
+
+    fn describe_with_status_code(response: openapi::Response) -> (Option<u16>, openapi::Response) {
+        Self::with_status_code(Self::describe(response))
+    }
+}
+
+pub(crate) struct Created;
+
+impl IntoStatusCode for Created {
+    fn status_code() -> StatusCode { StatusCode::CREATED }
+    fn description() -> String { "Created.".to_string() }
+}
+
+pub(crate) struct BadRequest;
+
+impl IntoStatusCode for BadRequest {
+    fn status_code() -> StatusCode { StatusCode::BAD_REQUEST }
+    fn description() -> String { "Bad Request.".to_string() }
+}
+
+pub(crate) struct Forbidden;
+
+impl IntoStatusCode for Forbidden {
+    fn status_code() -> StatusCode { StatusCode::FORBIDDEN }
+    fn description() -> String { "Forbidden.".to_string() }
+}
+
+pub(crate) struct NotFound;
+
+impl IntoStatusCode for NotFound {
+    fn status_code() -> StatusCode { StatusCode::NOT_FOUND }
+    fn description() -> String { "Not Found.".to_string() }
+}
+
+pub(crate) struct InternalServerError;
+
+impl IntoStatusCode for InternalServerError {
+    fn status_code() -> StatusCode { StatusCode::INTERNAL_SERVER_ERROR }
+    fn description() -> String { "Internal Server Error.".to_string() }
+}
+
+pub(crate) struct StatusCodeJson<S: IntoStatusCode, T> {
+    #[allow(dead_code)]
+    status_code: StatusCode,
+    json: Json<T>,
+    status_code_type: PhantomData<S>
+}
+
+impl<S: IntoStatusCode, T> StatusCodeJson<S, T> {
+    fn new(json: Json<T>) -> StatusCodeJson<S, T> {
+        let status_code = S::status_code();
+        let status_code_type = PhantomData;
+        StatusCodeJson {
+            status_code,
+            json,
+            status_code_type
+        }
+    }
+}
+
+impl<S: IntoStatusCode, T: Serialize> IntoResponse for StatusCodeJson<S, T> {
+    fn into_response(self) -> Response {
+        self.json.into_response()
+    }
+}
+
+impl<S: IntoStatusCode, T: JsonSchema> OperationOutput for StatusCodeJson<S, T> {
+    type Inner = T;
+
+    fn operation_response(
+        ctx: &mut GenContext,
+        operation: &mut openapi::Operation,
+    ) -> Option<openapi::Response> {
+        Json::<T>::operation_response(ctx, operation)
+            .map(S::describe)
+    }
+
+    fn inferred_responses(
+        ctx: &mut GenContext,
+        operation: &mut openapi::Operation,
+    ) -> Vec<(Option<u16>, openapi::Response)> {
+        let response = Self::operation_response(ctx, operation)
+            .unwrap_or_default();
+        vec![
+            S::with_status_code(response)
+        ]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedForm<T>(T);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedQuery<T>(pub T);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, OperationIo)]
 pub(crate) struct ValidatedJson<T>(pub T);
 
 #[async_trait]
@@ -83,12 +196,25 @@ where
     }
 }
 
+impl<T: OperationInput> OperationInput for ValidatedQuery<T> {
+    fn operation_input(ctx: &mut GenContext, operation: &mut openapi::Operation) {
+        T::operation_input(ctx, operation);
+    }
+}
+
 pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     if !app_state.storage.connection_active() {
         return Err(AppError::StorageConnectionError);
     }
 
     Ok((StatusCode::OK, "OK"))
+}
+
+// Note that this clones the document on each request.
+// To be more efficient, we could wrap it into an Arc,
+// or even store it as a serialized string.
+pub(crate) async fn serve_api(Extension(api): Extension<openapi::OpenApi>) -> impl IntoApiResponse {
+    Json(api)
 }
 
 #[cfg(test)]

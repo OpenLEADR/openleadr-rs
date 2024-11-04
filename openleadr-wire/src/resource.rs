@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
@@ -8,15 +9,17 @@ use crate::{target::TargetMap, values_map::ValuesMap, ven::VenId, Identifier, Id
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
     /// URL safe VTN assigned object ID.
     pub id: ResourceId,
     /// datetime in ISO 8601 format
+    #[schemars(with = "String")]
     #[serde(with = "crate::serde_rfc3339")]
     pub created_date_time: DateTime<Utc>,
     /// datetime in ISO 8601 format
+    #[schemars(with = "String")]
     #[serde(with = "crate::serde_rfc3339")]
     pub modification_date_time: DateTime<Utc>,
     /// URL safe VTN assigned object ID.
@@ -28,7 +31,7 @@ pub struct Resource {
 }
 
 #[skip_serializing_none]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "RESOURCE")]
 pub struct ResourceContent {
     /// User generated identifier, resource may be configured with identifier out-of-band.
@@ -37,10 +40,18 @@ pub struct ResourceContent {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<TargetMap>,
+    pub targets: Option<Vec<ValuesMap>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+/// Used as discriminator, e.g. notification.object
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ObjectType {
+    #[default]
+    Resource,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, JsonSchema)]
 pub struct ResourceId(pub(crate) Identifier);
 
 impl Display for ResourceId {

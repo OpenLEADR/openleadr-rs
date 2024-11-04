@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use aide::OperationIo;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
@@ -11,6 +12,7 @@ use axum_extra::{
 };
 use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header};
 use openleadr_wire::ven::VenId;
+use schemars::JsonSchema;
 use tracing::trace;
 
 use crate::error::AppError;
@@ -20,7 +22,7 @@ pub struct JwtManager {
     decoding_key: DecodingKey,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[cfg_attr(test, derive(PartialOrd, Ord))]
 #[serde(tag = "role", content = "id")]
 pub enum AuthRole {
@@ -49,7 +51,7 @@ impl AuthRole {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
 pub(crate) struct Claims {
     exp: usize,
     nbf: usize,
@@ -192,6 +194,7 @@ impl JwtManager {
 }
 
 /// User claims extracted from the request
+#[derive(OperationIo)]
 pub struct User(pub(crate) Claims);
 
 /// User claims extracted from the request, with the requirement that the user is a business user

@@ -4,6 +4,7 @@
 //! Most types are originally generated from the OpenAPI specification of OpenADR
 //! and manually modified to be more idiomatic.
 
+use schemars::JsonSchema;
 use std::fmt::Display;
 
 pub use event::Event;
@@ -72,7 +73,7 @@ where
 }
 
 /// A string that matches `/^[a-zA-Z0-9_-]*$/` with length in 1..=128
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, JsonSchema)]
 pub struct Identifier(#[serde(deserialize_with = "identifier")] String);
 
 impl<'de> Deserialize<'de> for Identifier {

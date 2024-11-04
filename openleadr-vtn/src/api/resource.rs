@@ -1,11 +1,21 @@
 use std::sync::Arc;
 
+use aide::{
+    gen::GenContext,
+    openapi::{Operation, Parameter, ParameterData, ParameterSchemaOrContent, QueryStyle, ReferenceOr, SchemaObject},
+    transform::TransformOperation,
+    OperationInput
+};
 use axum::{
     extract::{Path, State},
     Json,
 };
 use openleadr_wire::ven::VenId;
-use reqwest::StatusCode;
+use indexmap::map::IndexMap;
+use schemars::{
+    schema::Schema,
+    JsonSchema
+};
 use serde::Deserialize;
 use tracing::{info, trace};
 use validator::{Validate, ValidationError};
@@ -16,7 +26,7 @@ use openleadr_wire::{
 };
 
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, Created, StatusCodeJson, ValidatedJson, ValidatedQuery},
     data_source::ResourceCrud,
     error::AppError,
     jwt::User,
@@ -34,6 +44,16 @@ fn has_write_permission(User(claims): &User, ven_id: &VenId) -> Result<(), AppEr
     Err(AppError::Forbidden(
         "User not authorized to access this resource",
     ))
+}
+
+pub fn get_all_openapi(operation: TransformOperation) -> TransformOperation {
+    operation
+        .tag("vens")
+        .summary("search ven resources")
+        .id("searchVenResources")
+        .description("Return the ven resources specified by venID specified in path.")
+        .security_requirement_scopes("oAuth2ClientCredentials", vec!["read_all"])
+        .security_requirement_scopes::<Vec<&str>, &str>("bearerAuth", vec![])
 }
 
 pub async fn get_all(
@@ -63,16 +83,26 @@ pub async fn get(
     Ok(Json(ven))
 }
 
+pub fn add_openapi(operation: TransformOperation) -> TransformOperation {
+    operation
+        .tag("vens")
+        .summary("create resource")
+        .id("createResource")
+        .description("Create a new resource.")
+        .security_requirement_scopes("oAuth2ClientCredentials", vec!["read_all"])
+        .security_requirement_scopes::<Vec<&str>, &str>("bearerAuth", vec![])
+}
+
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     user: User,
     Path(ven_id): Path<VenId>,
     ValidatedJson(new_resource): ValidatedJson<ResourceContent>,
-) -> Result<(StatusCode, Json<Resource>), AppError> {
+) -> Result<StatusCodeJson<Created, Resource>, AppError> {
     has_write_permission(&user, &ven_id)?;
     let ven = resource_source.create(new_resource, ven_id, &user).await?;
 
-    Ok((StatusCode::CREATED, Json(ven)))
+    Ok(StatusCodeJson::new(Json(ven)))
 }
 
 pub async fn edit(
@@ -100,7 +130,7 @@ pub async fn delete(
     Ok(Json(resource))
 }
 
-#[derive(Deserialize, Validate, Debug)]
+#[derive(Deserialize, Validate, Debug, JsonSchema)]
 #[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
@@ -114,6 +144,92 @@ pub struct QueryParams {
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
+}
+
+impl OperationInput for QueryParams {
+    fn operation_input(ctx: &mut GenContext, operation: &mut Operation) {
+        fn query_param_openapi(
+            name: &str,
+            description: Option<&str>,
+            required: bool,
+            format: ParameterSchemaOrContent,
+            explode: Option<bool>,
+            allow_reserved: bool
+        ) -> ReferenceOr<Parameter> {
+            // Some of fields we can't omit, even though it's technically valid to in openapi.
+            ReferenceOr::Item(Parameter::Query {
+                parameter_data: ParameterData {
+                    name: name.to_string(),
+                    description: description.map(|str| str.to_string()),
+                    required,
+                    deprecated: None,
+                    format,
+                    example: None,
+                    examples: IndexMap::default(),
+                    explode,
+                    extensions: IndexMap::default()
+                },
+                allow_reserved,
+                style: QueryStyle::default(),
+                allow_empty_value: None
+            })
+        }
+        // Extract the json schema for a given field from QueryParams.
+        fn format_for_query_param(ctx: &mut GenContext, field: &str) -> ParameterSchemaOrContent {
+            let schema: Schema = QueryParams::json_schema(&mut ctx.schema);
+            let msg = format!("When generating openapi documentation, the field {} was not obtained from the QueryParams schema {:?}", field, schema);
+            let json_schema: Schema = schema
+                .into_object() // Boolean schemas converted here hit expect below.
+                .object
+                .and_then(|object| object
+                    .properties
+                    .get(field)
+                    .map(|v| v.clone())
+                )
+                .expect(msg.as_str()); // TODO Verify this does not occur at runtime with a unit test.
+            ParameterSchemaOrContent::Schema(SchemaObject {
+                json_schema,
+                external_docs: None,
+                example: None
+            })
+        }
+        let parameters = vec![
+            query_param_openapi(
+                "targetType",
+                Some("Indicates targeting type, e.g. GROUP"),
+                false,
+                format_for_query_param(ctx, "targetType"),
+                None,
+                false
+            ),
+            query_param_openapi(
+                "targetValues",
+                Some("List of target values, e.g. group names"),
+                false,
+                format_for_query_param(ctx, "targetValues"),
+                None,
+                false
+            ),
+            query_param_openapi(
+                "skip",
+                Some("number of records to skip for pagination."),
+                false,
+                format_for_query_param(ctx, "skip"),
+                Some(true),
+                false
+            ),
+            query_param_openapi(
+                "limit",
+                Some("maximum number of records to return."),
+                false,
+                format_for_query_param(ctx, "limit"),
+                Some(true),
+                false
+            )
+        ];
+        operation.parameters
+            .extend(parameters.into_iter());
+    }
 }
 
 fn validate_target_type_value_pair(query: &QueryParams) -> Result<(), ValidationError> {

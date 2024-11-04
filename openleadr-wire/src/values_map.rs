@@ -1,10 +1,11 @@
 //! Helper types to realize type values relations
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// ValuesMap : Represents one or more values associated with a type. E.g. a type of PRICE contains a single float value.
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ValuesMap {
     /// Enumerated or private string signifying the nature of values. E.G. \"PRICE\" indicates value is to be interpreted as a currency.
     #[serde(rename = "type")]
@@ -13,12 +14,12 @@ pub struct ValuesMap {
     pub values: Vec<Value>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ValueType(
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")] pub String,
 );
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Value {
     Integer(i64),
@@ -44,7 +45,7 @@ impl PartialEq for Value {
 
 impl Eq for Value {}
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Point {
     /// A value on an x axis.
     pub x: f32,

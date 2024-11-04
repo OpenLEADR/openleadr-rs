@@ -18,6 +18,7 @@ iso8601-duration.workspace = true
 thiserror.workspace = true
 http.workspace = true
 validator.workspace = true
+schemars = { version = "0.8.21", features = ["chrono"] }
 
 [dev-dependencies]
 serde_json.workspace = true

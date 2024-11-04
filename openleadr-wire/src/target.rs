@@ -1,5 +1,6 @@
 //! Types to filter resources
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -14,7 +15,7 @@ pub struct TargetEntry {
     pub values: [String; 1],
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TargetLabel {
     /// A Power Service Location is a utility named specific location in
