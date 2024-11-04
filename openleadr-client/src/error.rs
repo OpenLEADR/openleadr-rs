@@ -23,7 +23,7 @@ pub enum Error {
 }
 
 impl Error {
-    /// Checks if the [`Problem`](openadr_wire::problem::Problem) response of the VTN is a
+    /// Checks if the [`Problem`](openleadr_wire::problem::Problem) response of the VTN is a
     /// `409 Conflict` HTTP status code.
     pub fn is_conflict(&self) -> bool {
         match self {

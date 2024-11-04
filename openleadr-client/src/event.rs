@@ -10,8 +10,8 @@ use openleadr_wire::{event::EventContent, report::ReportContent, Event, Report};
 ///
 /// Can be created by a [`ProgramClient`](crate::ProgramClient)
 /// ```no_run
-/// use openleadr_client::{Client, Filter};
-/// use openleadr_wire::event::Priority;
+/// # use openleadr_client::{Client, Filter};
+/// # use openleadr_wire::event::Priority;
 /// let client = Client::with_url("https://your-vtn.com".try_into().unwrap(), None);
 /// # tokio_test::block_on(async {
 /// let program = client.get_program_by_id(&"program-1".parse().unwrap()).await.unwrap();
@@ -39,27 +39,35 @@ impl EventClient {
         }
     }
 
+    /// Get the id of the event
     pub fn id(&self) -> &openleadr_wire::event::EventId {
         &self.data.id
     }
 
+    /// Get the time the event was created on the VTN
     pub fn created_date_time(&self) -> chrono::DateTime<chrono::Utc> {
         self.data.created_date_time
     }
 
+    /// Get the time the event was last modified on the VTN
     pub fn modification_date_time(&self) -> chrono::DateTime<chrono::Utc> {
         self.data.modification_date_time
     }
 
+    /// Read the data of the event
     pub fn content(&self) -> &EventContent {
         &self.data.content
     }
 
+    /// Modify the data of the event.
+    /// Make sure to call [`update`](Self::update)
+    /// after your modifications to store them on the VTN
     pub fn content_mut(&mut self) -> &mut EventContent {
         &mut self.data.content
     }
 
-    /// Save any modifications of the event to the VTN
+    /// Stores any modifications made to the event content at the server
+    /// and refreshes the locally stored data with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
         self.data = self
             .client
@@ -85,7 +93,9 @@ impl EventClient {
         }
     }
 
-    /// Create a new report for the event
+    /// Create a new report on the VTN.
+    /// The content should be created with [`EventClient::new_report`]
+    /// to automatically insert the correct program ID and event ID
     pub async fn create_report(&self, report_data: ReportContent) -> Result<ReportClient> {
         if report_data.program_id != self.content().program_id {
             return Err(Error::InvalidParentObject);
@@ -127,7 +137,7 @@ impl EventClient {
     }
 
     /// Get all reports from the VTN, possibly filtered by `client_name`, trying to paginate whenever possible
-    pub async fn get_reports(&self, client_name: Option<&str>) -> Result<Vec<ReportClient>> {
+    pub async fn get_report_list(&self, client_name: Option<&str>) -> Result<Vec<ReportClient>> {
         self.client
             .iterate_pages(|skip, limit| self.get_reports_req(client_name, skip, limit))
             .await

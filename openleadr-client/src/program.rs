@@ -54,12 +54,11 @@ impl ProgramClient {
     /// Stores any modifications made to the program content at the server
     /// and refreshes the locally stored data with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
-        let res = self
+        self.data = self
             .client
             .client_ref
             .put(&format!("programs/{}", self.id()), &self.data.content)
             .await?;
-        self.data = res;
         Ok(())
     }
 
@@ -117,6 +116,7 @@ impl ProgramClient {
         self.client.get_event_list(Some(self.id()), filter).await
     }
 
+    /// Retrieves the events for this program from the VTN and tries to build a [`Timeline`] from it.
     pub async fn get_timeline(&mut self) -> Result<Timeline> {
         let events = self.get_event_list(Filter::None).await?;
         let events = events.iter().map(|e| e.content()).collect();

@@ -42,6 +42,7 @@ impl Timeline {
     /// Creates a [`Timeline`] form a [`Program`], and the [`Event`](crate::Event)s that belong to it.
     ///
     /// It sorts events according to their priority and builds the timeline accordingly.
+    /// The timeline can have gaps if the intervals in the events contain gaps.
     /// The event with the highest priority always takes presence at a specific time point.
     /// Therefore, a long-lasting, low-priority event can be interrupted by a short, high-priority event,
     /// for example.
@@ -49,14 +50,15 @@ impl Timeline {
     /// such that the high-priority event fits in between.
     ///
     /// ```text
-    /// |------------------------long, low prio--------------------------|
+    /// Input:
+    /// |------------------------long, low prio--------------------------|    |--another-interval--|
     ///                    |-----short, high prio---|
     /// Result:
-    /// |--long, low prio--|-----short, high prio---|---long, low prio---|
+    /// |--long, low prio--|-----short, high prio---|---long, low prio---|    |--another-interval--|
     /// ```
     ///
     /// This function logs at `warn` level if provided with an [`Event`](crate::Event)
-    /// those [`program_id`](crate::EventContent::program_id) does not match with the [`Program::id`].\
+    /// those [`program_id`](crate::EventContent::program_id) does not match with the [`Program::id`].
     /// The corresponding event will be ignored then building the timeline.
     ///
     /// This function also logs at `warn`
@@ -142,6 +144,20 @@ impl Timeline {
         Some((range, interval))
     }
 
+    /// Returns the time when to next change takes effect.
+    ///
+    /// **Example:**
+    /// ```text
+    ///   |--interval 1--|---interval 2---|       |---interval 3---|
+    ///   ↑              ↑                ↑       ↑                ↑
+    /// 08:03          09:56            10:59   11:01            12:00
+    /// ```
+    /// For the timeline illustrated above,
+    /// * `next_update(09:56)` would return `Some(10:59)`
+    /// * `next_update(10:00)` would return `Some(10:59)`
+    /// * `next_update(11:00)` would return `Some(11:01)`
+    /// * `next_update(12:00)` would return `None`
+    /// * `next_update(12:01)` would return `None`
     pub fn next_update(&self, datetime: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         if let Some((k, _)) = self.at_datetime(datetime) {
             return Some(k.end);
@@ -155,14 +171,44 @@ impl Timeline {
     }
 }
 
+/// Holds the data stored in a [`Timeline`].
+///
+/// This data type is returned by the Iterator over the [`Timeline`] and by the [`at_datetime`](Timeline::at_datetime)
+/// method.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interval<'a> {
-    /// Indicates a randomization time that may be applied to start.
-    pub randomize_start: Option<chrono::Duration>,
-    /// The actual values that are active during this interval
-    pub value_map: &'a [EventValuesMap],
+    randomize_start: Option<chrono::Duration>,
+    value_map: &'a [EventValuesMap],
 }
 
+impl<'a> Interval<'a> {
+    /// Indicates a randomization time that may be applied to start.
+    pub fn randomize_start(&self) -> Option<chrono::Duration> {
+        self.randomize_start
+    }
+
+    /// The actual values that are active during this interval
+    pub fn value_map(&self) -> &[EventValuesMap] {
+        self.value_map
+    }
+}
+
+/// Iterator over [`Timeline`].
+///
+/// **Important:** The specification does not specify how to handle the `randomize_start`
+/// for overlapping intervals.
+/// This implementation sets the [`randomize_start`](Interval::randomize_start)
+/// value to [`None`] if it's not the first part of that interval.
+/// A single interval can be split in multiple parts
+/// if it is partly covered by an event with higher priority.
+/// See [`Timeline::from_events`].
+///
+/// **Example:**
+/// ```text
+/// |----interval 1----|-----interval 2---|----interval 1----|
+/// ```
+/// If `interval 1` has a `randomize_start` specified,
+/// this iterator will only set this in the first part, but `None` in the second.
 pub struct Iter<'a> {
     iter: rangemap::map::Iter<'a, DateTime<Utc>, InternalInterval>,
     seen: HashSet<u32>,
