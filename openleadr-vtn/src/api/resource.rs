@@ -8,9 +8,11 @@ use openleadr_wire::ven::VenId;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::{info, trace};
+use utoipa::IntoParams;
 use validator::{Validate, ValidationError};
 
 use openleadr_wire::{
+    problem::Problem,
     resource::{Resource, ResourceContent, ResourceId},
     target::TargetLabel,
 };
@@ -36,6 +38,24 @@ fn has_write_permission(User(claims): &User, ven_id: &VenId) -> Result<(), AppEr
     ))
 }
 
+/// search ven resources
+///
+/// Return the ven resources specified by venID specified in path.
+#[utoipa::path(
+    get,
+    path = "/vens/{venID}/resources",
+    tag = "vens",
+    operation_id = "searchVenResources",
+    security(
+        ("oAuth2ClientCredentials" = ["read_all"]),
+        ("bearerAuth" = [])
+    ),
+    params(VenId, QueryParams),
+    responses(
+        (status = 200, body = Vec<Resource>, description = "OK."),
+        AppError
+    )
+ )]
 pub async fn get_all(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path(ven_id): Path<VenId>,
@@ -63,6 +83,26 @@ pub async fn get(
     Ok(Json(ven))
 }
 
+/// create resource
+///
+/// Create a new resource.
+#[utoipa::path(
+    post,
+    path = "/vens/{venID}/resources",
+    tag = "vens",
+    operation_id = "createResource",
+    security(
+        ("oAuth2ClientCredentials" = ["write_vens"]),
+        ("bearerAuth" = [])
+    ),
+    params(VenId),
+    request_body = Resource,
+    responses(
+        (status = 201, body = Resource, description = "Created."),
+        AppError,
+        (status = 409, body = Problem, description = "Conflict. Implementation dependent response if resource with  same resourceIdentifier already exists.")
+    )
+)]
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     user: User,
@@ -100,17 +140,26 @@ pub async fn delete(
     Ok(Json(resource))
 }
 
-#[derive(Deserialize, Validate, Debug)]
+#[derive(Deserialize, Validate, Debug, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) resource_name: Option<String>,
+    /// Indicates targeting type, e.g. GROUP
+    #[param(nullable = false)]
     pub(crate) target_type: Option<TargetLabel>,
+    /// List of target values, e.g. group names
+    #[param(nullable = false)]
     pub(crate) target_values: Option<Vec<String>>,
+    /// number of records to skip for pagination.
+    #[param(style = Form, explode = true, minimum = 0)]
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
+    /// maximum number of records to return.
+    #[param(style = Form, explode = true, minimum = 1, maximum = 50)]
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,

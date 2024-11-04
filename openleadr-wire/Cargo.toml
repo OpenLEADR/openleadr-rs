@@ -18,6 +18,8 @@ iso8601-duration.workspace = true
 thiserror.workspace = true
 http.workspace = true
 validator.workspace = true
+utoipa.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

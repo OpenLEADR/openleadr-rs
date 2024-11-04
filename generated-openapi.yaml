@@ -1,0 +1,308 @@
+openapi: 3.1.0
+info:
+  title: OpenADR 3 API
+  description: The OpenADR 3.0.0 API supports energy retailer to energy customer Demand
+    Response programs.
+  license:
+    name: Apache-2.0 OR MIT
+  version: 3.0.1
+servers:
+  - url: http://localhost:8081/openadr3
+    description: base path
+paths:
+  /vens/{venID}/resources:
+    get:
+      tags:
+        - vens
+      summary: search ven resources
+      description: Return the ven resources specified by venID specified in path.
+      operationId: searchVenResources
+      parameters:
+        - name: ven_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Identifier'
+        - name: resourceName
+          in: query
+          required: false
+          schema:
+            type:
+              - string
+              - 'null'
+        - name: targetType
+          in: query
+          description: Indicates targeting type, e.g. GROUP
+          required: false
+          schema:
+            $ref: '#/components/schemas/TargetLabel'
+        - name: targetValues
+          in: query
+          description: List of target values, e.g. group names
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: skip
+          in: query
+          description: number of records to skip for pagination.
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+          style: form
+          explode: true
+        - name: limit
+          in: query
+          description: maximum number of records to return.
+          required: false
+          schema:
+            type: integer
+            format: int64
+            maximum: 50
+            minimum: 1
+          style: form
+          explode: true
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Resource'
+        '400':
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        - oAuth2ClientCredentials:
+            - read_all
+        - bearerAuth: []
+    post:
+      tags:
+        - vens
+      summary: create resource
+      description: Create a new resource.
+      operationId: createResource
+      parameters:
+        - name: ven_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Identifier'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resource'
+        required: true
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '400':
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict. Implementation dependent response if resource with  same
+            resourceIdentifier already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        - oAuth2ClientCredentials:
+            - write_vens
+        - bearerAuth: []
+components:
+  schemas:
+    Identifier:
+      type: string
+      description: URL safe VTN assigned object ID.
+      example: object-999
+      maxLength: 128
+      minLength: 1
+      pattern: ^[a-zA-Z0-9_-]*$
+    Point:
+      type: object
+      description: A pair of floats typically used as a point on a 2 dimensional grid.
+      required:
+        - x
+        - y
+      properties:
+        x:
+          type:
+            - number
+            - 'null'
+          format: float
+          description: A value on an x axis.
+          default: null
+          example: 1.0
+        y:
+          type:
+            - number
+            - 'null'
+          format: float
+          description: A value on a y axis.
+          default: null
+          example: 2.0
+    Problem:
+      type: object
+      description: Reusable error response. From <https://opensource.zalando.com/problem/schema.yaml>.
+      properties:
+        detail:
+          type: string
+          description: A human-readable explanation specific to this occurrence of
+            the problem.
+          example: Connection to database timed out
+        instance:
+          type: string
+          format: uri
+          description: 'An absolute URI that identifies the specific occurrence of
+            the problem.
+
+            It may or may not yield further information if dereferenced.'
+        status:
+          type: integer
+          format: int32
+          description: The HTTP status code generated by the origin server for this
+            occurrence of the problem.
+          example: 503
+          minimum: 100
+          exclusiveMaximum: 600
+        title:
+          type: string
+          description: 'A short, summary of the problem type.
+
+            Written in english and readable for engineers
+
+            (usually not suited for non-technical stakeholders and not localized);
+
+            example: Service Unavailable.'
+        type:
+          $ref: '#/components/schemas/ProblemUri'
+          description: 'An absolute URI that identifies the problem type.
+
+            When dereferenced, it SHOULD provide human-readable documentation for
+            the problem type
+
+            (e.g., using HTML).'
+    ProblemUri:
+      type: string
+      format: uri
+      example: https://zalando.github.io/problem/constraint-violation
+    Resource:
+      allOf:
+        - $ref: '#/components/schemas/ResourceContent'
+        - type: object
+          properties:
+            createdDateTime:
+              type: string
+              format: date-time
+              description: datetime in ISO 8601 format
+              example: '2023-06-15T09:30:00Z'
+            id:
+              $ref: '#/components/schemas/ResourceId'
+              description: URL safe VTN assigned object ID.
+            modificationDateTime:
+              type: string
+              format: date-time
+              description: datetime in ISO 8601 format
+              example: '2023-06-15T09:30:00Z'
+            venID:
+              $ref: '#/components/schemas/VenId'
+              description: URL safe VTN assigned object ID.
+      description: A resource is an energy device or system subject to control by
+        a VEN.
+    ResourceContent:
+      type: object
+      required:
+        - resourceName
+      properties:
+        attributes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValuesMap'
+          description: A list of valuesMap objects describing attributes.
+        resourceName:
+          type: string
+          description: User generated identifier, resource may be configured with
+            identifier out-of-band.
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValuesMap'
+          description: A list of valuesMap objects describing target criteria.
+    ResourceId:
+      $ref: '#/components/schemas/Identifier'
+    ValuesMap:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Enumerated or private string signifying the nature of values.
+            E.G. \"PRICE\" indicates value is to be interpreted as a currency.
+        values:
+          type: array
+          items:
+            anyOf:
+              - type: integer
+              - type: number
+              - type: boolean
+              - $ref: '#/components/schemas/Point'
+              - type: string
+          description: A list of data points. Most often a singular value such as
+            a price.
+          example:
+            - 0.17
+    VenId:
+      $ref: '#/components/schemas/Identifier'
+      description: Numeric ID of ven.

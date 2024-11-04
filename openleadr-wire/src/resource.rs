@@ -2,24 +2,29 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
+use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::{target::TargetMap, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
+use crate::{values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
     /// URL safe VTN assigned object ID.
+    #[schema(required = false)]
     pub id: ResourceId,
     /// datetime in ISO 8601 format
+    #[schema(required = false, example = "2023-06-15T09:30:00Z")]
     #[serde(with = "crate::serde_rfc3339")]
     pub created_date_time: DateTime<Utc>,
     /// datetime in ISO 8601 format
+    #[schema(required = false, example = "2023-06-15T09:30:00Z")]
     #[serde(with = "crate::serde_rfc3339")]
     pub modification_date_time: DateTime<Utc>,
     /// URL safe VTN assigned object ID.
+    #[schema(required = false)]
     #[serde(rename = "venID")]
     pub ven_id: VenId,
     #[serde(flatten)]
@@ -28,19 +33,29 @@ pub struct Resource {
 }
 
 #[skip_serializing_none]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate, ToSchema)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "RESOURCE")]
 pub struct ResourceContent {
     /// User generated identifier, resource may be configured with identifier out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub resource_name: String,
     /// A list of valuesMap objects describing attributes.
+    #[schema(nullable = false)]
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<TargetMap>,
+    #[schema(nullable = false)]
+    pub targets: Option<Vec<ValuesMap>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+/// Used as discriminator, e.g. notification.object
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ObjectType {
+    #[default]
+    Resource,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, ToSchema)]
 pub struct ResourceId(pub(crate) Identifier);
 
 impl Display for ResourceId {

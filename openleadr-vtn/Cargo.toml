@@ -42,6 +42,7 @@ thiserror.workspace = true
 sqlx = {workspace = true, optional = true}
 argon2 = {workspace = true, optional = true}
 dotenvy = {workspace = true, optional = true}
+utoipa = { workspace = true, features = ["axum_extras"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

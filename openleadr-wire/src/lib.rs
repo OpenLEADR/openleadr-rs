@@ -10,6 +10,13 @@ pub use event::Event;
 pub use program::Program;
 pub use report::Report;
 use serde::{de::Unexpected, Deserialize, Deserializer, Serialize, Serializer};
+use utoipa::{
+    openapi::{
+        schema::{Object, Schema, SchemaType, Type},
+        RefOr
+    },
+    PartialSchema, ToSchema
+};
 pub use ven::Ven;
 
 pub mod event;
@@ -71,9 +78,29 @@ where
     }
 }
 
-/// A string that matches `/^[a-zA-Z0-9_-]*$/` with length in 1..=128
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Identifier(#[serde(deserialize_with = "identifier")] String);
+pub struct Identifier(
+    #[serde(deserialize_with = "identifier")]
+    String
+);
+
+impl PartialSchema for Identifier {
+    fn schema() -> RefOr<Schema> {
+        #[allow(deprecated)] // The example keyword was deprecated in OpenAPI 3.1.0 but is used by the OpenADR 3.0.1 spec.
+        let string_schema = Object::builder()
+            .schema_type(SchemaType::Type(Type::String))
+            .description(Some("URL safe VTN assigned object ID."))
+            .pattern(Some("^[a-zA-Z0-9_-]*$"))
+            .min_length(Some(1))
+            .max_length(Some(128))
+            .example(Some(serde_json::Value::String("object-999".to_string())))
+            .build();
+        RefOr::T(Schema::Object(string_schema))
+    }
+}
+
+impl ToSchema for Identifier { }
 
 impl<'de> Deserialize<'de> for Identifier {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

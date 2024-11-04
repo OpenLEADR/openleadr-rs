@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use argon2::password_hash;
 use axum::{
     extract::rejection::{FormRejection, JsonRejection},
@@ -11,6 +12,15 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::error::DatabaseError;
 use tracing::{error, info, trace, warn};
+use utoipa::{
+    openapi::{
+        content::ContentBuilder,
+        response as openapi,
+        schema::Ref,
+        RefOr,
+    },
+    IntoResponses, ToSchema,
+};
 use uuid::Uuid;
 
 #[derive(thiserror::Error, Debug)]
@@ -341,6 +351,34 @@ impl AppError {
                 }
             }
         }
+    }
+}
+
+impl IntoResponses for AppError {
+    fn responses() -> BTreeMap<String, RefOr<openapi::Response>> {
+        fn problem(
+            description: &str
+        ) -> openapi::Response {
+            let ref_schema = Ref::builder()
+                .ref_location_from_schema_name(Problem::name())
+                .build();
+            let schema = RefOr::Ref(ref_schema);
+            let content_type = "application/json";
+            let content = ContentBuilder::new()
+                .schema(Some(schema))
+                .build();
+            openapi::Response::builder()
+                .description(description)
+                .content(content_type, content)
+                .build()
+        }
+        openapi::Responses::builder()
+            .response("400", problem("Bad Request."))
+            .response("403", problem("Forbidden."))
+            .response("404", problem("Not Found."))
+            .response("500", problem("Internal Server Error."))
+            .build()
+            .into()
     }
 }
 

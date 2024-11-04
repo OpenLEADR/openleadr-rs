@@ -12,6 +12,7 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
     routing::{delete, get, post},
+    Json,
 };
 use base64::{
     alphabet,
@@ -22,6 +23,12 @@ use reqwest::StatusCode;
 use std::{env, sync::Arc};
 use tower_http::trace::TraceLayer;
 use tracing::warn;
+use utoipa::OpenApi;
+
+use openleadr_wire::{
+    problem::Problem,
+    resource::Resource,
+};
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -100,6 +107,7 @@ impl AppState {
                 "/users/:user_id/:client_id",
                 delete(user::delete_credential),
             )
+            .route("/docs/openapi.json", get(openapi))
             .fallback(handler_404)
             .layer(middleware::from_fn(method_not_allowed))
             .layer(TraceLayer::new_for_http())
@@ -157,4 +165,26 @@ impl FromRef<AppState> for Arc<dyn ResourceCrud> {
     fn from_ref(state: &AppState) -> Arc<dyn ResourceCrud> {
         state.storage.resources()
     }
+}
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "OpenADR 3 API",
+        version = "3.0.1",
+        description = "The OpenADR 3.0.0 API supports energy retailer to energy customer Demand Response programs."
+    ),
+    servers(
+        (description = "base path", url = "http://localhost:8081/openadr3")
+    ),
+    paths(
+        resource::get_all,
+        resource::add
+    ),
+    components(schemas(Problem, Resource))
+)]
+struct OpenApiDocument;
+
+async fn openapi() -> Json<utoipa::openapi::OpenApi> {
+    Json(OpenApiDocument::openapi())
 }

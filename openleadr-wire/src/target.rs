@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TargetMap(pub Vec<TargetEntry>);
@@ -14,7 +15,7 @@ pub struct TargetEntry {
     pub values: [String; 1],
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TargetLabel {
     /// A Power Service Location is a utility named specific location in
