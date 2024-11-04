@@ -302,7 +302,7 @@ mod tests {
     use crate::{values_map::Value, Duration};
 
     use super::*;
-    
+
     #[test]
     fn priority_order() {
         assert_eq!(Priority::MAX, Priority::new(0));

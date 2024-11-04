@@ -197,6 +197,7 @@ mod test {
         event::{EventContent, EventInterval},
         interval::IntervalPeriod,
         program::{ProgramContent, ProgramId},
+        Program,
     };
     use std::sync::{
         atomic::{AtomicU64, Ordering},
@@ -303,8 +304,13 @@ mod test {
             })
             .collect();
 
-        let program = ProgramContent::new("Limits for Arthur Dent");
-        let event = EventContent::new(ProgramId::new("ad").unwrap(), intervals);
+        let program = Program {
+            id: "test-program-id".parse().unwrap(),
+            created_date_time: Default::default(),
+            modification_date_time: Default::default(),
+            content: ProgramContent::new("Limits for Arthur Dent"),
+        };
+        let event = EventContent::new(ProgramId::new("test-program-id").unwrap(), intervals);
         let events = vec![&event];
 
         Timeline::from_events(&program, events).unwrap()

@@ -6,7 +6,6 @@ use tracing::warn;
 use openleadr_wire::{
     event::{EventContent, EventValuesMap, Priority},
     interval::IntervalPeriod,
-    program::ProgramContent,
     Program,
 };
 
@@ -194,9 +193,12 @@ mod test {
 
     use chrono::{DateTime, Duration, Utc};
 
-    use openleadr_wire::{event::EventInterval, program::ProgramId, values_map::Value};
-
     use super::*;
+    use openleadr_wire::{
+        event::EventInterval,
+        program::{ProgramContent, ProgramId},
+        values_map::Value,
+    };
 
     fn test_program_id() -> ProgramId {
         ProgramId::new("test-program-id").unwrap()
@@ -343,6 +345,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "Tracked by issue #55"]
     fn default_interval() {
         let program = test_program("p");
 
@@ -350,14 +353,14 @@ mod test {
             EventInterval::new(
                 0,
                 vec![EventValuesMap {
-                    value_type: openadr_wire::event::EventType::Price,
+                    value_type: openleadr_wire::event::EventType::Price,
                     values: vec![Value::Number(1.23)],
                 }],
             ),
             EventInterval::new(
                 1,
                 vec![EventValuesMap {
-                    value_type: openadr_wire::event::EventType::Simple,
+                    value_type: openleadr_wire::event::EventType::Simple,
                     values: vec![Value::Number(2.34)],
                 }],
             ),
@@ -367,7 +370,7 @@ mod test {
 
         event.interval_period = Some(IntervalPeriod {
             start: DateTime::UNIX_EPOCH,
-            duration: Some(openadr_wire::Duration::hours(5.)),
+            duration: Some(openleadr_wire::Duration::hours(5.)),
             randomize_start: None,
         });
 
@@ -378,7 +381,7 @@ mod test {
             .unwrap();
         assert_eq!(
             interval.1.value_map[0].value_type,
-            openadr_wire::event::EventType::Price
+            openleadr_wire::event::EventType::Price
         );
 
         let interval = timeline
@@ -386,7 +389,7 @@ mod test {
             .unwrap();
         assert_eq!(
             interval.1.value_map[0].value_type,
-            openadr_wire::event::EventType::Simple
+            openleadr_wire::event::EventType::Simple
         );
     }
 

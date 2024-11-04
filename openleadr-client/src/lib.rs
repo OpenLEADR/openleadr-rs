@@ -7,10 +7,10 @@
 //!
 //! Basic usage
 //! ```no_run
-//! # use openadr_client::{Client, ClientCredentials};
-//! # use openadr_wire::event::{EventInterval, EventType, EventValuesMap, Priority};
-//! # use openadr_wire::program::ProgramContent;
-//! # use openadr_wire::values_map::Value;
+//! # use openleadr_client::{Client, ClientCredentials};
+//! # use openleadr_wire::event::{EventInterval, EventType, EventValuesMap, Priority};
+//! # use openleadr_wire::program::ProgramContent;
+//! # use openleadr_wire::values_map::Value;
 //! # tokio_test::block_on(async {
 //! let credentials =
 //!     ClientCredentials::new("client_id".to_string(), "client_secret".to_string());

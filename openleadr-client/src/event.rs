@@ -10,8 +10,8 @@ use openleadr_wire::{event::EventContent, report::ReportContent, Event, Report};
 ///
 /// Can be created by a [`ProgramClient`](crate::ProgramClient)
 /// ```no_run
-/// use openadr_client::{Client, Filter};
-/// use openadr_wire::event::Priority;
+/// use openleadr_client::{Client, Filter};
+/// use openleadr_wire::event::Priority;
 /// let client = Client::with_url("https://your-vtn.com".try_into().unwrap(), None);
 /// # tokio_test::block_on(async {
 /// let program = client.get_program_by_id(&"program-1".parse().unwrap()).await.unwrap();
