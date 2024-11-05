@@ -10,7 +10,7 @@ use crate::{
     jwt::{BusinessIds, Claims},
 };
 use dotenvy::dotenv;
-use openleadr_wire::target::{TargetLabel, TargetMap};
+use openleadr_wire::target::{TargetMap, TargetType};
 use resource::PgResourceStorage;
 use serde::Serialize;
 use sqlx::PgPool;
@@ -109,7 +109,7 @@ fn extract_vens(targets: Option<TargetMap>) -> (Option<TargetMap>, Option<Vec<St
     if let Some(TargetMap(targets)) = targets {
         let (vens, targets): (Vec<_>, Vec<_>) = targets
             .into_iter()
-            .partition(|t| t.label == TargetLabel::VENName);
+            .partition(|t| t.label == TargetType::VENName);
 
         let vens = vens
             .into_iter()

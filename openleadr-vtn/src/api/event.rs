@@ -12,7 +12,7 @@ use validator::{Validate, ValidationError};
 use openleadr_wire::{
     event::{EventContent, EventId},
     program::ProgramId,
-    target::TargetLabel,
+    target::TargetType,
     Event,
 };
 
@@ -88,7 +88,7 @@ pub async fn delete(
 pub struct QueryParams {
     #[serde(rename = "programID")]
     pub(crate) program_id: Option<ProgramId>,
-    pub(crate) target_type: Option<TargetLabel>,
+    pub(crate) target_type: Option<TargetType>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
     #[validate(range(min = 0))]
@@ -356,7 +356,7 @@ mod test {
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event1".to_string()),
             targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetLabel::Private("Something".to_string()),
+                label: TargetType::Private("Something".to_string()),
                 values: ["group-1".to_string()],
             }])),
             ..default_event_content()
@@ -365,7 +365,7 @@ mod test {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event2".to_string()),
             targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetLabel::Group,
+                label: TargetType::Group,
                 values: ["group-2".to_string()],
             }])),
             ..default_event_content()
@@ -374,7 +374,7 @@ mod test {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event3".to_string()),
             targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetLabel::Group,
+                label: TargetType::Group,
                 values: ["group-1".to_string()],
             }])),
             ..default_event_content()

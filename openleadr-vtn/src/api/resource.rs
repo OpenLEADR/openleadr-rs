@@ -12,7 +12,7 @@ use validator::{Validate, ValidationError};
 
 use openleadr_wire::{
     resource::{Resource, ResourceContent, ResourceId},
-    target::TargetLabel,
+    target::TargetType,
 };
 
 use crate::{
@@ -106,7 +106,7 @@ pub async fn delete(
 pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) resource_name: Option<String>,
-    pub(crate) target_type: Option<TargetLabel>,
+    pub(crate) target_type: Option<TargetType>,
     pub(crate) target_values: Option<Vec<String>>,
     #[serde(default)]
     #[validate(range(min = 0))]

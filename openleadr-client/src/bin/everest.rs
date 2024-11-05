@@ -123,7 +123,7 @@ async fn update_listener(
 
             valid_until = Ord::max(valid_until, Some(range.end));
 
-            if let Some(limits_to_root) = LimitsRes::try_from_event_values(interval.value_map) {
+            if let Some(limits_to_root) = LimitsRes::try_from_event_values(interval.value_map()) {
                 let entry = ScheduleResEntry {
                     timestamp: range.start,
                     limits_to_root,
@@ -133,7 +133,7 @@ async fn update_listener(
             }
         }
 
-        let opt_limits = LimitsRes::try_from_event_values(current.1.value_map);
+        let opt_limits = LimitsRes::try_from_event_values(current.1.value_map());
         if let (Some(valid_until), Some(limits_root_side)) = (valid_until, opt_limits) {
             let enforced_limits = EnforcedLimits {
                 uuid: Uuid::new_v4().to_string(),
@@ -197,6 +197,7 @@ mod test {
         event::{EventContent, EventInterval},
         interval::IntervalPeriod,
         program::{ProgramContent, ProgramId},
+        Program,
     };
     use std::sync::{
         atomic::{AtomicU64, Ordering},
@@ -303,8 +304,13 @@ mod test {
             })
             .collect();
 
-        let program = ProgramContent::new("Limits for Arthur Dent");
-        let event = EventContent::new(ProgramId::new("ad").unwrap(), intervals);
+        let program = Program {
+            id: "test-program-id".parse().unwrap(),
+            created_date_time: Default::default(),
+            modification_date_time: Default::default(),
+            content: ProgramContent::new("Limits for Arthur Dent"),
+        };
+        let event = EventContent::new(ProgramId::new("test-program-id").unwrap(), intervals);
         let events = vec![&event];
 
         Timeline::from_events(&program, events).unwrap()

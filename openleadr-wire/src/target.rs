@@ -10,13 +10,13 @@ pub struct TargetMap(pub Vec<TargetEntry>);
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TargetEntry {
     #[serde(rename = "type")]
-    pub label: TargetLabel,
+    pub label: TargetType,
     pub values: [String; 1],
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TargetLabel {
+pub enum TargetType {
     /// A Power Service Location is a utility named specific location in
     /// geography or the distribution system, usually the point of service to a
     /// customer site.
@@ -40,22 +40,22 @@ pub enum TargetLabel {
     Private(String),
 }
 
-impl TargetLabel {
+impl TargetType {
     pub fn as_str(&self) -> &str {
         match self {
-            TargetLabel::PowerServiceLocation => "POWER_SERVICE_LOCATION",
-            TargetLabel::ServiceArea => "SERVICE_AREA",
-            TargetLabel::Group => "GROUP",
-            TargetLabel::ResourceName => "RESOURCE_NAME",
-            TargetLabel::VENName => "VEN_NAME",
-            TargetLabel::EventName => "EVENT_NAME",
-            TargetLabel::ProgramName => "PROGRAM_NAME",
-            TargetLabel::Private(s) => s.as_str(),
+            TargetType::PowerServiceLocation => "POWER_SERVICE_LOCATION",
+            TargetType::ServiceArea => "SERVICE_AREA",
+            TargetType::Group => "GROUP",
+            TargetType::ResourceName => "RESOURCE_NAME",
+            TargetType::VENName => "VEN_NAME",
+            TargetType::EventName => "EVENT_NAME",
+            TargetType::ProgramName => "PROGRAM_NAME",
+            TargetType::Private(s) => s.as_str(),
         }
     }
 }
 
-impl Display for TargetLabel {
+impl Display for TargetType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -68,20 +68,20 @@ mod tests {
     #[test]
     fn test_target_serialization() {
         assert_eq!(
-            serde_json::to_string(&TargetLabel::EventName).unwrap(),
+            serde_json::to_string(&TargetType::EventName).unwrap(),
             r#""EVENT_NAME""#
         );
         assert_eq!(
-            serde_json::to_string(&TargetLabel::Private(String::from("something else"))).unwrap(),
+            serde_json::to_string(&TargetType::Private(String::from("something else"))).unwrap(),
             r#""something else""#
         );
         assert_eq!(
-            serde_json::from_str::<TargetLabel>(r#""VEN_NAME""#).unwrap(),
-            TargetLabel::VENName
+            serde_json::from_str::<TargetType>(r#""VEN_NAME""#).unwrap(),
+            TargetType::VENName
         );
         assert_eq!(
-            serde_json::from_str::<TargetLabel>(r#""something else""#).unwrap(),
-            TargetLabel::Private(String::from("something else"))
+            serde_json::from_str::<TargetType>(r#""something else""#).unwrap(),
+            TargetType::Private(String::from("something else"))
         );
     }
 }

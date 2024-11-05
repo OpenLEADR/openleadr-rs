@@ -397,7 +397,7 @@ mod tests {
     use openleadr_wire::{
         event::{EventContent, EventInterval, EventType, EventValuesMap},
         interval::IntervalPeriod,
-        target::{TargetEntry, TargetLabel, TargetMap},
+        target::{TargetEntry, TargetMap, TargetType},
         values_map::Value,
         Event,
     };
@@ -425,11 +425,11 @@ mod tests {
                 priority: Some(4).into(),
                 targets: Some(TargetMap(vec![
                     TargetEntry {
-                        label: TargetLabel::Group,
+                        label: TargetType::Group,
                         values: ["group-1".to_string()],
                     },
                     TargetEntry {
-                        label: TargetLabel::Private("PRIVATE_LABEL".to_string()),
+                        label: TargetType::Private("PRIVATE_LABEL".to_string()),
                         values: ["private value".to_string()],
                     },
                 ])),
@@ -466,7 +466,7 @@ mod tests {
                 event_name: Some("event-2-name".to_string()),
                 priority: None.into(),
                 targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetLabel::Private("SOME_TARGET".to_string()),
+                    label: TargetType::Private("SOME_TARGET".to_string()),
                     values: ["target-1".to_string()],
                 }])),
                 report_descriptors: None,
@@ -563,7 +563,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["group-1".to_string()]),
                         ..Default::default()
                     },
@@ -577,7 +577,7 @@ mod tests {
             let mut events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Private("SOME_TARGET".to_string())),
+                        target_type: Some(TargetType::Private("SOME_TARGET".to_string())),
                         target_values: Some(vec!["target-1".to_string()]),
                         ..Default::default()
                     },
@@ -592,7 +592,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["not-existent".to_string()]),
                         ..Default::default()
                     },
@@ -605,7 +605,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Private("NOT_EXISTENT".to_string())),
+                        target_type: Some(TargetType::Private("NOT_EXISTENT".to_string())),
                         target_values: Some(vec!["target-1".to_string()]),
                         ..Default::default()
                     },
@@ -618,7 +618,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["target-1".to_string()]),
                         ..Default::default()
                     },
@@ -636,7 +636,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         target_values: Some(vec!["private value".to_string()]),
                         ..Default::default()
                     },
@@ -668,7 +668,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         program_id: Some("program-1".parse().unwrap()),
-                        target_type: Some(TargetLabel::Group),
+                        target_type: Some(TargetType::Group),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

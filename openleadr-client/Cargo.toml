@@ -31,7 +31,12 @@ uuid.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 openleadr-vtn.workspace = true
+tokio-test.workspace = true
 mime.workspace = true
 sqlx.workspace = true
 serial_test.workspace = true
 dotenvy.workspace = true
+
+[package.metadata.cargo-udeps.ignore]
+# tokio-test is only used in the doc-tests and can therefore not be detected by cargo-udeps
+development = ["tokio-test"]

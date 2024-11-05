@@ -1,9 +1,11 @@
-use openleadr_wire::{event::Priority, Program};
-
 use crate::{
     error::{Error, Result},
     Client, EventClient, EventContent, Filter, PaginationOptions, ProgramContent, ProgramId,
     Timeline,
+};
+use openleadr_wire::{
+    event::{EventInterval, Priority},
+    Program,
 };
 
 /// A client for interacting with the data in a specific program and the events
@@ -42,20 +44,21 @@ impl ProgramClient {
         &self.data.content
     }
 
-    /// Modify the data of the program, make sure to update the program on the
-    /// VTN once your modifications are complete.
+    /// Modify the data of the program.
+    /// Make sure to call [`update`](Self::update)
+    /// after your modifications to store them on the VTN
     pub fn content_mut(&mut self) -> &mut ProgramContent {
         &mut self.data.content
     }
 
-    /// Save any modifications of the program to the VTN
+    /// Stores any modifications made to the program content at the server
+    /// and refreshes the locally stored data with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
-        let res = self
+        self.data = self
             .client
             .client_ref
-            .put(&format!("programs/{}", self.id()), &self.data.content, &[])
+            .put(&format!("programs/{}", self.id()), &self.data.content)
             .await?;
-        self.data = res;
         Ok(())
     }
 
@@ -63,20 +66,18 @@ impl ProgramClient {
     pub async fn delete(self) -> Result<Program> {
         self.client
             .client_ref
-            .delete(&format!("programs/{}", self.id()), &[])
+            .delete(&format!("programs/{}", self.id()))
             .await
     }
 
-    /// Create a new event on the VTN
+    /// Create a new event on the VTN.
+    /// The content should be created with [`ProgramClient::new_event`]
+    /// to automatically insert the correct program ID
     pub async fn create_event(&self, event_data: EventContent) -> Result<EventClient> {
         if &event_data.program_id != self.id() {
             return Err(Error::InvalidParentObject);
         }
-        let event = self
-            .client
-            .client_ref
-            .post("events", &event_data, &[])
-            .await?;
+        let event = self.client.client_ref.post("events", &event_data).await?;
         Ok(EventClient::from_event(
             self.client.client_ref.clone(),
             event,
@@ -84,7 +85,7 @@ impl ProgramClient {
     }
 
     /// Create a new event object within the program
-    pub fn new_event(&self) -> EventContent {
+    pub fn new_event(&self, intervals: Vec<EventInterval>) -> EventContent {
         EventContent {
             program_id: self.id().clone(),
             event_name: None,
@@ -93,10 +94,13 @@ impl ProgramClient {
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,
-            intervals: vec![],
+            intervals,
         }
     }
 
+    /// Gets all events assigned to this program.
+    ///
+    /// It automatically tries to iterate pages where necessary.
     pub async fn get_events_request(
         &self,
         filter: Filter<'_>,
@@ -112,9 +116,10 @@ impl ProgramClient {
         self.client.get_event_list(Some(self.id()), filter).await
     }
 
+    /// Retrieves the events for this program from the VTN and tries to build a [`Timeline`] from it.
     pub async fn get_timeline(&mut self) -> Result<Timeline> {
         let events = self.get_event_list(Filter::None).await?;
         let events = events.iter().map(|e| e.content()).collect();
-        Timeline::from_events(self.content(), events).ok_or(Error::InvalidInterval)
+        Timeline::from_events(&self.data, events).ok_or(Error::InvalidInterval)
     }
 }

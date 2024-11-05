@@ -4,6 +4,25 @@ use openleadr_wire::{report::ReportContent, Report};
 
 use crate::{error::Result, ClientRef};
 
+/// Client to manage the data of a specific report
+///
+/// Can be created by a [`EventClient`](crate::EventClient)
+/// ```no_run
+/// # use openleadr_client::{Client, Filter};
+/// # use openleadr_wire::event::Priority;
+/// let client = Client::with_url("https://your-vtn.com".try_into().unwrap(), None);
+/// # tokio_test::block_on(async {
+/// let event = client.get_event_by_id(&"event-1".parse().unwrap()).await.unwrap();
+///
+/// // retrieve all reports in that specific event, optionally filtered by the client name
+/// let mut reports = event.get_report_list(Some("client-name")).await.unwrap();
+/// let mut report = reports.remove(0);
+///
+/// // change report name
+/// report.content_mut().report_name = Some("new-report-name".to_string());
+/// report.update().await.unwrap()
+/// # })
+/// ```
 #[derive(Debug)]
 pub struct ReportClient {
     client: Arc<ClientRef>,
@@ -18,31 +37,39 @@ impl ReportClient {
         }
     }
 
+    /// Get the id of the report
     pub fn id(&self) -> &openleadr_wire::report::ReportId {
         &self.data.id
     }
 
+    /// Get the time the report was created on the VTN
     pub fn created_date_time(&self) -> &chrono::DateTime<chrono::Utc> {
         &self.data.created_date_time
     }
 
+    /// Get the time the report was last modified on the VTN
     pub fn modification_date_time(&self) -> &chrono::DateTime<chrono::Utc> {
         &self.data.modification_date_time
     }
 
-    pub fn data(&self) -> &ReportContent {
+    /// Read the data of the report
+    pub fn content(&self) -> &ReportContent {
         &self.data.content
     }
 
-    pub fn data_mut(&mut self) -> &mut ReportContent {
+    /// Modify the data of the report.
+    /// Make sure to call [`update`](Self::update)
+    /// after your modifications to store them on the VTN
+    pub fn content_mut(&mut self) -> &mut ReportContent {
         &mut self.data.content
     }
 
-    /// Save any modifications of the report to the VTN
+    /// Stores any modifications made to the report content at the server
+    /// and refreshes the locally stored data with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
         let res = self
             .client
-            .put(&format!("reports/{}", self.id()), &self.data.content, &[])
+            .put(&format!("reports/{}", self.id()), &self.data.content)
             .await?;
         self.data = res;
         Ok(())
@@ -50,8 +77,6 @@ impl ReportClient {
 
     /// Delete the report from the VTN
     pub async fn delete(self) -> Result<()> {
-        self.client
-            .delete(&format!("reports/{}", self.id()), &[])
-            .await
+        self.client.delete(&format!("reports/{}", self.id())).await
     }
 }

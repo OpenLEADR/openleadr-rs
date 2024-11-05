@@ -5,7 +5,10 @@ use openleadr_wire::program::ProgramContent;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = openleadr_client::Client::with_url(
         "http://localhost:3000/".try_into()?,
-        Some(ClientCredentials::admin()),
+        Some(ClientCredentials::new(
+            "admin".to_string(),
+            "admin".to_string(),
+        )),
     );
     let _created_program = client.create_program(ProgramContent::new("name")).await?;
     // let created_program_1 = client.create_program(ProgramContent::new("name1")).await?;
