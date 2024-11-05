@@ -86,7 +86,7 @@ do not hesitate to open an issue on our [GitHub](https://github.com/OpenLEADR/op
 If you suspect a security-critical issue, please refer to [`SECURITY.md`](SECURITY.md).
 
 Additionally, we are happy to see pull requests on this repository as well.
-We prefer to know when you intend to develop some functionality to make sure that there aren't multiple people working on the same issue.Simply drop a short note to the corresponding issue.
+We prefer to know when you intend to develop some functionality to make sure that there aren't multiple people working on the same issue. Simply drop a short note to the corresponding issue.
 
 For your commits, please make sure you add a `signed-off-by` appendix to your commit message,
 as the [LF energy contribution guidelines](https://tac.lfenergy.org/process/contribution_guidelines.html#developer-certificate-of-origin) require that.
