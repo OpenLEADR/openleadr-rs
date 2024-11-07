@@ -19,6 +19,7 @@ iso8601-duration.workspace = true
 thiserror.workspace = true
 http.workspace = true
 validator.workspace = true
+iso_currency = { version = "0.5.0", features = ["with-serde"] }
 
 [dev-dependencies]
 serde_json.workspace = true

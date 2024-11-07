@@ -63,3 +63,4 @@ argon2 = "0.5.3"
 dotenvy = "0.15.7"
 
 serial_test = "3.1.1"
+

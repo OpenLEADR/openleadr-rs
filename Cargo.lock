@@ -1135,6 +1135,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "iso_country"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20633e788d3948ea7336861fdb09ec247f5dae4267e8f0743fa97de26c28624d"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
+name = "iso_currency"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f402cc74ed2fec6f6fed285d45645a8c7c82e1d1fa694898864ef7c0cb047785"
+dependencies = [
+ "iso_country",
+ "proc-macro2",
+ "quote",
+ "serde",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1437,6 +1458,7 @@ dependencies = [
  "chrono",
  "http",
  "iso8601-duration",
+ "iso_currency",
  "quickcheck",
  "serde",
  "serde_json",

@@ -5,6 +5,7 @@ use crate::{
     values_map::Value, Identifier, IdentifierError, Unit,
 };
 use chrono::{DateTime, Utc};
+use iso_currency::Currency;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{
@@ -206,13 +207,6 @@ impl EventPayloadDescriptor {
             currency: None,
         }
     }
-}
-
-// TODO: Find a nice ISO 4217 crate
-/// A currency described as listed in ISO 4217
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Currency {
-    Todo,
 }
 
 /// An object defining a temporal window and a list of valuesMaps. if intervalPeriod present may set
@@ -426,6 +420,37 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Vec<Event>>(example).unwrap()[0],
             expected
+        );
+    }
+
+    #[test]
+    fn test_currency() {
+        // deserialize
+        let example = r#"{"payloadType":"SIMPLE","currency":"EUR"}"#;
+
+        let expected = EventPayloadDescriptor {
+            payload_type: EventType::Simple,
+            units: None,
+            currency: Some(Currency::EUR),
+        };
+
+        assert_eq!(
+            serde_json::from_str::<EventPayloadDescriptor>(&example).unwrap(),
+            expected
+        );
+
+        // round-trip
+        let source = EventPayloadDescriptor {
+            payload_type: EventType::Price,
+            units: Some(Unit::Volts),
+            currency: Some(Currency::USD),
+        };
+
+        let serialized = serde_json::to_string(&source).unwrap();
+
+        assert_eq!(
+            source,
+            serde_json::from_str::<EventPayloadDescriptor>(&serialized).unwrap()
         );
     }
 }
