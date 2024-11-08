@@ -1,4 +1,4 @@
-FROM rust:1.80 as base
+FROM rust:1.81 as base
 RUN apt-get update && apt-get install -y --no-install-recommends curl && apt-get clean
 
 FROM base as builder
