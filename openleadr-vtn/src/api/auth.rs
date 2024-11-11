@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{api::ValidatedForm, data_source::AuthSource, jwt::JwtManager};
+use crate::{api::ValidatedForm, data_source::AuthSource, error::AppError, jwt::JwtManager};
 use axum::{
     extract::State,
     http::{Response, StatusCode},
@@ -25,6 +25,7 @@ pub struct AccessTokenRequest {
     client_secret: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct ResponseOAuthError(pub OAuthError);
 
 impl IntoResponse for ResponseOAuthError {
@@ -39,6 +40,7 @@ impl IntoResponse for ResponseOAuthError {
             OAuthErrorType::ServerError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, Json(self.0)).into_response()
             }
+            OAuthErrorType::OAuthNotEnabled => AppError::NotFound.into_response(),
             _ => (StatusCode::BAD_REQUEST, Json(self.0)).into_response(),
         }
     }

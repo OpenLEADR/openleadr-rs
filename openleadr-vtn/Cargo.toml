@@ -46,6 +46,7 @@ dotenvy = {workspace = true, optional = true}
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+serial_test.workspace = true
 
 [features]
 default = ["postgres", "live-db-test"]
