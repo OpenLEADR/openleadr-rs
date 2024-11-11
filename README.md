@@ -4,7 +4,7 @@
 
 # OpenADR 3.0 in Rust
 
-![LF energy OpenLEADR logo](./openleadr-logo.svg)
+![LF energy OpenLEADR logo](https://github.com/OpenLEADR/openleadr-rs/raw/refs/heads/main/openleadr-logo.svg)
 
 This repository contains an OpenADR 3.0 client (VEN) library and a server (VTN) implementation, both written in Rust.
 OpenADR is a protocol for automated demand-response in electricity grids, like dynamic pricing or load shedding.
