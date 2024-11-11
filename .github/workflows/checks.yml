@@ -62,7 +62,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
         with:
-            shared-key: "${{matrix.rust}}-${{matrix.target}}"
+          shared-key: "${{matrix.rust}}-${{matrix.target}}"
 
       - name: Setup Postgres DB
         run: |
@@ -70,7 +70,7 @@ jobs:
           cargo install sqlx-cli --no-default-features --features rustls,postgres && \
           cargo sqlx migrate run --source openleadr-vtn/migrations && \
           psql -U openadr -W openadr -h localhost openadr < fixtures/test_user_credentials.sql
-          
+
       - name: cargo build
         run: cargo build ${{ matrix.features }}
 
@@ -89,6 +89,14 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  build-docker:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Build Docker image
         uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
         with:
@@ -189,7 +197,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
         with:
-            shared-key: "stable-${{matrix.target}}"
+          shared-key: "stable-${{matrix.target}}"
 
       - name: Run clippy
         run: cargo clippy --target ${{matrix.target}} --workspace --all-targets --all-features -- -D warnings
@@ -198,8 +206,8 @@ jobs:
     name: Audit dependencies
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-    - uses: EmbarkStudios/cargo-deny-action@8371184bd11e21dcf8ac82ebf8c9c9f74ebf7268
-      with:
-        arguments: --workspace --all-features
+      - uses: EmbarkStudios/cargo-deny-action@8371184bd11e21dcf8ac82ebf8c9c9f74ebf7268
+        with:
+          arguments: --workspace --all-features
