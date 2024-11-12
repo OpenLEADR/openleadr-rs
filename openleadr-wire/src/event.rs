@@ -435,7 +435,7 @@ mod tests {
         };
 
         assert_eq!(
-            serde_json::from_str::<EventPayloadDescriptor>(&example).unwrap(),
+            serde_json::from_str::<EventPayloadDescriptor>(example).unwrap(),
             expected
         );
 
