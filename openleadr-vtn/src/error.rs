@@ -1,3 +1,4 @@
+#[cfg(feature = "sqlx")]
 use argon2::password_hash;
 use axum::{
     extract::rejection::{FormRejection, JsonRejection},
@@ -10,7 +11,9 @@ use openleadr_wire::{problem::Problem, IdentifierError};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::error::DatabaseError;
-use tracing::{error, info, trace, warn};
+#[cfg(feature = "sqlx")]
+use tracing::warn;
+use tracing::{error, info, trace};
 use uuid::Uuid;
 
 #[derive(thiserror::Error, Debug)]
@@ -101,7 +104,7 @@ impl From<FormRejection> for AppError {
         }
     }
 }
-
+#[cfg(feature = "sqlx")]
 impl From<password_hash::Error> for AppError {
     fn from(hash_err: password_hash::Error) -> Self {
         Self::PasswordHashError(hash_err)
@@ -318,6 +321,7 @@ impl AppError {
                     instance: Some(reference.to_string()),
                 }
             }
+            #[cfg(feature = "sqlx")]
             AppError::PasswordHashError(err) => {
                 warn!(%reference,
                 "Password hash error: {}",

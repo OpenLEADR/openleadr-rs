@@ -34,6 +34,14 @@ jobs:
             target: "aarch64-unknown-linux-gnu"
             os: ubuntu-latest
             features: "--all-features"
+          - rust: "stable"
+            target: "x86_64-unknown-linux-gnu"
+            os: ubuntu-latest
+            features: "--no-default-features --features=postgres"
+          - rust: "stable"
+            target: "x86_64-unknown-linux-gnu"
+            os: ubuntu-latest
+            features: "--no-default-features --features=postgres,internal-oauth"
     steps:
       - name: Checkout sources
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -75,7 +83,7 @@ jobs:
         run: cargo build ${{ matrix.features }}
 
       - name: cargo test
-        run: cargo llvm-cov --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info --features live-db-test
+        run: cargo llvm-cov --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
         env:
           RUST_BACKTRACE: 1
 

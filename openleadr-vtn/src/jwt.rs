@@ -1,6 +1,13 @@
 use std::sync::Arc;
 
-use crate::{api::auth::ResponseOAuthError, error::AppError};
+#[cfg(feature = "internal-oauth")]
+use crate::api::auth::ResponseOAuthError;
+#[cfg(feature = "internal-oauth")]
+use jsonwebtoken::{encode, Header};
+#[cfg(feature = "internal-oauth")]
+use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
+
+use crate::error::AppError;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
@@ -10,14 +17,12 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header};
-use openleadr_wire::{
-    oauth::{OAuthError, OAuthErrorType},
-    ven::VenId,
-};
+use jsonwebtoken::{DecodingKey, EncodingKey};
+use openleadr_wire::ven::VenId;
 use tracing::trace;
 
 pub struct JwtManager {
+    #[cfg(feature = "internal-oauth")]
     encoding_key: Option<EncodingKey>,
     decoding_key: DecodingKey,
 }
@@ -143,13 +148,25 @@ impl Claims {
 impl JwtManager {
     /// Create a new JWT manager with a specific encoding and decoding key
     pub fn new(encoding_key: Option<EncodingKey>, decoding_key: DecodingKey) -> Self {
-        Self {
-            encoding_key,
-            decoding_key,
+        if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
+            panic!("You should not provide a JWT encoding key as the 'internal-oauth' feature is disabled. \
+            Please recompile with the 'internal-oauth' feature enabled if you want to use it.");
+        }
+        #[cfg(feature = "internal-oauth")]
+        {
+            Self {
+                encoding_key,
+                decoding_key,
+            }
+        }
+        #[cfg(not(feature = "internal-oauth"))]
+        {
+            Self { decoding_key }
         }
     }
 
     /// Create a new JWT token with the given claims and expiration time
+    #[cfg(feature = "internal-oauth")]
     pub(crate) fn create(
         &self,
         expires_in: std::time::Duration,

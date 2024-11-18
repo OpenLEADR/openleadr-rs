@@ -1,22 +1,31 @@
-use std::sync::Arc;
-
-use crate::{api::ValidatedForm, data_source::AuthSource, error::AppError, jwt::JwtManager};
-use axum::{
-    extract::State,
-    http::{Response, StatusCode},
-    response::IntoResponse,
-    Json,
-};
+#[cfg(feature = "internal-oauth")]
+use crate::{api::ValidatedForm, data_source::AuthSource, jwt::JwtManager};
+#[cfg(feature = "internal-oauth")]
+use axum::extract::State;
+#[cfg(feature = "internal-oauth")]
 use axum_extra::{
     headers::{authorization::Basic, Authorization},
     TypedHeader,
 };
-use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
-use reqwest::header;
+#[cfg(feature = "internal-oauth")]
 use serde::Deserialize;
+#[cfg(feature = "internal-oauth")]
+use std::sync::Arc;
+#[cfg(feature = "internal-oauth")]
 use validator::Validate;
 
+use crate::error::AppError;
+use axum::{
+    http::{Response, StatusCode},
+    response::IntoResponse,
+    Json,
+};
+
+use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
+use reqwest::header;
+
 #[derive(Debug, Deserialize, Validate)]
+#[cfg(feature = "internal-oauth")]
 pub struct AccessTokenRequest {
     grant_type: String,
     // TODO: handle scope
@@ -77,6 +86,7 @@ impl IntoResponse for AccessTokenResponse {
 }
 
 /// RFC 6749 client credentials grant flow
+#[cfg(feature = "internal-oauth")]
 pub(crate) async fn token(
     State(auth_source): State<Arc<dyn AuthSource>>,
     State(jwt_manager): State<Arc<JwtManager>>,

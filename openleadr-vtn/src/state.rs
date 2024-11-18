@@ -1,8 +1,13 @@
+#[cfg(feature = "internal-oauth")]
+use crate::api::auth;
+#[cfg(feature = "internal-oauth")]
+use crate::{api::user, data_source::AuthSource};
+#[cfg(feature = "internal-oauth")]
+use axum::routing::{delete, post};
+
 use crate::{
-    api::{auth, event, healthcheck, program, report, resource, user, ven},
-    data_source::{
-        AuthSource, DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
-    },
+    api::{event, healthcheck, program, report, resource, ven},
+    data_source::{DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud},
     error::AppError,
     jwt::JwtManager,
 };
@@ -11,7 +16,7 @@ use axum::{
     middleware,
     middleware::Next,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::get,
 };
 use base64::{
     alphabet,
@@ -171,7 +176,8 @@ impl AppState {
     }
 
     fn router_without_state() -> axum::Router<Self> {
-        axum::Router::new()
+        #[allow(unused_mut)]
+        let mut router = axum::Router::new()
             .route("/health", get(healthcheck))
             .route("/programs", get(program::get_all).post(program::add))
             .route(
@@ -202,20 +208,25 @@ impl AppState {
                 get(resource::get)
                     .put(resource::edit)
                     .delete(resource::delete),
-            )
-            .route("/auth/token", post(auth::token))
-            .route("/users", get(user::get_all).post(user::add_user))
-            .route(
-                "/users/:id",
-                get(user::get)
-                    .put(user::edit)
-                    .delete(user::delete_user)
-                    .post(user::add_credential),
-            )
-            .route(
-                "/users/:user_id/:client_id",
-                delete(user::delete_credential),
-            )
+            );
+        #[cfg(feature = "internal-oauth")]
+        {
+            router = router
+                .route("/auth/token", post(auth::token))
+                .route("/users", get(user::get_all).post(user::add_user))
+                .route(
+                    "/users/:id",
+                    get(user::get)
+                        .put(user::edit)
+                        .delete(user::delete_user)
+                        .post(user::add_credential),
+                )
+                .route(
+                    "/users/:user_id/:client_id",
+                    delete(user::delete_credential),
+                );
+        }
+        router
             .fallback(handler_404)
             .layer(middleware::from_fn(method_not_allowed))
             .layer(TraceLayer::new_for_http())
@@ -239,6 +250,7 @@ async fn handler_404() -> AppError {
     AppError::NotFound
 }
 
+#[cfg(feature = "internal-oauth")]
 impl FromRef<AppState> for Arc<dyn AuthSource> {
     fn from_ref(state: &AppState) -> Arc<dyn AuthSource> {
         state.storage.auth()
@@ -301,6 +313,7 @@ mod test {
             unimplemented!()
         }
 
+        #[cfg(feature = "internal-oauth")]
         fn auth(&self) -> Arc<dyn AuthSource> {
             unimplemented!()
         }

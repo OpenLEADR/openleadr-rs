@@ -18,6 +18,7 @@ pub(crate) mod event;
 pub(crate) mod program;
 pub(crate) mod report;
 pub(crate) mod resource;
+#[cfg(feature = "internal-oauth")]
 pub(crate) mod user;
 pub(crate) mod ven;
 
@@ -184,6 +185,7 @@ mod test {
         }
     }
 
+    #[cfg(feature = "internal-oauth")]
     pub(crate) fn jwt_test_token(state: &AppState, roles: Vec<AuthRole>) -> String {
         state
             .jwt_manager
