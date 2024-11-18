@@ -48,6 +48,31 @@ Running the VTN using docker-compose:
 docker compose up -d
 ```
 
+### Internal vs. external OAuth provider
+The VTN implementation does feature an implementation of an OAuth provider including user management APIs
+to allow for an easy setup.
+The OpenADR specification does not require this feature but mentions that there must exist some OAuth provider somewhere.
+Generally, the idea of OAuth is to decouple the authorization from the resource server, here the VTN.
+Therefore, the OAuth provider feature is optional. 
+You can either disable it during compile time or runtime.
+
+**During runtime**
+The OAuth configuration of the VTN is done via the following environment variables:
+- `OAUTH_TYPE` (allowed values: `INTERNAL`, `EXTERNAL`. Defaults to `INTERNAL`)
+- `OAUTH_BASE64_SECRET` (must be at least 256 bit long. Required if `OAUTH_KEY_TYPE` is `HMAC`)
+- `OAUTH_KEY_TYPE`(allows values: `HMAC`, `RSA`, `EC`, `ED`. Defaults to `HMAC`)
+- `OAUTH_PEM` (path to a PEM encoded public key file. Required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
+
+The internal OAuth provider does only support `HMAC`.
+
+**During compiletime**
+If you already know that you don't need the internal OAuth feature,
+you can disable it during compilation with the feature flag `internal-oauth`, which is enabled by default.
+Therefore, run
+```bash
+cargo build/run --bin openleadr-vtn --no-default-features --features=postgres [--release]
+```
+
 ### Note on prepared SQL
 
 This workspace uses SQLX macro to type check SQL statements.
@@ -71,9 +96,3 @@ docker compose up --force-recreate --build --no-deps vtn
 ```
 
 This will force a rebuild
-
-Running the client
-
-```bash
-cargo run --bin openleadr
-```
