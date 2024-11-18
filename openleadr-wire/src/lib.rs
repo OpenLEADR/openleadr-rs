@@ -159,7 +159,7 @@ impl Serialize for Duration {
 }
 
 impl Duration {
-    /// because iso8601 durations can include months and years, they don't independently have a
+    /// Because iso8601 durations can include months and years, they don't independently have a
     /// fixed duration. Their real duration (in real units like seconds) can only be determined
     /// when a starting time is given.
     ///
@@ -185,6 +185,15 @@ impl Duration {
     /// deleted or modified. This effectively represents an infinite duration.
     pub const P999Y: Self = Self(iso8601_duration::Duration {
         year: 9999.0,
+        month: 0.0,
+        day: 0.0,
+        hour: 0.0,
+        minute: 0.0,
+        second: 0.0,
+    });
+
+    pub const PT0S: Self = Self(iso8601_duration::Duration {
+        year: 0.0,
         month: 0.0,
         day: 0.0,
         hour: 0.0,
