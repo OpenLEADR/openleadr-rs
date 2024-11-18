@@ -36,6 +36,7 @@ impl MockClientRef {
     pub fn into_client(self, auth: Option<ClientCredentials>) -> Client {
         Client::with_http_client(
             "https://example.com/".parse().unwrap(),
+            "https://example.com/auth/token".parse().unwrap(),
             Box::new(self),
             auth,
         )
