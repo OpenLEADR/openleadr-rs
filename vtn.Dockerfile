@@ -1,7 +1,7 @@
-FROM rust:1.81 as base
+FROM rust:1.81 AS base
 RUN apt-get update && apt-get install -y --no-install-recommends curl && apt-get clean
 
-FROM base as builder
+FROM base AS builder
 
 ADD . /app
 WORKDIR /app
@@ -11,7 +11,7 @@ COPY . .
 RUN SQLX_OFFLINE=true cargo build --release --bin openleadr-vtn
 RUN cp /app/target/release/openleadr-vtn /app/openleadr-vtn
 
-FROM debian:bookworm-slim as final
+FROM debian:bookworm-slim AS final
 RUN apt-get update && apt-get install curl -y
 
 # create a non root user to run the binary
