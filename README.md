@@ -10,9 +10,10 @@ This repository contains an OpenADR 3.0 client (VEN) library and a server (VTN) 
 OpenADR is a protocol for automated demand-response in electricity grids, like dynamic pricing or load shedding.
 The [OpenADR alliance](https://www.openadr.org/) is responsible for the standard,
 which can be [downloaded](https://www.openadr.org/specification) free of charge.
-This implementation is still work-in-progress, and we aim for a first stable release in December 2024.
 
-Thanks to our sponsors [Elaad](https://elaad.nl/en/) and [Tweede golf](https://tweedegolf.nl/en)
+This implementation is still work-in-progress. We aim for a first field-test-ready release in Dec 2024 / Jan 2025.
+
+Thanks to our sponsors [ElaadNL](https://elaad.nl/en/) and [Tweede golf](https://tweedegolf.nl/en)
 for making this work possible.
 
 ## Documentation
@@ -98,10 +99,30 @@ check out issues marked as [good first issue](https://github.com/OpenLEADR/openl
 or [help wanted](https://github.com/OpenLEADR/openleadr-rs/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22),
 or simply open an issue and ask for good starting points.
 
-## Sponsoring
+## Help us make an impact: We're seeking funding!
 
-If your organization relies on this project but cannot contribute directly to the code, please consider sponsoring ongoing development and maintenance or supporting the development of specific features your team requires.
+As of Fall 2024, we are actively seeking EUR 40.000 in funding to take the next crucial steps. Achieving this goal will allow us to:
 
-For inquiries, please contact [Tweede golf](https://tweedegolf.nl/en/contact).
+- **Deliver a field-test-ready release** by December 2024 / January 2025.
+- **Ensure ongoing professional development and maintenance** throughout 2025.
+- **Secure the project's long-term viability** as a cornerstone for numerous energy projects.
+
+Funding is managed by the [Trifecta Tech Foundation](https://trifectatech.org) (TTF). For more details or to request our sponsorship prospectus, please visit the [project's page](https://trifectatech.org/initiatives/automated-demand-response/) on the foundation's website.
+
+### About Trifecta Tech Foundation
+
+TTF is a Netherlands-based non-profit (501(c)(3) equivalent) dedicated to developing and maintaining open infrastructure software for the public good.
+
+In addition to safeguarding the long-term sustainability of OpenLEADR-rs, TTF also supports open-source projects in time synchronization and data compression. Notably, its Network Time Protocol software is a critical component at Let’s Encrypt, the world’s largest certificate authority.
+
+### Current sponsors
+- [ElaadNL](https://elaad.nl/en/)
+- [Tweede golf](https://tweedegolf.nl/en)
+
+
+
+
+
+
 
 
