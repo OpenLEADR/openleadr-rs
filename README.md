@@ -33,7 +33,7 @@ to produce a detailed OpenAPI specification of the VTN API we provide.
 
 Your machine needs a recent version of Rust installed.
 Please refer to the [official installation website](https://rustup.rs/) for instructions for your platform. To apply the database migrations, you also need the sqlx-cli installed.
-Simply run `cargo install sqlx-cli`.
+Simply run `cargo install sqlx-cli`. Additionally, you need `postgresql-client` installed (version 16 or newer).
 
 ### Docker compose
 
@@ -79,6 +79,39 @@ We aim for a clean and easy-to-understand API of the library to be used by busin
 Additionally, we will use the library to create a CLI application for easy testing and prototyping, 
 see [#52](https://github.com/OpenLEADR/openleadr-rs/issues/52) for the current progress.
 
+## Testing
+The Rust tests in this repository cover most of the functionality.
+We use [CodeCov](https://app.codecov.io/gh/OpenLEADR/openleadr-rs/) to keep track of your test coverage,
+and have an outstanding issue [#75](https://github.com/OpenLEADR/openleadr-rs/issues/75)
+to improve the test coverage even further.
+These tests are executed in GitHub Actions on every pull request.
+To execute them locally, run:
+
+```bash
+docker compose up db -d     # start up a Postgres DB in the background
+cargo sqlx migrate run # apply the DB scheme
+# load default credentials for integration testing of the client library
+psql -U openadr -W openadr -h localhost openadr < fixtures/test_user_credentials.sql
+cargo test --workspace      # execute the tests
+```
+
+In addition to the tests we developed ourselves, there exists a test suite maintained by the OpenADR alliance.
+As it is keept closed source, we cannot integrate this test suite with the CI, unfortunately.
+Nevertheless, we executed the tests locally to check for incompatibilities.
+Currently, all except for two of the 168 test cases that are applicable for us pass.
+
+The two failing test cases are a result of that we do the permission management a bit different from the specification.
+In particular, we do not allow VENs to delete their own reports but instead allow this to the business logic (BL).
+The two test cases assume the opposite, VENs should be able to delete reports, and BLs should not be able to.
+See also [#11](https://github.com/OpenLEADR/openleadr-rs/issues/11).
+
+The following screenshot shows the test results of the test suite from the OpenADR alliance.
+The 38 failing tests not mentioned before are testing the *subscription*
+feature not supported by this application yet.
+See also [Supported features](#supported-features).
+
+![OpenADR alliance test suite screenshot](OpenADR_alliance_test_suite.png)
+
 ## Contributing
 We expect you to follow our [code of conduct](CODE_OF_CONDUCT.md) for any contribution.
 
@@ -118,11 +151,3 @@ In addition to safeguarding the long-term sustainability of OpenLEADR-rs, TTF al
 ### Current sponsors
 - [ElaadNL](https://elaad.nl/en/)
 - [Tweede golf](https://tweedegolf.nl/en)
-
-
-
-
-
-
-
-
