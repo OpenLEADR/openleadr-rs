@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT r.* \n            FROM report r \n                JOIN program p ON p.id = r.program_id \n                LEFT JOIN ven_program v ON v.program_id = r.program_id\n            WHERE r.id = $1 \n              AND (NOT $2 OR v.ven_id IS NULL OR v.ven_id = ANY($3)) \n              AND ($4::text[] IS NULL OR p.business_id = ANY($4))\n            ",
+  "query": "\n            SELECT r.* \n            FROM report r \n                JOIN program p ON p.id = r.program_id \n                LEFT JOIN ven_program vp ON vp.program_id = r.program_id\n            WHERE r.id = $1 \n              AND (\n                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3))) \n                  OR \n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            ",
   "describe": {
     "columns": [
       {
@@ -54,6 +54,7 @@
         "Text",
         "Bool",
         "TextArray",
+        "Bool",
         "TextArray"
       ]
     },
@@ -69,5 +70,5 @@
       false
     ]
   },
-  "hash": "6a334f6d28df0d4b8677e35c62d4a4098c1fece8721f35e03b544f1e5ef05afa"
+  "hash": "7ac387d3048467a5a58eea243ef018b1e6b0e3cb637cbb343fb432a721eda328"
 }
