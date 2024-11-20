@@ -81,7 +81,7 @@ see [#52](https://github.com/OpenLEADR/openleadr-rs/issues/52) for the current p
 
 ## Testing
 The Rust tests in this repository cover most of the functionality.
-We use [CodeCov](https://app.codecov.io/gh/OpenLEADR/openleadr-rs/) to keep track of your test coverage,
+We use [CodeCov](https://app.codecov.io/gh/OpenLEADR/openleadr-rs/) to keep track of the test coverage,
 and have an outstanding issue [#75](https://github.com/OpenLEADR/openleadr-rs/issues/75)
 to improve the test coverage even further.
 These tests are executed in GitHub Actions on every pull request.
@@ -96,7 +96,7 @@ cargo test --workspace      # execute the tests
 ```
 
 In addition to the tests we developed ourselves, there exists a test suite maintained by the OpenADR alliance.
-As it is keept closed source, we cannot integrate this test suite with the CI, unfortunately.
+As it is closed source, we cannot integrate this test suite with the CI, unfortunately.
 Nevertheless, we executed the tests locally to check for incompatibilities.
 Currently, all except for two of the 168 test cases that are applicable for us pass.
 
@@ -105,7 +105,8 @@ In particular, we do not allow VENs to delete their own reports but instead allo
 The two test cases assume the opposite, VENs should be able to delete reports, and BLs should not be able to.
 See also [#11](https://github.com/OpenLEADR/openleadr-rs/issues/11).
 
-The following screenshot shows the test results of the test suite from the OpenADR alliance.
+The following screenshot shows the test results of the test suite from the OpenADR alliance,
+executed against commit [`5c4e281`](https://github.com/OpenLEADR/openleadr-rs/tree/5c4e281fdc96f7332675325e0d4da8cc1005dfe2).
 The 38 failing tests not mentioned before are testing the *subscription*
 feature not supported by this application yet.
 See also [Supported features](#supported-features).
