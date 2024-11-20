@@ -1,5 +1,13 @@
 use std::sync::Arc;
 
+#[cfg(feature = "internal-oauth")]
+use crate::api::auth::ResponseOAuthError;
+#[cfg(feature = "internal-oauth")]
+use jsonwebtoken::{encode, Header};
+#[cfg(feature = "internal-oauth")]
+use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
+
+use crate::error::AppError;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
@@ -9,14 +17,13 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header};
+use jsonwebtoken::{DecodingKey, EncodingKey};
 use openleadr_wire::ven::VenId;
 use tracing::trace;
 
-use crate::error::AppError;
-
 pub struct JwtManager {
-    encoding_key: EncodingKey,
+    #[cfg(feature = "internal-oauth")]
+    encoding_key: Option<EncodingKey>,
     decoding_key: DecodingKey,
 }
 
@@ -139,35 +146,33 @@ impl Claims {
 }
 
 impl JwtManager {
-    /// Create a new JWT manager from a base64 encoded secret
-    pub fn from_base64_secret(secret: &str) -> Result<Self, jsonwebtoken::errors::Error> {
-        let encoding_key = EncodingKey::from_base64_secret(secret)?;
-        let decoding_key = DecodingKey::from_base64_secret(secret)?;
-        Ok(Self::new(encoding_key, decoding_key))
-    }
-
-    /// Create a new JWT manager from some secret bytes
-    pub fn from_secret(secret: &[u8]) -> Self {
-        let encoding_key = EncodingKey::from_secret(secret);
-        let decoding_key = DecodingKey::from_secret(secret);
-        Self::new(encoding_key, decoding_key)
-    }
-
     /// Create a new JWT manager with a specific encoding and decoding key
-    pub fn new(encoding_key: EncodingKey, decoding_key: DecodingKey) -> Self {
-        Self {
-            encoding_key,
-            decoding_key,
+    pub fn new(encoding_key: Option<EncodingKey>, decoding_key: DecodingKey) -> Self {
+        if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
+            panic!("You should not provide a JWT encoding key as the 'internal-oauth' feature is disabled. \
+            Please recompile with the 'internal-oauth' feature enabled if you want to use it.");
+        }
+        #[cfg(feature = "internal-oauth")]
+        {
+            Self {
+                encoding_key,
+                decoding_key,
+            }
+        }
+        #[cfg(not(feature = "internal-oauth"))]
+        {
+            Self { decoding_key }
         }
     }
 
     /// Create a new JWT token with the given claims and expiration time
+    #[cfg(feature = "internal-oauth")]
     pub(crate) fn create(
         &self,
         expires_in: std::time::Duration,
         client_id: String,
         roles: Vec<AuthRole>,
-    ) -> Result<String, jsonwebtoken::errors::Error> {
+    ) -> Result<String, ResponseOAuthError> {
         let now = chrono::Utc::now();
         let exp = now + expires_in;
 
@@ -178,9 +183,16 @@ impl JwtManager {
             roles,
         };
 
-        let token = encode(&Header::default(), &claims, &self.encoding_key)?;
-
-        Ok(token)
+        if let Some(encoding_key) = &self.encoding_key {
+            let token = encode(&Header::default(), &claims, encoding_key)?;
+            Ok(token)
+        } else {
+            Err(OAuthError {
+                error: OAuthErrorType::OAuthNotEnabled,
+                error_description: None,
+                error_uri: None,
+            })?
+        }
     }
 
     /// Decode and validate a given JWT token, returning the validated claims

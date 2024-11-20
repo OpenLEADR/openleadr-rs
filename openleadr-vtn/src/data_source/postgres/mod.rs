@@ -1,10 +1,13 @@
+#[cfg(feature = "internal-oauth")]
+use crate::data_source::{postgres::user::PgAuthSource, AuthSource};
+
 use crate::{
     data_source::{
         postgres::{
             event::PgEventStorage, program::PgProgramStorage, report::PgReportStorage,
-            user::PgAuthSource, ven::PgVenStorage,
+            ven::PgVenStorage,
         },
-        AuthSource, DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
+        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
     error::AppError,
     jwt::{BusinessIds, Claims},
@@ -21,6 +24,7 @@ mod event;
 mod program;
 mod report;
 mod resource;
+#[cfg(feature = "internal-oauth")]
 mod user;
 mod ven;
 
@@ -50,6 +54,7 @@ impl DataSource for PostgresStorage {
         Arc::<PgResourceStorage>::new(self.db.clone().into())
     }
 
+    #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource> {
         Arc::<PgAuthSource>::new(self.db.clone().into())
     }

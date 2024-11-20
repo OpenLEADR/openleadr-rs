@@ -15,7 +15,7 @@
 //! let credentials =
 //!     ClientCredentials::new("client_id".to_string(), "client_secret".to_string());
 //! let client = Client::with_url(
-//!     "https://your-vtn.com".try_into().unwrap(),
+//!     "https://your-vtn.com".parse().unwrap(),
 //!     Some(credentials),
 //! );
 //! let new_program = ProgramContent::new("example-program-name".to_string());
@@ -32,6 +32,22 @@
 //! new_event.event_name = Some("Some descriptive name".to_string());
 //! example_program.create_event(new_event).await.unwrap();
 //! # })
+//! ```
+//!
+//! If you want to use a separate OAuth provider that is not built into the VTN server,
+//! you can do so as well.
+//! ```no_run
+//! # use openleadr_client::{Client, ClientCredentials};
+//! # let credentials =
+//! #    ClientCredentials::new("client_id".to_string(), "client_secret".to_string());
+//! // optionally, you can build special configuration into the reqwest client here as well
+//! let reqwest_client = reqwest::Client::new();
+//! let client = Client::with_details(
+//!     "https://your-vtn.com".parse().unwrap(),
+//!     "https://your-oauth-provider.com".parse().unwrap(),
+//!     reqwest_client,
+//!     Some(credentials),
+//! );
 //! ```
 
 mod error;
@@ -160,7 +176,8 @@ impl Debug for AuthToken {
 #[derive(Debug)]
 struct ClientRef {
     client: Box<dyn HttpClient + Send + Sync>,
-    base_url: Url,
+    vtn_base_url: Url,
+    oauth_base_url: Url,
     default_page_size: usize,
     auth_data: Option<ClientCredentials>,
     auth_token: RwLock<Option<AuthToken>>,
@@ -197,16 +214,15 @@ impl ClientRef {
         }
 
         // we should authenticate
-        let auth_url = self.base_url.join("auth/token")?;
-        let request =
-            self.client
-                .request_builder(Method::POST, auth_url)
-                .form(&AccessTokenRequest {
-                    grant_type: "client_credentials",
-                    scope: None,
-                    client_id: None,
-                    client_secret: None,
-                });
+        let request = self
+            .client
+            .request_builder(Method::POST, self.oauth_base_url.clone())
+            .form(&AccessTokenRequest {
+                grant_type: "client_credentials",
+                scope: None,
+                client_id: None,
+                client_secret: None,
+            });
         let request = request.basic_auth(&auth_data.client_id, Some(&auth_data.client_secret));
         let request = request.header("Accept", "application/json");
         let since = Instant::now();
@@ -282,7 +298,7 @@ impl ClientRef {
         path: &str,
         query: &[(&str, &str)],
     ) -> Result<T> {
-        let url = self.base_url.join(path)?;
+        let url = self.vtn_base_url.join(path)?;
         let request = self.client.request_builder(Method::GET, url);
         self.request(request, query).await
     }
@@ -292,7 +308,7 @@ impl ClientRef {
         S: serde::ser::Serialize + Sync,
         T: serde::de::DeserializeOwned,
     {
-        let url = self.base_url.join(path)?;
+        let url = self.vtn_base_url.join(path)?;
         let request = self.client.request_builder(Method::POST, url).json(body);
         self.request(request, &[]).await
     }
@@ -302,7 +318,7 @@ impl ClientRef {
         S: serde::ser::Serialize + Sync,
         T: serde::de::DeserializeOwned,
     {
-        let url = self.base_url.join(path)?;
+        let url = self.vtn_base_url.join(path)?;
         let request = self.client.request_builder(Method::PUT, url).json(body);
         self.request(request, &[]).await
     }
@@ -311,7 +327,7 @@ impl ClientRef {
     where
         T: serde::de::DeserializeOwned,
     {
-        let url = self.base_url.join(path)?;
+        let url = self.vtn_base_url.join(path)?;
         let request = self.client.request_builder(Method::DELETE, url);
         self.request(request, &[]).await
     }
@@ -416,35 +432,53 @@ impl<'a> Filter<'a> {
 }
 
 impl Client {
-    /// Create a new client for a VTN located at the specified URL
+    /// Create a new client for a VTN located at the specified URL.
+    ///
+    /// This assumes that the VTN also works as an OAuth provider
+    /// and exposes an API endpoint at `<base_url>/auth/token` to retrieve a token.
+    /// If you want to use another OAuth provider, please use [`Self::with_details`].
     pub fn with_url(base_url: Url, auth: Option<ClientCredentials>) -> Self {
         let client = reqwest::Client::new();
-        Self::with_reqwest(base_url, client, auth)
+        let oauth_base_url = base_url.join("/auth/token").unwrap();
+        Self::with_details(base_url, oauth_base_url, client, auth)
     }
 
-    /// Create a new client with a specific [`reqwest::Client`] instead of
-    /// the default one. This allows configuring proxy settings, timeouts, etc.
-    pub fn with_reqwest(
-        base_url: Url,
+    /// Create a new client with more details than [`Self::with_url`].
+    ///
+    /// It allows specifying a [`reqwest::Client`] instead of the default one.
+    /// This allows configuring proxy settings, timeouts, etc.
+    ///
+    /// Additionally, it allows for a separate `oauth_base_url`,
+    /// which is relevant if you don't want or cannot rely on an OAuth provider at the default URL.
+    pub fn with_details(
+        vtn_base_url: Url,
+        oauth_base_url: Url,
         client: reqwest::Client,
         auth: Option<ClientCredentials>,
     ) -> Self {
-        Self::with_http_client(base_url, Box::new(ReqwestClientRef { client }), auth)
+        Self::with_http_client(
+            vtn_base_url,
+            oauth_base_url,
+            Box::new(ReqwestClientRef { client }),
+            auth,
+        )
     }
 
     /// Create a new client with anything that implements the [`HttpClient`] trait.
     ///
     /// This is mainly helpful for the integration tests
     /// and should most likely not be used for other purposes.
-    /// Please use [`Client::with_reqwest`] for detailed HTTP client configuration.
+    /// Please use [`Client::with_details`] for detailed HTTP client configuration.
     pub fn with_http_client(
-        base_url: Url,
+        vtn_base_url: Url,
+        oauth_base_url: Url,
         client: Box<dyn HttpClient + Send + Sync>,
         auth: Option<ClientCredentials>,
     ) -> Self {
         let client_ref = ClientRef {
             client,
-            base_url,
+            vtn_base_url,
+            oauth_base_url,
             default_page_size: 50,
             auth_data: auth,
             auth_token: RwLock::new(None),

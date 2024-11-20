@@ -46,8 +46,10 @@ dotenvy = {workspace = true, optional = true}
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+serial_test.workspace = true
 
 [features]
-default = ["postgres", "live-db-test"]
-live-db-test = ["postgres"]
+default = ["postgres", "live-db-test", "internal-oauth"]
+live-db-test = ["postgres", "internal-oauth"]
 postgres = ["sqlx/postgres", "dep:dotenvy", "dep:argon2"]
+internal-oauth = []

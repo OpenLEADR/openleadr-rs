@@ -211,6 +211,7 @@ impl UserDetails {
 
 #[async_trait]
 pub trait AuthSource: Send + Sync + 'static {
+    #[cfg(feature = "internal-oauth")]
     async fn check_credentials(&self, client_id: &str, client_secret: &str) -> Option<AuthInfo>;
     async fn get_user(&self, user_id: &str) -> Result<UserDetails, AppError>;
     async fn get_all_users(&self) -> Result<Vec<UserDetails>, AppError>;
@@ -247,11 +248,13 @@ pub trait DataSource: Send + Sync + 'static {
     fn events(&self) -> Arc<dyn EventCrud>;
     fn vens(&self) -> Arc<dyn VenCrud>;
     fn resources(&self) -> Arc<dyn ResourceCrud>;
+    #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource>;
     fn connection_active(&self) -> bool;
 }
 
 #[derive(Debug, Clone)]
+#[cfg(feature = "internal-oauth")]
 pub struct AuthInfo {
     pub(crate) client_id: String,
     pub(crate) roles: Vec<AuthRole>,
