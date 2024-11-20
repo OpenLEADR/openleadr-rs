@@ -84,20 +84,30 @@ impl Timeline {
 
             let default_period = event.interval_period.as_ref();
 
+            let mut current_start = default_period.map(|p| p.start);
+
             for event_interval in &event.intervals {
                 // use the event interval period when the interval doesn't specify one
-                let period = event_interval.interval_period.as_ref().or(default_period)?;
-
-                let IntervalPeriod {
-                    start,
-                    duration,
-                    randomize_start,
-                } = period;
+                let (start, duration, randomize_start) =
+                    match event_interval.interval_period.as_ref() {
+                        Some(IntervalPeriod {
+                            start,
+                            duration,
+                            randomize_start,
+                        }) => (start, duration, randomize_start),
+                        None => (
+                            &current_start?,
+                            &default_period?.duration,
+                            &default_period?.randomize_start,
+                        ),
+                    };
 
                 let range = match duration {
                     Some(duration) => *start..*start + duration.to_chrono_at_datetime(*start),
                     None => *start..DateTime::<Utc>::MAX_UTC,
                 };
+
+                current_start = Some(range.end);
 
                 let interval = InternalInterval {
                     id: id as u32,
@@ -391,7 +401,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "Tracked by issue #55"]
     fn default_interval() {
         let program = test_program("p");
 
