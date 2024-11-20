@@ -98,9 +98,10 @@ impl ProgramClient {
         }
     }
 
-    /// Gets all events assigned to this program.
+    /// Low-level operation that gets a list of events for this program from the VTN
+    /// with the given query parameters.
     ///
-    /// It automatically tries to iterate pages where necessary.
+    /// To automatically iterate pages, use [`self.get_event_list`]
     pub async fn get_events_request(
         &self,
         filter: Filter<'_>,

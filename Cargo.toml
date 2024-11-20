@@ -43,7 +43,7 @@ chrono = "0.4.38"
 iso8601-duration = { version = "0.2.0", features = ["chrono"] }
 rangemap = "1.5.1"
 
-thiserror = "1.0.61"
+thiserror = "2.0.3"
 validator = { version = "0.19.0", features = ["derive"] }
 uuid = { version = "1.8.0", features = ["v4"] }
 url = "2.5.0"

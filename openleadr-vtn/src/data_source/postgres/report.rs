@@ -165,14 +165,18 @@ impl Crud for PgReportStorage {
             SELECT r.* 
             FROM report r 
                 JOIN program p ON p.id = r.program_id 
-                LEFT JOIN ven_program v ON v.program_id = r.program_id
+                LEFT JOIN ven_program vp ON vp.program_id = r.program_id
             WHERE r.id = $1 
-              AND (NOT $2 OR v.ven_id IS NULL OR v.ven_id = ANY($3)) 
-              AND ($4::text[] IS NULL OR p.business_id = ANY($4))
+              AND (
+                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3))) 
+                  OR 
+                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
+                  )
             "#,
             id.as_str(),
             user.is_ven(),
             &user.ven_ids_string(),
+            user.is_business(),
             business_ids.as_deref()
         )
         .fetch_one(&self.db)

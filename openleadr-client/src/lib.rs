@@ -507,7 +507,9 @@ impl Client {
         Ok(ProgramClient::from_program(self.clone(), program))
     }
 
-    /// Lowlevel operation that gets a list of events from the VTN with the given query parameters
+    /// Low-level operation that gets a list of events from the VTN with the given query parameters
+    ///
+    /// To automatically iterate pages, use [`self.get_event_list`]
     pub async fn get_events(
         &self,
         program_id: Option<&ProgramId>,
