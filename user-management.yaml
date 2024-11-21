@@ -50,9 +50,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  schema:
-                    $ref: '#/components/schemas/user_details'
+                  $ref: '#/components/schemas/user_details'
     post:
       description: Create a new user
       requestBody:
@@ -167,7 +165,8 @@ components:
           type: string
         roles:
           type: array
-          items: '#/components/schemas/auth_role'
+          items: 
+            $ref: '#/components/schemas/auth_role'
         client_ids:
           readOnly: true
           type: array
