@@ -1,0 +1,186 @@
+openapi: 3.1.1
+
+info:
+  title: User management of OpenLEADR-rs
+  version: dev
+  description: This is a preliminary documentation of the HTTP APIs exposed for user management
+
+paths:
+  /auth/token:
+    post:
+      description: |
+        Authentication can happen either over HTTP basic auth,
+        or in the client_id/client_secret fields in the body
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grant_type:
+                  required: true
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                  expires_in:
+                    type: integer
+                    format: uint64
+  /users:
+    get:
+      description: Get all users
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  schema:
+                    $ref: '#/components/schemas/user_details'
+    post:
+      description: Create a new user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/user_details'
+  /users/{user_id}:
+    parameters:
+      - name: user_id
+        in: path
+        description: user ID
+        required: true
+        schema:
+          type: string
+    get:
+      description: Get specific user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user_details'
+
+    put:
+      description: Edit user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/user_details'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user_details'
+    delete:
+      description: Delete a user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user_details'
+    post:
+      description: Add a new credential / secret pair to a user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user_details'
+
+  /users/{user_id}/{client_id}:
+    parameters:
+      - name: user_id
+        in: path
+        description: user ID
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: path
+        description: client ID
+        required: true
+        schema:
+          type: string
+    delete:
+      description: Delete a client ID with its corresponding secret
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user_details'
+
+components:
+  schemas:
+    user_details:
+      type: object
+      required:
+        - id
+        - reference
+        - description
+        - roles
+        - client_ids
+        - created
+        - modified
+      properties:
+        id:
+          readonly: true
+          type: string
+        reference:
+          type: string
+        description:
+          type: string
+        roles:
+          type: array
+          items: '#/components/schemas/auth_role'
+        client_ids:
+          readonly: true
+          type: array
+          items: string
+        created:
+          readonly: true
+          type: string
+          format: date-time
+        modified:
+          readonly: true
+          type: string
+          format: date-time
+    auth_role:
+      type: object
+      properties:
+        # TODO
