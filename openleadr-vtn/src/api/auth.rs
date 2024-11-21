@@ -144,7 +144,7 @@ pub(crate) async fn token(
 
     Ok(AccessTokenResponse {
         access_token: token,
-        token_type: "bearer",
+        token_type: "Bearer",
         expires_in: expiration.as_secs(),
         scope: None,
     })
