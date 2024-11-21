@@ -159,7 +159,7 @@ components:
         - modified
       properties:
         id:
-          readonly: true
+          readOnly: true
           type: string
         reference:
           type: string
@@ -169,18 +169,28 @@ components:
           type: array
           items: '#/components/schemas/auth_role'
         client_ids:
-          readonly: true
+          readOnly: true
           type: array
           items: string
         created:
-          readonly: true
+          readOnly: true
           type: string
           format: date-time
         modified:
-          readonly: true
+          readOnly: true
           type: string
           format: date-time
     auth_role:
       type: object
+      description: |
+        A auth role always contains the `role` property,
+        and the `VEN` and `Business` role additionally have an `id` property with the VEN or Business ID, respectively.
+      required:
+        - role
       properties:
-        # TODO
+        role:
+          type: string
+          enum: [UserManager, VenManager, Business, AnyBusiness, VEN]
+        id:
+          type: string
+    
