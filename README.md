@@ -133,6 +133,20 @@ check out issues marked as [good first issue](https://github.com/OpenLEADR/openl
 or [help wanted](https://github.com/OpenLEADR/openleadr-rs/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22),
 or simply open an issue and ask for good starting points.
 
+## Interoperability
+The code in this repository is written in Rust.
+Nevertheless, you can combine the server, i.e.,
+VTN implementation with a client, i.e., VEN witten in any language you prefer, such as Python, Node.js, or Java.
+This is simply because the VTN is a stand-alone binary and the interactions with the VEN happen over HTTP.
+
+If your business or client logic is written in Rust,
+you may be interested in using the client library of this repository as well.
+It is mainly a thin layer to abstract the HTTP interaction with the VTN.
+Thus, if your application is written in another language than Rust,
+it is most likely less work
+to write a small HTTP abstraction layer yourself
+than using a language interoperability layer on top of our client library.  
+
 ## Help us make an impact: We're seeking funding!
 
 As of Fall 2024, we are actively seeking EUR 40.000 in funding to take the next crucial steps. Achieving this goal will allow us to:
