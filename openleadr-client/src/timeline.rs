@@ -191,7 +191,7 @@ pub struct Interval<'a> {
     value_map: &'a [EventValuesMap],
 }
 
-impl<'a> Interval<'a> {
+impl Interval<'_> {
     /// Indicates a randomization time that may be applied to start.
     pub fn randomize_start(&self) -> Option<chrono::Duration> {
         self.randomize_start
