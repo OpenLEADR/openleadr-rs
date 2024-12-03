@@ -52,7 +52,7 @@ pub enum Target<'a> {
     Others(&'a str, &'a [&'a str]),
 }
 
-impl<'a> Target<'a> {
+impl Target<'_> {
     /// Get the target label for this specific target
     pub fn target_label(&self) -> TargetType {
         match self {
