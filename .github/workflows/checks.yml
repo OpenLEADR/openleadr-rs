@@ -63,7 +63,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@c4bf614c2fb42375baf4f51283c33befce095fc5 # v2.45.15
+        uses: taiki-e/install-action@acf70b3a1ed953bccebc8c5d80cfdb16ec8ccc36 # v2.46.4
         with:
           tool: cargo-llvm-cov
 
@@ -91,7 +91,7 @@ jobs:
         run: docker compose down
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@015f24e6818733317a2da2edd6290ab26238649a # v5.0.7
+        uses: codecov/codecov-action@7f8b4b4bde536c465e797be725718b88c5d95e0e # v5.1.1
         with:
           files: lcov.info
           fail_ci_if_error: false
@@ -132,7 +132,7 @@ jobs:
           toolchain: nightly
 
       - name: Install udeps
-        uses: taiki-e/install-action@c4bf614c2fb42375baf4f51283c33befce095fc5 # v2.45.15
+        uses: taiki-e/install-action@acf70b3a1ed953bccebc8c5d80cfdb16ec8ccc36 # v2.46.4
         with:
           tool: cargo-udeps
 
@@ -197,7 +197,7 @@ jobs:
         if: ${{matrix.use_zig}}
 
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@c4bf614c2fb42375baf4f51283c33befce095fc5 # v2.45.15
+        uses: taiki-e/install-action@acf70b3a1ed953bccebc8c5d80cfdb16ec8ccc36 # v2.46.4
         with:
           tool: cargo-zigbuild
         if: ${{matrix.use_zig}}
@@ -220,6 +220,6 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: EmbarkStudios/cargo-deny-action@2d8c9929d8f9f42bedba73f1287cb0b479f07acb
+      - uses: EmbarkStudios/cargo-deny-action@e2f4ede4a4e60ea15ff31bc0647485d80c66cfba
         with:
           arguments: --workspace --all-features
