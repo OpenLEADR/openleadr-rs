@@ -43,6 +43,16 @@ impl Error {
             _ => false,
         }
     }
+
+    #[allow(missing_docs)]
+    pub fn is_bad_request(&self) -> bool {
+        match self {
+            Error::Problem(openleadr_wire::problem::Problem { status, .. }) => {
+                *status == StatusCode::BAD_REQUEST
+            }
+            _ => false,
+        }
+    }
 }
 
 impl From<reqwest::Error> for Error {
