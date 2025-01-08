@@ -16,7 +16,7 @@ use dotenvy::dotenv;
 use openleadr_wire::target::{TargetMap, TargetType};
 use resource::PgResourceStorage;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use tracing::{error, info, trace};
 
@@ -75,7 +75,10 @@ impl PostgresStorage {
         let db_url = std::env::var("DATABASE_URL")
             .expect("Missing DATABASE_URL env var even though the 'postgres' feature is active");
 
-        let db = PgPool::connect(&db_url).await?;
+        let db = PgPoolOptions::new()
+            .min_connections(1)
+            .connect(&db_url)
+            .await?;
 
         let connect_options = db.connect_options();
         let safe_db_url = format!(
