@@ -12,7 +12,7 @@ use std::{
     fmt::{Display, Formatter},
     str::FromStr,
 };
-use validator::Validate;
+use validator::{Validate, ValidationError};
 
 /// Event object to communicate a Demand Response request to VEN. If intervalPeriod is present, sets
 /// start time and duration of intervals.
@@ -235,14 +235,26 @@ impl EventInterval {
 }
 
 /// Represents one or more values associated with a type. E.g. a type of PRICE contains a single float value.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Validate)]
+#[validate(schema(function = "validate_payload"))]
 pub struct EventValuesMap {
     /// Enumerated or private string signifying the nature of values. E.G. \"PRICE\" indicates value is to be interpreted as a currency.
     #[serde(rename = "type")]
     pub value_type: EventType,
     /// A list of data points. Most often a singular value such as a price.
-    // TODO: The type of Value is actually defined by value_type
     pub values: Vec<Value>,
+}
+
+/// Validate each value in the payload matches the given value type.
+///
+/// Errors on the first mistyped value. It might be useful to return all validation errors rather
+/// than just the first one, but the validator crate doesn't seem to support this yet.
+/// See https://github.com/Keats/validator/issues/326
+fn validate_payload(payload: &EventValuesMap) -> Result<(), ValidationError> {
+    for value in &payload.values {
+        validate_value(&payload.value_type, value)?
+    }
+    Ok(())
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -289,6 +301,51 @@ pub enum EventType {
     #[serde(untagged)]
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     Private(String),
+}
+
+fn validate_value(value_type: &EventType, value: &Value) -> Result<(), ValidationError> {
+    match (value_type, value) {
+        (EventType::Simple, Value::Integer(_)) => Ok(()), // integer
+        (EventType::Price, Value::Number(_)) => Ok(()),   // float
+        (EventType::ChargeStateSetpoint, Value::Number(_)) => Ok(()),
+        (EventType::DispatchSetpoint, Value::Number(_)) => Ok(()), // float
+        (EventType::DispatchSetpointRelative, Value::Number(_)) => Ok(()), // float
+        (EventType::ControlSetpoint, _) => Ok(()),                 // "depends"
+        (EventType::ExportPrice, Value::Number(_)) => Ok(()),      // float
+        (EventType::GHG, Value::Number(_)) => Ok(()),              // float
+        (EventType::Curve, Value::Point(_)) => Ok(()),             // pairs of floats
+        (EventType::OLS, Value::Number(_)) => Ok(()),              // 0.0 to 1.0
+        (EventType::ImportCapacitySubscription, Value::Number(_)) => Ok(()), // float
+        (EventType::ImportCapacityReservation, Value::Number(_)) => Ok(()), // float
+        (EventType::ImportCapacityReservationFee, Value::Number(_)) => Ok(()), // float
+        (EventType::ImportCapacityAvailable, Value::Number(_)) => Ok(()), // float
+        (EventType::ImportCapacityAvailablePrice, Value::Number(_)) => Ok(()), // float
+        (EventType::ExportCapacitySubscription, Value::Number(_)) => Ok(()), // float
+        (EventType::ExportCapacityReservation, Value::Number(_)) => Ok(()), // float
+        (EventType::ExportCapacityReservationFee, Value::Number(_)) => Ok(()), // float
+        (EventType::ExportCapacityAvailable, Value::Number(_)) => Ok(()), // float
+        (EventType::ExportCapacityAvailablePrice, Value::Number(_)) => Ok(()), // float
+        (EventType::ImportCapacityLimit, Value::Number(_)) => Ok(()), // float
+        (EventType::ExportCapacityLimit, Value::Number(_)) => Ok(()), // float
+        (EventType::AlertGridEmergency, Value::String(_)) => Ok(()), // human-readable string
+        (EventType::AlertBlackStart, Value::String(_)) => Ok(()),  // human-readable string
+        (EventType::AlertPossibleOutage, Value::String(_)) => Ok(()), // human-readable string
+        (EventType::AlertFlexAlert, Value::String(_)) => Ok(()),   // human-readable string
+        (EventType::AlertFire, Value::String(_)) => Ok(()),        // human-readable string
+        (EventType::AlertFreezing, Value::String(_)) => Ok(()),    // human-readable string
+        (EventType::AlertWind, Value::String(_)) => Ok(()),        // human-readable string
+        (EventType::AlertTsunami, Value::String(_)) => Ok(()),     // human-readable string
+        (EventType::AlertAirQuality, Value::String(_)) => Ok(()),  // human-readable string
+        (EventType::AlertOther, Value::String(_)) => Ok(()),       // human-readable string
+        (EventType::CTA2045Reboot, Value::Integer(_)) => Ok(()),   // 0 = SOFT, 1 = HARD
+        (EventType::CTA2045SetOverrideStatus, Value::Integer(_)) => Ok(()), // 0 = No Override, 1 = Override
+        (value_type, value) => Err(validate_value_error(value_type, value)),
+    }
+}
+
+fn validate_value_error(value_type: &EventType, value: &Value) -> ValidationError {
+    let cow = format!("value {value:?} must match the given type {value_type:?}").into();
+    ValidationError::new("values must match the given type").with_message(cow)
 }
 
 #[cfg(test)]
@@ -452,5 +509,35 @@ mod tests {
             source,
             serde_json::from_str::<EventPayloadDescriptor>(&serialized).unwrap()
         );
+    }
+
+    #[test]
+    fn test_validate_value_positive() {
+        let input = r#"{"type":"SIMPLE","values":[1]}"#;
+        let expected = Ok(());
+        let actual = serde_json::from_str::<EventValuesMap>(input)
+            .unwrap()
+            .validate();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_validate_value_negative() {
+        let input = r#"{"type":"SIMPLE","values":["string"]}"#;
+        let expected = {
+            use std::collections::HashMap;
+            use validator::{ValidationErrors, ValidationErrorsKind};
+            let mut hash_map = HashMap::new();
+            let validation_errors_kind = {
+                let value = Value::String("string".to_string());
+                ValidationErrorsKind::Field(vec![validate_value_error(&EventType::Simple, &value)])
+            };
+            hash_map.insert("__all__", validation_errors_kind);
+            Err(ValidationErrors(hash_map))
+        };
+        let actual = serde_json::from_str::<EventValuesMap>(input)
+            .unwrap()
+            .validate();
+        assert_eq!(actual, expected);
     }
 }
