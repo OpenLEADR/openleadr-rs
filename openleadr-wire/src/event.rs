@@ -242,6 +242,7 @@ pub struct EventValuesMap {
     #[serde(rename = "type")]
     pub value_type: EventType,
     /// A list of data points. Most often a singular value such as a price.
+    // TODO: The type of Value is actually defined by value_type, see #93
     pub values: Vec<Value>,
 }
 
@@ -339,6 +340,7 @@ fn validate_value(value_type: &EventType, value: &Value) -> Result<(), Validatio
         (EventType::AlertOther, Value::String(_)) => Ok(()),       // human-readable string
         (EventType::CTA2045Reboot, Value::Integer(_)) => Ok(()),   // 0 = SOFT, 1 = HARD
         (EventType::CTA2045SetOverrideStatus, Value::Integer(_)) => Ok(()), // 0 = No Override, 1 = Override
+        (EventType::Private(_), _) => Ok(()), // Allow all types for private types
         (value_type, value) => Err(validate_value_error(value_type, value)),
     }
 }
@@ -514,6 +516,30 @@ mod tests {
     #[test]
     fn test_validate_value_positive() {
         let input = r#"{"type":"SIMPLE","values":[1]}"#;
+        let expected = Ok(());
+        let actual = serde_json::from_str::<EventValuesMap>(input)
+            .unwrap()
+            .validate();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn validate_private_value() {
+        let input = r#"{"type":"WHATEVER","values":["Private types must accept all values"]}"#;
+        let expected = Ok(());
+        let actual = serde_json::from_str::<EventValuesMap>(input)
+            .unwrap()
+            .validate();
+        assert_eq!(actual, expected);
+
+        let input = r#"{"type":"WHATEVER","values":[1]}"#;
+        let expected = Ok(());
+        let actual = serde_json::from_str::<EventValuesMap>(input)
+            .unwrap()
+            .validate();
+        assert_eq!(actual, expected);
+
+        let input = r#"{"type":"WHATEVER","values":[{"x": 1, "y": 3}]}"#;
         let expected = Ok(());
         let actual = serde_json::from_str::<EventValuesMap>(input)
             .unwrap()
