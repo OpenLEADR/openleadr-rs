@@ -63,7 +63,7 @@ async fn delete(db: PgPool) {
 
     let pagination = PaginationOptions { skip: 0, limit: 3 };
     let mut events = client
-        .get_events_request(Filter::None, pagination)
+        .get_events_request(Filter::none(), pagination)
         .await
         .unwrap();
     assert_eq!(events.len(), 3);
@@ -75,7 +75,7 @@ async fn delete(db: PgPool) {
     let removed = event.delete().await.unwrap();
     assert_eq!(removed.content, event2);
 
-    let events = client.get_event_list(Filter::None).await.unwrap();
+    let events = client.get_event_list(Filter::none()).await.unwrap();
     assert_eq!(events.len(), 2);
 }
 
@@ -182,21 +182,21 @@ async fn retrieve_all_with_filter(db: PgPool) {
     }
 
     let events = client
-        .get_events_request(Filter::None, PaginationOptions { skip: 0, limit: 50 })
+        .get_events_request(Filter::none(), PaginationOptions { skip: 0, limit: 50 })
         .await
         .unwrap();
     assert_eq!(events.len(), 3);
 
     // skip
     let events = client
-        .get_events_request(Filter::None, PaginationOptions { skip: 1, limit: 50 })
+        .get_events_request(Filter::none(), PaginationOptions { skip: 1, limit: 50 })
         .await
         .unwrap();
     assert_eq!(events.len(), 2);
 
     // limit
     let events = client
-        .get_events_request(Filter::None, PaginationOptions { skip: 0, limit: 2 })
+        .get_events_request(Filter::none(), PaginationOptions { skip: 0, limit: 2 })
         .await
         .unwrap();
     assert_eq!(events.len(), 2);
@@ -229,7 +229,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let err = client
         .get_events_request(
-            Filter::By(TargetType::Private("NONSENSE".to_string()), &[]),
+            Filter::<&'static str>::By(TargetType::Private("NONSENSE".to_string()), &[]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await
@@ -298,8 +298,8 @@ async fn get_program_events(db: PgPool) {
     program1.create_event(event1.clone()).await.unwrap();
     program2.create_event(event2.clone()).await.unwrap();
 
-    let events1 = program1.get_event_list(Filter::None).await.unwrap();
-    let events2 = program2.get_event_list(Filter::None).await.unwrap();
+    let events1 = program1.get_event_list(Filter::none()).await.unwrap();
+    let events2 = program2.get_event_list(Filter::none()).await.unwrap();
 
     assert_eq!(events1.len(), 1);
     assert_eq!(events2.len(), 1);
@@ -313,7 +313,11 @@ async fn filter_constraint_violation(db: PgPool) {
     let client = common::setup_client(db).await;
 
     let err = client
-        .get_events(None, Filter::None, PaginationOptions { skip: 0, limit: 51 })
+        .get_events(
+            None,
+            Filter::none(),
+            PaginationOptions { skip: 0, limit: 51 },
+        )
         .await
         .unwrap_err();
     let Error::Problem(problem) = err else {
@@ -322,7 +326,11 @@ async fn filter_constraint_violation(db: PgPool) {
     assert_eq!(problem.status, StatusCode::BAD_REQUEST);
 
     let err = client
-        .get_events(None, Filter::None, PaginationOptions { skip: 0, limit: 0 })
+        .get_events(
+            None,
+            Filter::none(),
+            PaginationOptions { skip: 0, limit: 0 },
+        )
         .await
         .unwrap_err();
     let Error::Problem(problem) = err else {

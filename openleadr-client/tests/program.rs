@@ -63,7 +63,7 @@ async fn delete(db: PgPool) {
     let removed = program.delete().await.unwrap();
     assert_eq!(removed.content, program2);
 
-    let programs = client.get_program_list(Filter::None).await.unwrap();
+    let programs = client.get_program_list(Filter::none()).await.unwrap();
     assert_eq!(programs.len(), 2);
 }
 
@@ -173,21 +173,21 @@ async fn retrieve_all_with_filter(db: PgPool) {
     }
 
     let programs = client
-        .get_programs(Filter::None, PaginationOptions { skip: 0, limit: 50 })
+        .get_programs(Filter::none(), PaginationOptions { skip: 0, limit: 50 })
         .await
         .unwrap();
     assert_eq!(programs.len(), 3);
 
     // skip
     let programs = client
-        .get_programs(Filter::None, PaginationOptions { skip: 1, limit: 50 })
+        .get_programs(Filter::none(), PaginationOptions { skip: 1, limit: 50 })
         .await
         .unwrap();
     assert_eq!(programs.len(), 2);
 
     // limit
     let programs = client
-        .get_programs(Filter::None, PaginationOptions { skip: 0, limit: 2 })
+        .get_programs(Filter::none(), PaginationOptions { skip: 0, limit: 2 })
         .await
         .unwrap();
     assert_eq!(programs.len(), 2);
@@ -195,7 +195,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
     // program name
     let err = client
         .get_programs(
-            Filter::By(TargetType::Private("NONSENSE".to_string()), &[]),
+            Filter::<&'static str>::By(TargetType::Private("NONSENSE".to_string()), &[]),
             PaginationOptions { skip: 0, limit: 2 },
         )
         .await

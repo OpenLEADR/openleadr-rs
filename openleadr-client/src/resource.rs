@@ -11,7 +11,7 @@ use std::sync::Arc;
 /// stored as a child element of a VEN on the VTN.
 ///
 /// To retrieve or create a resource, refer to the [`VenClient`](crate::VenClient).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResourceClient {
     client: Arc<ClientRef>,
     ven_id: VenId,

@@ -10,7 +10,7 @@ use openleadr_wire::{
 
 /// A client for interacting with the data in a specific program and the events
 /// contained in the program.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProgramClient {
     client: Client,
     data: Program,
@@ -104,7 +104,7 @@ impl ProgramClient {
     /// To automatically iterate pages, use [`self.get_event_list`]
     pub async fn get_events_request(
         &self,
-        filter: Filter<'_>,
+        filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
     ) -> Result<Vec<EventClient>> {
         self.client
@@ -113,13 +113,19 @@ impl ProgramClient {
     }
 
     /// Get a list of events from the VTN with the given query parameters
-    pub async fn get_event_list(&self, filter: Filter<'_>) -> Result<Vec<EventClient>> {
+    pub async fn get_event_list(
+        &self,
+        filter: Filter<'_, impl AsRef<str> + Clone>,
+    ) -> Result<Vec<EventClient>> {
         self.client.get_event_list(Some(self.id()), filter).await
     }
 
     /// Retrieves the events for this program from the VTN and tries to build a [`Timeline`] from it.
-    pub async fn get_timeline(&mut self) -> Result<Timeline> {
-        let events = self.get_event_list(Filter::None).await?;
+    pub async fn get_timeline(
+        &self,
+        filter: Filter<'_, impl AsRef<str> + Clone>,
+    ) -> Result<Timeline> {
+        let events = self.get_event_list(filter).await?;
         let events = events.iter().map(|e| e.content()).collect();
         Timeline::from_events(&self.data, events).ok_or(Error::InvalidInterval)
     }

@@ -17,7 +17,7 @@ use openleadr_wire::{event::EventContent, report::ReportContent, Event, Report};
 /// let program = client.get_program_by_id(&"program-1".parse().unwrap()).await.unwrap();
 ///
 /// // retrieve all events in that specific program
-/// let mut events = program.get_event_list(Filter::None).await.unwrap();
+/// let mut events = program.get_event_list(Filter::none()).await.unwrap();
 /// let mut event = events.remove(0);
 ///
 /// // Set event priority to maximum
@@ -25,7 +25,7 @@ use openleadr_wire::{event::EventContent, report::ReportContent, Event, Report};
 /// event.update().await.unwrap()
 /// # })
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EventClient {
     client: Arc<ClientRef>,
     data: Event,

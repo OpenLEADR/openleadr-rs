@@ -36,7 +36,7 @@ async fn crud() {
 
     // Retrieve all
     {
-        let vens = ctx.get_ven_list(Filter::None).await.unwrap();
+        let vens = ctx.get_ven_list(Filter::none()).await.unwrap();
         assert!(vens.iter().any(|v| v.content().ven_name == "test-ven"));
     }
 
