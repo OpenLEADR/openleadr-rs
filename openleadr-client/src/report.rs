@@ -23,7 +23,7 @@ use crate::{error::Result, ClientRef};
 /// report.update().await.unwrap()
 /// # })
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReportClient {
     client: Arc<ClientRef>,
     data: Report,

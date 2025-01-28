@@ -8,7 +8,7 @@ use openleadr_wire::{
 use std::sync::Arc;
 
 /// A client for interacting with the data in a specific VEN and the resources contained in the VEN.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VenClient {
     client: Arc<ClientRef>,
     data: Ven,

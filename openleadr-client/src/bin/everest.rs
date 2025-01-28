@@ -4,7 +4,7 @@ use openleadr_wire::{
     values_map::Value,
 };
 
-use openleadr_client::{ProgramClient, Timeline};
+use openleadr_client::{Filter, ProgramClient, Timeline};
 use std::{error::Error, time::Duration};
 use tokio::{
     select,
@@ -66,14 +66,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn poll_timeline(
-    mut program: ProgramClient,
+    program: ProgramClient,
     poll_interval: Duration,
     sender: Sender<Timeline>,
 ) -> Result<(), openleadr_client::Error> {
     loop {
         tokio::time::sleep(poll_interval).await;
 
-        let timeline = program.get_timeline().await?;
+        let timeline = program.get_timeline(Filter::none()).await?;
 
         let Ok(_) = sender.send(timeline).await else {
             return Ok(());

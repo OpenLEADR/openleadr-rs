@@ -107,7 +107,7 @@ pub trait HttpClient: Debug {
 /// Can be used to implement both, the VEN and the business logic.
 ///
 /// If using the VTN of this project with the built-in OAuth authentication provider,
-/// the [`Client`] also allows managing the users.  
+/// the [`Client`] also allows managing the users.
 #[derive(Debug, Clone)]
 pub struct Client {
     client_ref: Arc<ClientRef>,
@@ -407,24 +407,31 @@ pub struct PaginationOptions {
 /// There has been some discussion with the authors of the standard in
 /// <https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/83> (sadly not public).
 #[derive(Debug, Clone)]
-pub enum Filter<'a> {
+pub enum Filter<'a, S: AsRef<str>> {
     /// Do not apply any filtering
     None,
     /// Filter by [`TargetType`] and a list of values.
     ///
     /// It will be encoded to the request as query parameters,
     /// e.g., `/programs?targetType=GROUP&targetValues=Group-1&targetValues=Group-2`.
-    By(TargetType, &'a [&'a str]),
+    By(TargetType, &'a [S]),
 }
 
-impl<'a> Filter<'a> {
+impl<'a> Filter<'a, &'static str> {
+    /// Create a new filter that does not apply any filtering.
+    pub const fn none() -> Filter<'a, &'static str> {
+        Filter::None
+    }
+}
+
+impl<'a, S: AsRef<str>> Filter<'a, S> {
     pub(crate) fn to_query_params(&'a self) -> Vec<(&'a str, &'a str)> {
         let mut query = vec![];
         if let Filter::By(ref target_label, target_values) = self {
             query.push(("targetType", target_label.as_str()));
 
             for target_value in *target_values {
-                query.push(("targetValues", *target_value));
+                query.push(("targetValues", target_value.as_ref()));
             }
         }
         query
@@ -501,7 +508,7 @@ impl Client {
     /// Lowlevel operation that gets a list of programs from the VTN with the given query parameters
     pub async fn get_programs(
         &self,
-        filter: Filter<'_>,
+        filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
     ) -> Result<Vec<ProgramClient>> {
         // convert query params
@@ -523,7 +530,10 @@ impl Client {
     /// Get all programs from the VTN with the given query parameters
     ///
     /// It automatically tries to iterate pages where necessary.
-    pub async fn get_program_list(&self, filter: Filter<'_>) -> Result<Vec<ProgramClient>> {
+    pub async fn get_program_list(
+        &self,
+        filter: Filter<'_, impl AsRef<str> + Clone>,
+    ) -> Result<Vec<ProgramClient>> {
         self.client_ref
             .iterate_pages(|skip, limit| {
                 self.get_programs(filter.clone(), PaginationOptions { skip, limit })
@@ -547,7 +557,7 @@ impl Client {
     pub async fn get_events(
         &self,
         program_id: Option<&ProgramId>,
-        filter: Filter<'_>,
+        filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
     ) -> Result<Vec<EventClient>> {
         // convert query params
@@ -576,7 +586,7 @@ impl Client {
     pub async fn get_event_list(
         &self,
         program_id: Option<&ProgramId>,
-        filter: Filter<'_>,
+        filter: Filter<'_, impl AsRef<str> + Clone>,
     ) -> Result<Vec<EventClient>> {
         self.client_ref
             .iterate_pages(|skip, limit| {
@@ -609,7 +619,7 @@ impl Client {
         &self,
         skip: usize,
         limit: usize,
-        filter: Filter<'_>,
+        filter: Filter<'_, impl AsRef<str>>,
     ) -> Result<Vec<VenClient>> {
         let skip_str = skip.to_string();
         let limit_str = limit.to_string();
@@ -628,7 +638,10 @@ impl Client {
     /// Get all VENs from the VTN with the given query parameters.
     ///
     /// The client automatically tries to iterate pages where necessary.
-    pub async fn get_ven_list(&self, filter: Filter<'_>) -> Result<Vec<VenClient>> {
+    pub async fn get_ven_list(
+        &self,
+        filter: Filter<'_, impl AsRef<str> + Clone>,
+    ) -> Result<Vec<VenClient>> {
         self.client_ref
             .iterate_pages(|skip, limit| self.get_vens(skip, limit, filter.clone()))
             .await
