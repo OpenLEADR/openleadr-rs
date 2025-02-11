@@ -149,19 +149,11 @@ than using a language interoperability layer on top of our client library.
 
 ## Help us make an impact: We're seeking funding!
 
-As of Fall 2024, we are actively seeking EUR 40.000 in funding to take the next crucial steps. Achieving this goal will allow us to:
+We're currently seeking funding before taking the next crucial steps. In particular: delivering an **official field-test-ready release**. This way, you, as an (early) adopter can have greater confidence in the project's long-term sustainability.
 
-- **Deliver a field-test-ready release** by December 2024 / January 2025.
-- **Ensure ongoing professional development and maintenance** throughout 2025.
-- **Secure the project's long-term viability** as a cornerstone for numerous energy projects.
+Funding is managed by [Trifecta Tech Foundation](https://trifectatech.org) (TTF), a nonprofit (501(c)(3) equivalent) public benefit organization that provides a long-term home for open-source projects that are crucial for critical infrastructure.
 
-Funding is managed by the [Trifecta Tech Foundation](https://trifectatech.org) (TTF). For more details or to request our sponsorship prospectus, please visit the [project's page](https://trifectatech.org/initiatives/automated-demand-response/) on the foundation's website.
-
-### About Trifecta Tech Foundation
-
-TTF is a Netherlands-based non-profit (501(c)(3) equivalent) dedicated to developing and maintaining open infrastructure software for the public good.
-
-In addition to safeguarding the long-term sustainability of OpenLEADR-rs, TTF also supports open-source projects in time synchronization and data compression. Notably, its Network Time Protocol software is a critical component at Let’s Encrypt, the world’s largest certificate authority.
+For more details about our plans for 2025 and beyond please visit the [project's page](https://trifectatech.org/initiatives/automated-demand-response/) on Trifecta Tech Foundation's website.
 
 ### Current sponsors
 - [ElaadNL](https://elaad.nl/en/)
