@@ -3,10 +3,7 @@ use crate::{api::ValidatedForm, data_source::AuthSource, jwt::JwtManager};
 #[cfg(feature = "internal-oauth")]
 use axum::extract::State;
 #[cfg(feature = "internal-oauth")]
-use axum_extra::{
-    headers::{authorization::Basic, Authorization},
-    TypedHeader,
-};
+use axum_extra::headers::{authorization::Basic, Authorization};
 #[cfg(feature = "internal-oauth")]
 use serde::Deserialize;
 #[cfg(feature = "internal-oauth")]
@@ -16,13 +13,14 @@ use validator::Validate;
 
 use crate::error::AppError;
 use axum::{
-    http::{Response, StatusCode},
+    http::{header::AUTHORIZATION, HeaderMap, Response, StatusCode},
     response::IntoResponse,
     Json,
 };
-
+use axum_extra::headers::{authorization::Bearer, Header};
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 use reqwest::header;
+use tracing::trace;
 
 #[derive(Debug, Deserialize, Validate)]
 #[cfg(feature = "internal-oauth")]
@@ -90,7 +88,7 @@ impl IntoResponse for AccessTokenResponse {
 pub(crate) async fn token(
     State(auth_source): State<Arc<dyn AuthSource>>,
     State(jwt_manager): State<Arc<JwtManager>>,
-    authorization: Option<TypedHeader<Authorization<Basic>>>,
+    headers: HeaderMap,
     ValidatedForm(request): ValidatedForm<AccessTokenRequest>,
 ) -> Result<AccessTokenResponse, ResponseOAuthError> {
     if request.grant_type != "client_credentials" {
@@ -99,9 +97,17 @@ pub(crate) async fn token(
             .into());
     }
 
-    let auth_header = authorization
-        .as_ref()
-        .map(|TypedHeader(auth)| (auth.username(), auth.password()));
+    let mut auth_header = None;
+    if let Some(header) = headers.get(AUTHORIZATION) {
+        if let Ok(basic_auth) = Authorization::<Basic>::decode(&mut [header].into_iter()) {
+            auth_header = Some((
+                basic_auth.username().to_string(),
+                basic_auth.password().to_string(),
+            ))
+        } else if Authorization::<Bearer>::decode(&mut [header].into_iter()).is_ok() {
+            trace!("login request contained Bearer token which got ignored")
+        }
+    }
 
     let auth_body = request
         .client_id
@@ -120,7 +126,9 @@ pub(crate) async fn token(
             .into());
     }
 
-    let Some((client_id, client_secret)) = auth_body.or(auth_header) else {
+    let Some((client_id, client_secret)) =
+        auth_body.or(auth_header.as_ref().map(|(a, b)| (a.as_str(), b.as_str())))
+    else {
         return Err(OAuthError::new(OAuthErrorType::InvalidClient)
             .with_description(
                 "No valid authentication data provided, client_id and client_secret required"

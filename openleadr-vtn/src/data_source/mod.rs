@@ -1,7 +1,11 @@
 #[cfg(feature = "postgres")]
 mod postgres;
 
-use axum::async_trait;
+use crate::{
+    error::AppError,
+    jwt::{AuthRole, Claims, User},
+};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     event::{EventContent, EventId},
@@ -15,11 +19,6 @@ use openleadr_wire::{
 pub use postgres::PostgresStorage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-use crate::{
-    error::AppError,
-    jwt::{AuthRole, Claims, User},
-};
 
 #[async_trait]
 pub trait Crud: Send + Sync + 'static {

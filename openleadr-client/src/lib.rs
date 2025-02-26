@@ -59,7 +59,7 @@ mod target;
 mod timeline;
 mod ven;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use openleadr_wire::{event::EventId, Event, Ven};
 use std::{
     fmt::Debug,
