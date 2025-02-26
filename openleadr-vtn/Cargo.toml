@@ -36,13 +36,14 @@ rand.workspace = true
 validator.workspace = true
 mime.workspace = true
 http-body-util.workspace = true
+async-trait.workspace = true
 
 chrono.workspace = true
 thiserror.workspace = true
 
-sqlx = {workspace = true, optional = true}
-argon2 = {workspace = true, optional = true}
-dotenvy = {workspace = true, optional = true}
+sqlx = { workspace = true, optional = true }
+argon2 = { workspace = true, optional = true }
+dotenvy = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

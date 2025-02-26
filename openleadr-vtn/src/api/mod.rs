@@ -1,6 +1,5 @@
 use crate::{error::AppError, state::AppState};
 use axum::{
-    async_trait,
     extract::{
         rejection::{FormRejection, JsonRejection},
         FromRequest, FromRequestParts, Request, State,
@@ -33,7 +32,6 @@ pub(crate) struct ValidatedQuery<T>(pub T);
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedJson<T>(pub T);
 
-#[async_trait]
 impl<T, S> FromRequest<S> for ValidatedJson<T>
 where
     T: DeserializeOwned + Validate,
@@ -49,7 +47,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T, S> FromRequestParts<S> for ValidatedQuery<T>
 where
     T: DeserializeOwned + Validate,
@@ -68,7 +65,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T, S> FromRequest<S> for ValidatedForm<T>
 where
     T: DeserializeOwned + Validate,

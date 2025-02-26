@@ -353,6 +353,7 @@ fn validate_value_error(value_type: &EventType, value: &Value) -> ValidationErro
 #[cfg(test)]
 mod tests {
     use crate::{values_map::Value, Duration};
+    use std::borrow::Cow;
 
     use super::*;
 
@@ -558,7 +559,7 @@ mod tests {
                 let value = Value::String("string".to_string());
                 ValidationErrorsKind::Field(vec![validate_value_error(&EventType::Simple, &value)])
             };
-            hash_map.insert("__all__", validation_errors_kind);
+            hash_map.insert(Cow::from("__all__"), validation_errors_kind);
             Err(ValidationErrors(hash_map))
         };
         let actual = serde_json::from_str::<EventValuesMap>(input)

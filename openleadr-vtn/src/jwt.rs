@@ -9,7 +9,6 @@ use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 
 use crate::error::AppError;
 use axum::{
-    async_trait,
     extract::{FromRef, FromRequestParts},
     http::request::Parts,
 };
@@ -219,7 +218,6 @@ pub struct UserManagerUser(pub(crate) Claims);
 /// User claims extracted from the request, with the requirement that the user is a VEN manager
 pub struct VenManagerUser(pub(crate) Claims);
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for User
 where
     Arc<JwtManager>: FromRef<S>,
@@ -247,7 +245,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for BusinessUser
 where
     Arc<JwtManager>: FromRef<S>,
@@ -263,7 +260,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for VENUser
 where
     Arc<JwtManager>: FromRef<S>,
@@ -279,7 +275,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for UserManagerUser
 where
     Arc<JwtManager>: FromRef<S>,
@@ -295,7 +290,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for VenManagerUser
 where
     Arc<JwtManager>: FromRef<S>,

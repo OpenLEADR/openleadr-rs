@@ -7,7 +7,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
 };
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{Executor, PgConnection, PgPool, Postgres};
 use tracing::warn;

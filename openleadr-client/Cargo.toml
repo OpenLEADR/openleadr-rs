@@ -28,6 +28,7 @@ url.workspace = true
 chrono.workspace = true
 rangemap.workspace = true
 uuid.workspace = true
+async-trait.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

@@ -7,7 +7,7 @@ use crate::{
     error::AppError,
     jwt::{BusinessIds, Claims, User},
 };
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     event::{EventContent, EventId, Priority},

@@ -181,30 +181,30 @@ impl AppState {
             .route("/health", get(healthcheck))
             .route("/programs", get(program::get_all).post(program::add))
             .route(
-                "/programs/:id",
+                "/programs/{id}",
                 get(program::get).put(program::edit).delete(program::delete),
             )
             .route("/reports", get(report::get_all).post(report::add))
             .route(
-                "/reports/:id",
+                "/reports/{id}",
                 get(report::get).put(report::edit).delete(report::delete),
             )
             .route("/events", get(event::get_all).post(event::add))
             .route(
-                "/events/:id",
+                "/events/{id}",
                 get(event::get).put(event::edit).delete(event::delete),
             )
             .route("/vens", get(ven::get_all).post(ven::add))
             .route(
-                "/vens/:id",
+                "/vens/{id}",
                 get(ven::get).put(ven::edit).delete(ven::delete),
             )
             .route(
-                "/vens/:ven_id/resources",
+                "/vens/{ven_id}/resources",
                 get(resource::get_all).post(resource::add),
             )
             .route(
-                "/vens/:ven_id/resources/:id",
+                "/vens/{ven_id}/resources/{id}",
                 get(resource::get)
                     .put(resource::edit)
                     .delete(resource::delete),
@@ -215,14 +215,14 @@ impl AppState {
                 .route("/auth/token", post(auth::token))
                 .route("/users", get(user::get_all).post(user::add_user))
                 .route(
-                    "/users/:id",
+                    "/users/{id}",
                     get(user::get)
                         .put(user::edit)
                         .delete(user::delete_user)
                         .post(user::add_credential),
                 )
                 .route(
-                    "/users/:user_id/:client_id",
+                    "/users/{user_id}/{client_id}",
                     delete(user::delete_credential),
                 );
         }
