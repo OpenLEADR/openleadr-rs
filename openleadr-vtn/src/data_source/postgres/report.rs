@@ -1,7 +1,7 @@
 use crate::{
     api::report::QueryParams,
     data_source::{
-        postgres::{extract_business_ids, to_json_value, PgId},
+        postgres::{extract_business_ids, to_json_value},
         Crud, ReportCrud,
     },
     error::AppError,
@@ -91,18 +91,14 @@ impl Crud for PgReportStorage {
         new: Self::NewType,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let permitted_vens = sqlx::query_as!(
-            PgId,
+        let permitted_vens = sqlx::query_scalar!(
             r#"
             SELECT ven_id AS id FROM ven_program WHERE program_id = $1
             "#,
             new.program_id.as_str()
         )
         .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(|id| id.id)
-        .collect::<Vec<_>>();
+        .await?;
 
         if !permitted_vens.is_empty()
             && !user
@@ -113,8 +109,7 @@ impl Crud for PgReportStorage {
             Err(AppError::NotFound)?
         }
 
-        let program_id = sqlx::query_as!(
-            PgId,
+        let program_id = sqlx::query_scalar!(
             r#"
             SELECT program_id AS id FROM event WHERE id = $1
             "#,
@@ -123,7 +118,7 @@ impl Crud for PgReportStorage {
         .fetch_one(&self.db)
         .await?;
 
-        if program_id.id != new.program_id.as_str() {
+        if program_id != new.program_id.as_str() {
             return Err(AppError::BadRequest(
                 "event_id and program_id have to point to the same program",
             ));
