@@ -1,5 +1,5 @@
 use tokio::{net::TcpListener, signal};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(feature = "postgres")]
@@ -25,7 +25,9 @@ async fn main() {
         "No storage backend selected. Please enable the `postgres` feature flag during compilation"
     );
 
-    storage.migrate().await.unwrap();
+    if let Err(e) = storage.migrate().await {
+        warn!("Database migration failed: {}", e);
+    }
 
     let state = AppState::new(storage);
     if let Err(e) = axum::serve(listener, state.into_router())

@@ -253,8 +253,9 @@ pub trait DataSource: Send + Sync + 'static {
     fn connection_active(&self) -> bool;
 }
 
+#[async_trait]
 pub trait Migrate {
-    fn migrate(&self) -> impl std::future::Future<Output = Result<(), MigrateError>> + Send;
+    async fn migrate(&self) -> Result<(), MigrateError>;
 }
 
 #[derive(Debug, Clone)]

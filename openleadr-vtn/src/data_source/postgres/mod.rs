@@ -12,6 +12,7 @@ use crate::{
     error::AppError,
     jwt::{BusinessIds, Claims},
 };
+use async_trait::async_trait;
 use dotenvy::dotenv;
 use openleadr_wire::target::{TargetMap, TargetType};
 use resource::PgResourceStorage;
@@ -67,11 +68,10 @@ impl DataSource for PostgresStorage {
     }
 }
 
+#[async_trait]
 impl Migrate for PostgresStorage {
     async fn migrate(&self) -> Result<(), MigrateError> {
-        sqlx::migrate!("./migrations")
-            .run(&self.db)
-            .await
+        sqlx::migrate!("./migrations").run(&self.db).await
     }
 }
 
