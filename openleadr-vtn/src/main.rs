@@ -1,10 +1,10 @@
 use tokio::{net::TcpListener, signal};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(feature = "postgres")]
 use openleadr_vtn::data_source::PostgresStorage;
-use openleadr_vtn::state::AppState;
+use openleadr_vtn::{data_source::Migrate, state::AppState};
 
 #[tokio::main]
 async fn main() {
@@ -24,6 +24,10 @@ async fn main() {
     compile_error!(
         "No storage backend selected. Please enable the `postgres` feature flag during compilation"
     );
+
+    if let Err(e) = storage.migrate().await {
+        warn!("Database migration failed: {}", e);
+    }
 
     let state = AppState::new(storage);
     if let Err(e) = axum::serve(listener, state.into_router())
