@@ -18,6 +18,7 @@ use openleadr_wire::{
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresStorage;
 use serde::{Deserialize, Serialize};
+use sqlx::migrate::MigrateError;
 use std::sync::Arc;
 
 #[async_trait]
@@ -250,6 +251,11 @@ pub trait DataSource: Send + Sync + 'static {
     #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource>;
     fn connection_active(&self) -> bool;
+}
+
+#[async_trait]
+pub trait Migrate {
+    async fn migrate(&self) -> Result<(), MigrateError>;
 }
 
 #[derive(Debug, Clone)]

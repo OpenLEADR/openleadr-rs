@@ -12,13 +12,16 @@ use crate::{
     error::AppError,
     jwt::{BusinessIds, Claims},
 };
+use async_trait::async_trait;
 use dotenvy::dotenv;
 use openleadr_wire::target::{TargetMap, TargetType};
 use resource::PgResourceStorage;
 use serde::Serialize;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use tracing::{error, info, trace};
+
+use super::Migrate;
 
 mod event;
 mod program;
@@ -62,6 +65,13 @@ impl DataSource for PostgresStorage {
     /// Verify the connection pool is open and has at least one connection
     fn connection_active(&self) -> bool {
         !self.db.is_closed() && self.db.size() > 0
+    }
+}
+
+#[async_trait]
+impl Migrate for PostgresStorage {
+    async fn migrate(&self) -> Result<(), MigrateError> {
+        sqlx::migrate!("./migrations").run(&self.db).await
     }
 }
 
