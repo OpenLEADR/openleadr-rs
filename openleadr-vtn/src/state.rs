@@ -23,7 +23,7 @@ use base64::{
     engine::{general_purpose::PAD, GeneralPurpose},
     Engine,
 };
-use jsonwebtoken::{DecodingKey, EncodingKey};
+use jsonwebtoken::{DecodingKey, EncodingKey, Validation, Algorithm};
 use reqwest::StatusCode;
 use std::{cmp::PartialEq, env, env::VarError, fs::File, io::Read, str::FromStr, sync::Arc};
 use tower_http::trace::TraceLayer;
@@ -76,6 +76,13 @@ impl FromStr for OAuthKeyType {
     }
 }
 
+fn audiences_from_env() -> Result<Vec<String>, VarError> {
+    env::var("OAUTH_VALID_AUDIENCES").map(|audience_str| {
+        // Split the string by commas and collect into a vector
+        return audience_str.split(',').map(|s| s.to_string()).collect();
+    })
+}
+
 fn hmac_from_env() -> Result<Vec<u8>, VarError> {
     env::var("OAUTH_BASE64_SECRET").map(|base64_secret| {
         let secret = GeneralPurpose::new(&alphabet::STANDARD, PAD)
@@ -89,29 +96,76 @@ fn hmac_from_env() -> Result<Vec<u8>, VarError> {
     })
 }
 
+fn signing_algorithms_from_key_type(key_type: &OAuthKeyType) -> Vec<Algorithm> {
+    match key_type {
+        OAuthKeyType::Hmac => {
+            vec![
+                Algorithm::HS256,
+                Algorithm::HS384,
+                Algorithm::HS512,
+            ]
+        }
+        OAuthKeyType::Rsa => {
+            vec![
+                Algorithm::RS256,
+                Algorithm::RS384,
+                Algorithm::RS512,
+                Algorithm::PS256,
+                Algorithm::PS384,
+                Algorithm::PS512,
+            ]
+        }
+        OAuthKeyType::Ec => {
+            vec![Algorithm::ES256, Algorithm::ES384]
+        }
+        OAuthKeyType::Ed => {
+            vec![Algorithm::EdDSA]
+        }
+    }
+}
+
 fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     if let Some(k_type) = key_type {
         if k_type != OAuthKeyType::Hmac {
             panic!("Internal OAuth provider only supports HMAC JWT keys");
         }
     }
+
     let secret = hmac_from_env().unwrap_or_else(|_| {
         warn!("Generating random secret as OAUTH_BASE64_SECRET env var was not found");
         let secret: [u8; 32] = rand::random();
         secret.to_vec()
     });
+    let valid_audiences = audiences_from_env().unwrap_or_else(|_| {
+        Vec::<String>::new()
+    });
+
+    let mut validation = Validation::default();
+    validation.algorithms = signing_algorithms_from_key_type(&key_type.unwrap_or_else(|| OAuthKeyType::Hmac));
+    validation.set_audience(&valid_audiences);
+
     JwtManager::new(
         Some(EncodingKey::from_secret(&secret)),
         DecodingKey::from_secret(&secret),
+        validation,
     )
 }
 
 fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     let key_type = key_type.expect("Must specify key type for external OAuth provider. Use OAUTH_KEY_TYPE environment variable");
+
+    let valid_audiences = audiences_from_env().unwrap_or_else(|_| {
+        Vec::new()
+    });
+
+    let mut validation = Validation::default();
+    validation.algorithms = signing_algorithms_from_key_type(&key_type);
+    validation.set_audience(&valid_audiences);
+
     match key_type {
         OAuthKeyType::Hmac => {
             let secret = hmac_from_env().expect("OAUTH_BASE64_SECRET environment variable must be set for external OAuth provider with key type HMAC");
-            JwtManager::new(None, DecodingKey::from_secret(&secret))
+            JwtManager::new(None, DecodingKey::from_secret(&secret), validation)
         }
         OAuthKeyType::Rsa => {
             let rsa_file = env::var("OAUTH_PEM").expect("OAUTH_PEM environment variable must be set for external OAuth provider with key type RSA");
@@ -123,6 +177,7 @@ fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
             JwtManager::new(
                 None,
                 DecodingKey::from_rsa_pem(&pem_bytes).expect("Cannot read RSA key"),
+                validation,
             )
         }
         OAuthKeyType::Ec => {
@@ -135,6 +190,7 @@ fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
             JwtManager::new(
                 None,
                 DecodingKey::from_ec_pem(&pem_bytes).expect("Cannot read EC key"),
+                validation,
             )
         }
         OAuthKeyType::Ed => {
@@ -147,6 +203,7 @@ fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
             JwtManager::new(
                 None,
                 DecodingKey::from_ed_pem(&pem_bytes).expect("Cannot read Ed key"),
+                validation,
             )
         }
     }
