@@ -24,7 +24,7 @@ pub struct JwtManager {
     #[cfg(feature = "internal-oauth")]
     encoding_key: Option<EncodingKey>,
     decoding_key: DecodingKey,
-    validation: Validation
+    validation: Validation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -147,7 +147,11 @@ impl Claims {
 
 impl JwtManager {
     /// Create a new JWT manager with a specific encoding and decoding key
-    pub fn new(encoding_key: Option<EncodingKey>, decoding_key: DecodingKey, validation: Validation) -> Self {
+    pub fn new(
+        encoding_key: Option<EncodingKey>,
+        decoding_key: DecodingKey,
+        validation: Validation,
+    ) -> Self {
         if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
             panic!("You should not provide a JWT encoding key as the 'internal-oauth' feature is disabled. \
             Please recompile with the 'internal-oauth' feature enabled if you want to use it.");
@@ -157,14 +161,14 @@ impl JwtManager {
             Self {
                 encoding_key,
                 decoding_key,
-                validation
+                validation,
             }
         }
         #[cfg(not(feature = "internal-oauth"))]
         {
             Self {
                 decoding_key,
-                validation
+                validation,
             }
         }
     }
@@ -201,7 +205,8 @@ impl JwtManager {
 
     /// Decode and validate a given JWT token, returning the validated claims
     fn decode_and_validate(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-        let token_data = jsonwebtoken::decode::<Claims>(token, &self.decoding_key, &self.validation)?;
+        let token_data =
+            jsonwebtoken::decode::<Claims>(token, &self.decoding_key, &self.validation)?;
         Ok(token_data.claims)
     }
 }

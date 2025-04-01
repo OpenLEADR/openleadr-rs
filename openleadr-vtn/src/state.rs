@@ -23,7 +23,7 @@ use base64::{
     engine::{general_purpose::PAD, GeneralPurpose},
     Engine,
 };
-use jsonwebtoken::{DecodingKey, EncodingKey, Validation, Algorithm};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use reqwest::StatusCode;
 use std::{cmp::PartialEq, env, env::VarError, fs::File, io::Read, str::FromStr, sync::Arc};
 use tower_http::trace::TraceLayer;
@@ -99,11 +99,7 @@ fn hmac_from_env() -> Result<Vec<u8>, VarError> {
 fn signing_algorithms_from_key_type(key_type: &OAuthKeyType) -> Vec<Algorithm> {
     match key_type {
         OAuthKeyType::Hmac => {
-            vec![
-                Algorithm::HS256,
-                Algorithm::HS384,
-                Algorithm::HS512,
-            ]
+            vec![Algorithm::HS256, Algorithm::HS384, Algorithm::HS512]
         }
         OAuthKeyType::Rsa => {
             vec![
@@ -136,12 +132,17 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
         let secret: [u8; 32] = rand::random();
         secret.to_vec()
     });
+
     let valid_audiences = audiences_from_env().unwrap_or_else(|_| {
+        // audiences are optional since tokens provisioned from the internal oauth do
+        // not currently include the `aud` claim in the token.
+        info!("Default valid audiences to empty list as OAUTH_VALID_AUDIENCES env var was not set");
         Vec::<String>::new()
     });
 
     let mut validation = Validation::default();
-    validation.algorithms = signing_algorithms_from_key_type(&key_type.unwrap_or_else(|| OAuthKeyType::Hmac));
+    validation.algorithms =
+        signing_algorithms_from_key_type(&key_type.unwrap_or_else(|| OAuthKeyType::Hmac));
     validation.set_audience(&valid_audiences);
 
     JwtManager::new(
@@ -154,9 +155,9 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
 fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     let key_type = key_type.expect("Must specify key type for external OAuth provider. Use OAUTH_KEY_TYPE environment variable");
 
-    let valid_audiences = audiences_from_env().unwrap_or_else(|_| {
-        Vec::new()
-    });
+    let valid_audiences = audiences_from_env().expect(
+        "OAUTH_VALID_AUDIENCES environment variable must be set for external Oauth provider.",
+    );
 
     let mut validation = Validation::default();
     validation.algorithms = signing_algorithms_from_key_type(&key_type);
