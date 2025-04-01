@@ -79,7 +79,7 @@ impl FromStr for OAuthKeyType {
 fn audiences_from_env() -> Result<Vec<String>, VarError> {
     env::var("OAUTH_VALID_AUDIENCES").map(|audience_str| {
         // Split the string by commas and collect into a vector
-        return audience_str.split(',').map(|s| s.to_string()).collect();
+        audience_str.split(',').map(|s| s.to_string()).collect();
     })
 }
 
@@ -142,7 +142,7 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
 
     let mut validation = Validation::default();
     validation.algorithms =
-        signing_algorithms_from_key_type(&key_type.unwrap_or_else(|| OAuthKeyType::Hmac));
+        signing_algorithms_from_key_type(&key_type.unwrap_or(OAuthKeyType::Hmac));
     validation.set_audience(&valid_audiences);
 
     JwtManager::new(
