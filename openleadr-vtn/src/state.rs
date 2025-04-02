@@ -79,7 +79,7 @@ impl FromStr for OAuthKeyType {
 fn audiences_from_env() -> Result<Vec<String>, VarError> {
     env::var("OAUTH_VALID_AUDIENCES").map(|audience_str| {
         // Split the string by commas and collect into a vector
-        audience_str.split(',').map(|s| s.to_string()).collect();
+        audience_str.split(',').map(|s| s.to_string()).collect()
     })
 }
 
@@ -156,7 +156,7 @@ fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     let key_type = key_type.expect("Must specify key type for external OAuth provider. Use OAUTH_KEY_TYPE environment variable");
 
     let valid_audiences = audiences_from_env().expect(
-        "OAUTH_VALID_AUDIENCES environment variable must be set for external Oauth provider.",
+        "OAUTH_VALID_AUDIENCES environment variable must be set for external Oauth provider",
     );
 
     let mut validation = Validation::default();
@@ -390,6 +390,7 @@ mod test {
             env::remove_var("OAUTH_TYPE");
             env::remove_var("OAUTH_KEY_TYPE");
             env::remove_var("OAUTH_PEM");
+            env::remove_var("OAUTH_VALID_AUDIENCES");
         }
 
         #[test]
@@ -468,6 +469,7 @@ mod test {
         fn external_missing_key_type_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
+            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_PEM", "./key.pem");
             AppState::new(MockDataSource {});
         }
@@ -480,7 +482,21 @@ mod test {
         fn external_missing_key_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
+            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
+            AppState::new(MockDataSource {});
+        }
+
+        #[test]
+        #[should_panic(
+            expected = "OAUTH_VALID_AUDIENCES environment variable must be set for external Oauth provider"
+        )]
+        #[serial]
+        fn external_missing_valid_audiences_oauth() {
+            clean_env();
+            env::set_var("OAUTH_TYPE", "EXTERNAL");
+            env::set_var("OAUTH_KEY_TYPE", "RSA");
+            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             AppState::new(MockDataSource {});
         }
 
@@ -491,6 +507,7 @@ mod test {
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
             env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
+            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             AppState::new(MockDataSource {});
         }
 
@@ -501,6 +518,7 @@ mod test {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "EC");
+            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             AppState::new(MockDataSource {});
         }
@@ -512,6 +530,7 @@ mod test {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "ED");
+            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             AppState::new(MockDataSource {});
         }
