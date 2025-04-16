@@ -1,7 +1,7 @@
 use crate::{
     api::event::QueryParams,
     data_source::{
-        postgres::{extract_business_ids, to_json_value, PgId, PgTargetsFilter},
+        postgres::{extract_business_ids, to_json_value, PgTargetsFilter},
         Crud, EventCrud,
     },
     error::AppError,
@@ -310,8 +310,7 @@ impl Crud for PgEventStorage {
     ) -> Result<Self::Type, Self::Error> {
         check_write_permission(new.program_id.as_str(), user, &self.db).await?;
 
-        let previous_program_id = sqlx::query_as!(
-            PgId,
+        let previous_program_id = sqlx::query_scalar!(
             r#"SELECT program_id AS id FROM event WHERE id = $1"#,
             id.as_str()
         )
@@ -319,8 +318,8 @@ impl Crud for PgEventStorage {
         .await?;
 
         // make sure, you cannot 'steal' an event from another business
-        if previous_program_id.id != new.program_id.as_str() {
-            check_write_permission(&previous_program_id.id, user, &self.db).await?;
+        if previous_program_id != new.program_id.as_str() {
+            check_write_permission(&previous_program_id, user, &self.db).await?;
         }
 
         Ok(sqlx::query_as!(
@@ -359,15 +358,14 @@ impl Crud for PgEventStorage {
         id: &Self::Id,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let program_id = sqlx::query_as!(
-            PgId,
+        let program_id = sqlx::query_scalar!(
             r#"SELECT program_id AS id FROM event WHERE id = $1"#,
             id.as_str()
         )
         .fetch_one(&self.db)
         .await?;
 
-        check_write_permission(&program_id.id, user, &self.db).await?;
+        check_write_permission(&program_id, user, &self.db).await?;
 
         Ok(sqlx::query_as!(
             PostgresEvent,

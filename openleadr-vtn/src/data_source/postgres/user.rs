@@ -1,5 +1,5 @@
 use crate::{
-    data_source::{postgres::PgId, AuthInfo, AuthSource, UserDetails},
+    data_source::{AuthInfo, AuthSource, UserDetails},
     error::AppError,
     jwt::AuthRole,
 };
@@ -173,8 +173,7 @@ impl AuthSource for PgAuthSource {
     ) -> Result<UserDetails, AppError> {
         let mut tx = self.db.begin().await?;
 
-        let user = sqlx::query_as!(
-            PgId,
+        let user_id = sqlx::query_scalar!(
             r#"
             INSERT INTO "user" (id, reference, description, created, modified)
             VALUES (gen_random_uuid(), $1, $2, now(), now())
@@ -187,17 +186,17 @@ impl AuthSource for PgAuthSource {
         .await?;
 
         for role in roles {
-            Self::add_role(&mut tx, &user.id, role)
+            Self::add_role(&mut tx, &user_id, role)
                 .await
                 .inspect_err(|err| {
                     warn!(
                         "Failed to add role {:?} for new user {:?}: {}",
-                        role, user, err
+                        role, user_id, err
                     )
                 })?;
         }
 
-        let user = Self::get_user(&mut *tx, &user.id)
+        let user = Self::get_user(&mut *tx, &user_id)
             .await
             .inspect_err(|err| warn!("cannot find user just created: {}", err))?;
 

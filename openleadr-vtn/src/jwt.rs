@@ -234,7 +234,7 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let Ok(bearer) =
+        let Ok(TypedHeader(bearer)) =
             TypedHeader::<Authorization<Bearer>>::from_request_parts(parts, state).await
         else {
             return Err(AppError::Auth(
@@ -244,7 +244,7 @@ where
 
         let jwt_manager = Arc::<JwtManager>::from_ref(state);
 
-        let Ok(claims) = jwt_manager.decode_and_validate(bearer.0.token()) else {
+        let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()) else {
             return Err(AppError::Forbidden("Invalid authentication token provided"));
         };
 
