@@ -16,7 +16,7 @@ RUN cp /app/target/release/openleadr-vtn /app/openleadr-vtn
 FROM alpine:latest AS final
 
 # Install OpenSSL
-RUN apk add --no-cache openssl-libs-static
+RUN apk add --no-cache openssl-libs-static curl
 
 # create a non root user to run the binary
 ARG user=nonroot
