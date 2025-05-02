@@ -360,11 +360,11 @@ mod tests {
                 Some(TargetMap(vec![
                     TargetEntry {
                         label: TargetType::Group,
-                        values: ["group-1".to_string()],
+                        values: vec!["group-1".to_string()],
                     },
                     TargetEntry {
                         label: TargetType::Private("PRIVATE_LABEL".into()),
-                        values: ["private value".to_string()],
+                        values: vec!["private value".to_string()],
                     },
                 ])),
                 None,

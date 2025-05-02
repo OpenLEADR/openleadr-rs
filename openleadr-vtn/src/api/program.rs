@@ -380,7 +380,7 @@ mod test {
                     vec![
                         TargetEntry {
                             label: TargetType::Private("".to_string()),
-                            values: ["test".to_string()]
+                            values: vec!["test".to_string()]
                         }
                     ])),
                 ..default_content()
@@ -390,7 +390,7 @@ mod test {
                     vec![
                         TargetEntry {
                             label: TargetType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
-                            values: ["test".to_string()]
+                            values: vec!["test".to_string()]
                         }
                     ])),
                 ..default_content()
@@ -445,7 +445,7 @@ mod test {
             program_name: "program2".to_string(),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Group,
-                values: ["Group 2".to_string()],
+                values: vec!["Group 2".to_string()],
             }])),
             ..default_content()
         };
@@ -453,7 +453,7 @@ mod test {
             program_name: "program3".to_string(),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Group,
-                values: ["Group 1".to_string()],
+                values: vec!["Group 1".to_string()],
             }])),
             ..default_content()
         };
@@ -613,7 +613,7 @@ mod test {
             let content = ProgramContent {
                 targets: Some(TargetMap(vec![TargetEntry {
                     label: TargetType::VENName,
-                    values: ["ven-1-name".to_string()],
+                    values: vec!["ven-1-name".to_string()],
                 }])),
                 ..default_content()
             };

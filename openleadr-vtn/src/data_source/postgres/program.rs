@@ -542,11 +542,11 @@ mod tests {
                 targets: Some(TargetMap(vec![
                     TargetEntry {
                         label: TargetType::Group,
-                        values: ["group-1".to_string()],
+                        values: vec!["group-1".to_string()],
                     },
                     TargetEntry {
                         label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: ["private value".to_string()],
+                        values: vec!["private value".to_string()],
                     },
                 ])),
             },

@@ -155,7 +155,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         program_name: "program2".to_string(),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 2".to_string()],
+            values: vec!["Group 2".to_string()],
         }])),
         ..default_content()
     };
@@ -163,7 +163,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         program_name: "program3".to_string(),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 1".to_string()],
+            values: vec!["Group 1".to_string()],
         }])),
         ..default_content()
     };

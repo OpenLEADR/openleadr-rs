@@ -11,7 +11,7 @@ pub struct TargetMap(pub Vec<TargetEntry>);
 pub struct TargetEntry {
     #[serde(rename = "type")]
     pub label: TargetType,
-    pub values: [String; 1],
+    pub values: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]

@@ -357,7 +357,7 @@ mod test {
             event_name: Some("event1".to_string()),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Private("Something".to_string()),
-                values: ["group-1".to_string()],
+                values: vec!["group-1".to_string()],
             }])),
             ..default_event_content()
         };
@@ -366,7 +366,7 @@ mod test {
             event_name: Some("event2".to_string()),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Group,
-                values: ["group-2".to_string()],
+                values: vec!["group-2".to_string()],
             }])),
             ..default_event_content()
         };
@@ -375,7 +375,7 @@ mod test {
             event_name: Some("event3".to_string()),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Group,
-                values: ["group-1".to_string()],
+                values: vec!["group-1".to_string()],
             }])),
             ..default_event_content()
         };

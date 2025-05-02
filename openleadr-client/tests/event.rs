@@ -163,7 +163,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         event_name: Some("event2".to_string()),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 2".to_string()],
+            values: vec!["Group 2".to_string()],
         }])),
         ..default_content(client.id())
     };
@@ -172,7 +172,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         event_name: Some("event3".to_string()),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 1".to_string()],
+            values: vec!["Group 1".to_string()],
         }])),
         ..default_content(client.id())
     };

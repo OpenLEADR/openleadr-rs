@@ -424,11 +424,11 @@ mod tests {
                 targets: Some(TargetMap(vec![
                     TargetEntry {
                         label: TargetType::Group,
-                        values: ["group-1".to_string()],
+                        values: vec!["group-1".to_string()],
                     },
                     TargetEntry {
                         label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: ["private value".to_string()],
+                        values: vec!["private value".to_string()],
                     },
                 ])),
                 report_descriptors: None,
@@ -465,7 +465,7 @@ mod tests {
                 priority: None.into(),
                 targets: Some(TargetMap(vec![TargetEntry {
                     label: TargetType::Private("SOME_TARGET".to_string()),
-                    values: ["target-1".to_string()],
+                    values: vec!["target-1".to_string()],
                 }])),
                 report_descriptors: None,
                 payload_descriptors: None,
