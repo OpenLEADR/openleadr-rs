@@ -82,7 +82,7 @@ impl TryFrom<PostgresResource> for Resource {
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
     resource_name: Option<&'a str>,
-    targets: Vec<PgTargetsFilter<'a>>,
+    targets: Option<PgTargetsFilter<'a>>,
     skip: i64,
     limit: i64,
 }
@@ -97,13 +97,10 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
         };
         if let Some(ref label) = query.target_type {
             if let Some(values) = query.target_values.as_ref() {
-                filter.targets = values
-                    .iter()
-                    .map(|value| PgTargetsFilter {
-                        label: label.as_str(),
-                        value: [value.clone()],
-                    })
-                    .collect()
+                filter.targets = Some(PgTargetsFilter {
+                    label: label.as_str(),
+                    value: values.clone(),
+                })
             }
         };
 
@@ -192,6 +189,8 @@ impl VenScopedCrud for PgResourceStorage {
         let pg_filter: PostgresFilter = filter.into();
         trace!(?pg_filter);
 
+        let target_values = pg_filter.targets.as_ref().map(|t| t.value.clone());
+
         let res = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -205,19 +204,26 @@ impl VenScopedCrud for PgResourceStorage {
                 r.targets
             FROM resource r
               LEFT JOIN LATERAL ( 
-                  SELECT r.id as r_id, 
-                         json_array(jsonb_array_elements(r.targets)) <@ $3::jsonb AS target_test )
+                  
+                    SELECT targets.r_id,
+                           (t ->> 'type' = $3) AND
+                           (t -> 'values' ?| $4) AS target_test
+                    FROM (SELECT resource.id                            AS r_id,
+                                 jsonb_array_elements(resource.targets) AS t
+                          FROM resource) AS targets
+                  
+                   )
                   ON r.id = r_id
             WHERE r.ven_id = $1
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3::jsonb = '[]'::jsonb OR target_test)
+                AND ($3 IS NULL OR $4 IS NULL OR target_test)
             ORDER BY r.created_date_time
-            OFFSET $4 LIMIT $5
+            OFFSET $5 LIMIT $6
             "#,
             ven_id.as_str(),
             pg_filter.resource_name,
-            serde_json::to_value(pg_filter.targets)
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            pg_filter.targets.as_ref().map(|t| t.label),
+            target_values.as_deref(),
             pg_filter.skip,
             pg_filter.limit,
         )

@@ -117,7 +117,7 @@ impl TryFrom<PostgresEvent> for Event {
 #[derive(Default, Debug)]
 struct PostgresFilter<'a> {
     program_id: Option<&'a str>,
-    targets: Vec<PgTargetsFilter<'a>>,
+    targets: Option<PgTargetsFilter<'a>>,
 
     skip: i64,
     limit: i64,
@@ -133,13 +133,10 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
         };
         if let Some(ref label) = query.target_type {
             if let Some(values) = query.target_values.as_ref() {
-                filter.targets = values
-                    .iter()
-                    .map(|value| PgTargetsFilter {
-                        label: label.as_str(),
-                        value: [value.clone()],
-                    })
-                    .collect()
+                filter.targets = Some(PgTargetsFilter {
+                    label: label.as_str(),
+                    value: values.clone(),
+                })
             }
         };
 
@@ -262,6 +259,7 @@ impl Crud for PgEventStorage {
             BusinessIds::Specific(ids) => Some(ids),
             BusinessIds::Any => None,
         };
+        let target_values = pg_filter.targets.as_ref().map(|t| t.value.clone());
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -271,23 +269,30 @@ impl Crud for PgEventStorage {
               JOIN program p on p.id = e.program_id
               LEFT JOIN ven_program vp ON p.id = vp.program_id
               LEFT JOIN LATERAL (
-                  SELECT e.id as e_id, 
-                         json_array(jsonb_array_elements(e.targets)) <@ $2::jsonb AS target_test )
+                  
+                    SELECT targets.e_id,
+                           (t ->> 'type' = $2) AND
+                           (t -> 'values' ?| $3) AS target_test
+                    FROM (SELECT event.id                            AS e_id,
+                                 jsonb_array_elements(event.targets) AS t
+                          FROM event) AS targets
+                  
+                  )
                   ON e.id = e_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND ($2::jsonb = '[]'::jsonb OR target_test)
+              AND ($2 IS NULL OR $3 IS NULL OR target_test)
               AND (
-                  ($3 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($4)))
+                  ($4 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($5)))
                   OR 
-                  ($5 AND ($6::text[] IS NULL OR p.business_id = ANY ($6)))
+                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
                   )
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC
-            OFFSET $7 LIMIT $8
+            OFFSET $8 LIMIT $9
             "#,
             pg_filter.program_id,
-            serde_json::to_value(pg_filter.targets)
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            pg_filter.targets.as_ref().map(|t| t.label),
+            target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
             user.is_business(),

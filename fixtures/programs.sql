@@ -69,7 +69,15 @@ VALUES ('program-1',
         NULL,
         NULL,
         NULL,
-        NULL),
+        '[
+          {
+            "type": "GROUP",
+            "values": [
+              "group-1",
+              "group-2"
+            ]
+          }
+        ]'),
        ('program-3',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',

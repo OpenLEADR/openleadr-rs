@@ -119,7 +119,7 @@ struct PgTargetsFilter<'a> {
     #[serde(rename = "type")]
     label: &'a str,
     #[serde(rename = "values")]
-    value: [String; 1],
+    value: Vec<String>,
 }
 
 #[tracing::instrument(level = "trace")]
