@@ -7,15 +7,12 @@ use axum::{
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::{info, trace};
-use validator::{Validate, ValidationError};
+use validator::Validate;
 
-use openleadr_wire::{
-    target::TargetType,
-    ven::{Ven, VenContent, VenId},
-};
+use openleadr_wire::ven::{Ven, VenContent, VenId};
 
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::VenCrud,
     error::AppError,
     jwt::{User, VenManagerUser},
@@ -85,27 +82,19 @@ pub async fn delete(
 }
 
 #[derive(Deserialize, Validate, Debug)]
-#[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) ven_name: Option<String>,
-    pub(crate) target_type: Option<TargetType>,
-    pub(crate) target_values: Option<Vec<String>>,
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
-}
-
-fn validate_target_type_value_pair(query: &QueryParams) -> Result<(), ValidationError> {
-    if query.target_type.is_some() == query.target_values.is_some() {
-        Ok(())
-    } else {
-        Err(ValidationError::new("targetType and targetValues query parameter must either both be set or not set at the same time."))
-    }
 }
 
 fn get_50() -> i64 {
@@ -121,7 +110,7 @@ mod tests {
     use sqlx::PgPool;
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn get_all_unfiletred(db: PgPool) {
+    async fn get_all_unfiltered(db: PgPool) {
         let test = ApiTest::new(db, vec![AuthRole::VenManager]);
 
         let (status, mut vens) = test

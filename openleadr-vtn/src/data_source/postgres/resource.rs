@@ -1,9 +1,6 @@
 use crate::{
     api::resource::QueryParams,
-    data_source::{
-        postgres::{to_json_value, PgTargetsFilter},
-        ResourceCrud, VenScopedCrud,
-    },
+    data_source::{postgres::to_json_value, ResourceCrud, VenScopedCrud},
     error::AppError,
     jwt::User,
 };
@@ -11,6 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::{Resource, ResourceContent, ResourceId},
+    target::TargetEntry,
     ven::VenId,
 };
 use sqlx::PgPool;
@@ -82,7 +80,7 @@ impl TryFrom<PostgresResource> for Resource {
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
     resource_name: Option<&'a str>,
-    targets: Option<PgTargetsFilter<'a>>,
+    targets: Option<TargetEntry>,
     skip: i64,
     limit: i64,
 }
@@ -95,14 +93,7 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
             limit: query.limit,
             ..Default::default()
         };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = Some(PgTargetsFilter {
-                    label: label.as_str(),
-                    value: values.clone(),
-                })
-            }
-        };
+        filter.targets = query.targets.clone().into();
 
         filter
     }
@@ -189,7 +180,7 @@ impl VenScopedCrud for PgResourceStorage {
         let pg_filter: PostgresFilter = filter.into();
         trace!(?pg_filter);
 
-        let target_values = pg_filter.targets.as_ref().map(|t| t.value.clone());
+        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
 
         let res = sqlx::query_as!(
             PostgresResource,
@@ -222,7 +213,7 @@ impl VenScopedCrud for PgResourceStorage {
             "#,
             ven_id.as_str(),
             pg_filter.resource_name,
-            pg_filter.targets.as_ref().map(|t| t.label),
+            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             pg_filter.skip,
             pg_filter.limit,
@@ -357,7 +348,7 @@ impl PgResourceStorage {
 #[cfg(feature = "live-db-test")]
 mod test {
     use crate::{
-        api::resource::QueryParams,
+        api::{resource::QueryParams, TargetQueryParams},
         data_source::{postgres::resource::PgResourceStorage, VenScopedCrud},
         jwt::{AuthRole, User},
     };
@@ -367,8 +358,10 @@ mod test {
         fn default() -> Self {
             Self {
                 resource_name: None,
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }

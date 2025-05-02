@@ -1,7 +1,7 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{extract_business_id, extract_vens, to_json_value, PgTargetsFilter},
+        postgres::{extract_business_id, extract_vens, to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     program::{ProgramContent, ProgramId},
+    target::TargetEntry,
     Program,
 };
 use sqlx::PgPool;
@@ -121,28 +122,21 @@ impl TryFrom<PostgresProgram> for Program {
 }
 
 #[derive(Debug, Default)]
-struct PostgresFilter<'a> {
-    targets: Option<PgTargetsFilter<'a>>,
+struct PostgresFilter {
+    targets: Option<TargetEntry>,
 
     skip: i64,
     limit: i64,
 }
 
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
+impl From<&QueryParams> for PostgresFilter {
+    fn from(query: &QueryParams) -> Self {
         let mut filter = Self {
             skip: query.skip,
             limit: query.limit,
             ..Default::default()
         };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = Some(PgTargetsFilter {
-                    label: label.as_str(),
-                    value: values.clone(),
-                })
-            }
-        };
+        filter.targets = query.targets.clone().into();
 
         filter
     }
@@ -293,7 +287,7 @@ impl Crud for PgProgramStorage {
         let pg_filter: PostgresFilter = filter.into();
         trace!(?pg_filter);
 
-        let target_values = pg_filter.targets.as_ref().map(|t| t.value.clone());
+        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -338,7 +332,7 @@ impl Crud for PgProgramStorage {
             ORDER BY p.created_date_time DESC
             OFFSET $6 LIMIT $7
             "#,
-            pg_filter.targets.as_ref().map(|t| t.label),
+            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
@@ -495,7 +489,7 @@ impl Crud for PgProgramStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::program::QueryParams,
+        api::{program::QueryParams, TargetQueryParams},
         data_source::{postgres::program::PgProgramStorage, Crud},
         error::AppError,
         jwt::{Claims, User},
@@ -512,8 +506,10 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }
@@ -665,8 +661,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -678,8 +676,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["not-existent".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["not-existent".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -698,8 +698,10 @@ mod tests {
                     &QueryParams {
                         // The target type and target value are both in the program, but not in the same target, i.e.,
                         // there exists a target type group with some value and another target type with the value 'private value'
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["private value".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["private value".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -716,8 +718,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string(), "group-2".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string(), "group-2".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -729,11 +733,13 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec![
-                            "group-1".to_string(),
-                            "group-not-existent".to_string(),
-                        ]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec![
+                                "group-1".to_string(),
+                                "group-not-existent".to_string(),
+                            ]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -745,8 +751,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-2".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-2".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -758,8 +766,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

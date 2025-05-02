@@ -114,14 +114,6 @@ fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>
         .transpose()
 }
 
-#[derive(Serialize, Debug)]
-struct PgTargetsFilter<'a> {
-    #[serde(rename = "type")]
-    label: &'a str,
-    #[serde(rename = "values")]
-    value: Vec<String>,
-}
-
 #[tracing::instrument(level = "trace")]
 fn extract_vens(targets: Option<TargetMap>) -> (Option<TargetMap>, Option<Vec<String>>) {
     if let Some(TargetMap(targets)) = targets {

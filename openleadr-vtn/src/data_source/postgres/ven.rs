@@ -1,7 +1,7 @@
 use crate::{
     api::ven::QueryParams,
     data_source::{
-        postgres::{resource::PgResourceStorage, to_json_value, PgTargetsFilter},
+        postgres::{resource::PgResourceStorage, to_json_value},
         Crud, VenCrud, VenPermissions,
     },
     error::AppError,
@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::Resource,
+    target::TargetEntry,
     ven::{Ven, VenContent, VenId},
 };
 use sqlx::PgPool;
@@ -77,7 +78,7 @@ impl PostgresVen {
 #[derive(Debug, Default)]
 struct PostgresFilter<'a> {
     ven_name: Option<&'a str>,
-    targets: Option<PgTargetsFilter<'a>>,
+    targets: Option<TargetEntry>,
     skip: i64,
     limit: i64,
 }
@@ -90,14 +91,7 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
             limit: query.limit,
             ..Default::default()
         };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = Some(PgTargetsFilter {
-                    label: label.as_str(),
-                    value: values.clone(),
-                })
-            }
-        };
+        filter.targets = query.targets.clone().into();
 
         filter
     }
@@ -187,7 +181,7 @@ impl Crud for PgVenStorage {
         trace!(?pg_filter);
 
         let ids = permissions.as_value();
-        let target_values = pg_filter.targets.as_ref().map(|t| t.value.clone());
+        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
 
         let pg_vens: Vec<PostgresVen> = sqlx::query_as!(
             PostgresVen,
@@ -219,7 +213,7 @@ impl Crud for PgVenStorage {
             OFFSET $5 LIMIT $6
             "#,
             pg_filter.ven_name,
-            pg_filter.targets.as_ref().map(|t| t.label),
+            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             ids.as_deref(),
             pg_filter.skip,
@@ -332,7 +326,7 @@ impl Crud for PgVenStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::ven::QueryParams,
+        api::{ven::QueryParams, TargetQueryParams},
         data_source::{postgres::ven::PgVenStorage, Crud},
         error::AppError,
     };
@@ -346,8 +340,10 @@ mod tests {
         fn default() -> Self {
             Self {
                 ven_name: None,
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }
@@ -455,8 +451,10 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,
@@ -468,8 +466,10 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["not-existent".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["not-existent".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,

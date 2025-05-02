@@ -1,7 +1,7 @@
 use crate::{
     api::event::QueryParams,
     data_source::{
-        postgres::{extract_business_ids, to_json_value, PgTargetsFilter},
+        postgres::{extract_business_ids, to_json_value},
         Crud, EventCrud,
     },
     error::AppError,
@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     event::{EventContent, EventId, Priority},
+    target::TargetEntry,
     Event,
 };
 use sqlx::PgPool;
@@ -117,7 +118,7 @@ impl TryFrom<PostgresEvent> for Event {
 #[derive(Default, Debug)]
 struct PostgresFilter<'a> {
     program_id: Option<&'a str>,
-    targets: Option<PgTargetsFilter<'a>>,
+    targets: Option<TargetEntry>,
 
     skip: i64,
     limit: i64,
@@ -131,14 +132,7 @@ impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
             limit: query.limit,
             ..Default::default()
         };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = Some(PgTargetsFilter {
-                    label: label.as_str(),
-                    value: values.clone(),
-                })
-            }
-        };
+        filter.targets = query.targets.clone().into();
 
         filter
     }
@@ -259,7 +253,7 @@ impl Crud for PgEventStorage {
             BusinessIds::Specific(ids) => Some(ids),
             BusinessIds::Any => None,
         };
-        let target_values = pg_filter.targets.as_ref().map(|t| t.value.clone());
+        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -291,7 +285,7 @@ impl Crud for PgEventStorage {
             OFFSET $8 LIMIT $9
             "#,
             pg_filter.program_id,
-            pg_filter.targets.as_ref().map(|t| t.label),
+            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
@@ -391,7 +385,7 @@ mod tests {
     use sqlx::PgPool;
 
     use crate::{
-        api::event::QueryParams,
+        api::{event::QueryParams, TargetQueryParams},
         data_source::{postgres::event::PgEventStorage, Crud},
         error::AppError,
         jwt::{Claims, User},
@@ -409,8 +403,10 @@ mod tests {
         fn default() -> Self {
             Self {
                 program_id: None,
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }
@@ -566,8 +562,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -580,8 +578,10 @@ mod tests {
             let mut events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Private("SOME_TARGET".to_string())),
-                        target_values: Some(vec!["target-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Private("SOME_TARGET".to_string())),
+                            values: Some(vec!["target-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -595,8 +595,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["not-existent".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["not-existent".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -608,8 +610,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Private("NOT_EXISTENT".to_string())),
-                        target_values: Some(vec!["target-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Private("NOT_EXISTENT".to_string())),
+                            values: Some(vec!["target-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -621,8 +625,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["target-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["target-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -639,8 +645,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["private value".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["private value".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -671,7 +679,10 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         program_id: Some("program-1".parse().unwrap()),
-                        target_type: Some(TargetType::Group),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: None,
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

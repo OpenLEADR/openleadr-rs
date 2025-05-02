@@ -7,17 +7,16 @@ use axum::{
 };
 use serde::Deserialize;
 use tracing::{info, trace};
-use validator::{Validate, ValidationError};
+use validator::Validate;
 
 use openleadr_wire::{
     event::{EventContent, EventId},
     program::ProgramId,
-    target::TargetType,
     Event,
 };
 
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::EventCrud,
     error::AppError,
     jwt::{BusinessUser, User},
@@ -83,13 +82,13 @@ pub async fn delete(
 }
 
 #[derive(Deserialize, Validate, Debug)]
-#[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
     #[serde(rename = "programID")]
     pub(crate) program_id: Option<ProgramId>,
-    pub(crate) target_type: Option<TargetType>,
-    pub(crate) target_values: Option<Vec<String>>,
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
@@ -97,14 +96,6 @@ pub struct QueryParams {
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
-}
-
-fn validate_target_type_value_pair(query: &QueryParams) -> Result<(), ValidationError> {
-    if query.target_type.is_some() == query.target_values.is_some() {
-        Ok(())
-    } else {
-        Err(ValidationError::new("targetType and targetValues query parameter must either both be set or not set at the same time."))
-    }
 }
 
 fn get_50() -> i64 {
@@ -131,7 +122,7 @@ mod test {
     use openleadr_wire::{
         event::{EventInterval, EventPayloadDescriptor, EventType, EventValuesMap, Priority},
         problem::Problem,
-        target::{TargetEntry, TargetMap},
+        target::{TargetEntry, TargetMap, TargetType},
         values_map::Value,
     };
     use reqwest::Method;
