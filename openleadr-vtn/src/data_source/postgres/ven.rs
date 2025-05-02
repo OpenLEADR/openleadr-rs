@@ -75,28 +75,6 @@ impl PostgresVen {
     }
 }
 
-#[derive(Debug, Default)]
-struct PostgresFilter<'a> {
-    ven_name: Option<&'a str>,
-    targets: Option<TargetEntry>,
-    skip: i64,
-    limit: i64,
-}
-
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
-        let mut filter = Self {
-            ven_name: query.ven_name.as_deref(),
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        filter.targets = query.targets.clone().into();
-
-        filter
-    }
-}
-
 #[async_trait]
 impl Crud for PgVenStorage {
     type Type = Ven;
@@ -177,11 +155,10 @@ impl Crud for PgVenStorage {
         filter: &Self::Filter,
         permissions: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
-
         let ids = permissions.as_value();
-        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
+
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         let pg_vens: Vec<PostgresVen> = sqlx::query_as!(
             PostgresVen,
@@ -212,12 +189,12 @@ impl Crud for PgVenStorage {
             ORDER BY v.created_date_time DESC
             OFFSET $5 LIMIT $6
             "#,
-            pg_filter.ven_name,
-            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
+            filter.ven_name,
+            target.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             ids.as_deref(),
-            pg_filter.skip,
-            pg_filter.limit,
+            filter.skip,
+            filter.limit,
         )
         .fetch_all(&self.db)
         .await?;

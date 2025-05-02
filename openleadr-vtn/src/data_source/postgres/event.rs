@@ -16,7 +16,7 @@ use openleadr_wire::{
 };
 use sqlx::PgPool;
 use std::str::FromStr;
-use tracing::{error, trace};
+use tracing::error;
 
 #[async_trait]
 impl EventCrud for PgEventStorage {}
@@ -115,43 +115,15 @@ impl TryFrom<PostgresEvent> for Event {
     }
 }
 
-#[derive(Default, Debug)]
-struct PostgresFilter<'a> {
-    program_id: Option<&'a str>,
-    targets: Option<TargetEntry>,
-
-    skip: i64,
-    limit: i64,
-}
-
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
-        let mut filter = Self {
-            program_id: query.program_id.as_ref().map(|id| id.as_str()),
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        filter.targets = query.targets.clone().into();
-
-        filter
-    }
-}
-
-struct MaybePgId {
-    id: Option<String>,
-}
-
 async fn check_write_permission(
     program_id: &str,
     user: &Claims,
     db: &PgPool,
 ) -> Result<(), AppError> {
     if let Some(business_ids) = extract_business_ids(user) {
-        let MaybePgId { id } = sqlx::query_as!(
-            MaybePgId,
+        let db_business_id = sqlx::query_scalar!(
             r#"
-            SELECT business_id AS id FROM program WHERE id = $1
+            SELECT business_id FROM program WHERE id = $1
             "#,
             program_id
         )
@@ -159,7 +131,7 @@ async fn check_write_permission(
         .await?;
 
         // If no business is connected, anyone may write
-        if let Some(id) = id {
+        if let Some(id) = db_business_id {
             if !business_ids.contains(&id) {
                 Err(AppError::Auth("You do not have write permissions for events belonging to a program that belongs to another business logic".to_string()))?;
             }
@@ -246,14 +218,13 @@ impl Crud for PgEventStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
-
         let business_ids = match user.business_ids() {
             BusinessIds::Specific(ids) => Some(ids),
             BusinessIds::Any => None,
         };
-        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
+
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -284,15 +255,15 @@ impl Crud for PgEventStorage {
             ORDER BY priority ASC , created_date_time DESC
             OFFSET $8 LIMIT $9
             "#,
-            pg_filter.program_id,
-            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
+            filter.program_id.as_ref().map(|id| id.as_str()),
+            target.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
             user.is_business(),
             business_ids.as_deref(),
-            pg_filter.skip,
-            pg_filter.limit
+            filter.skip,
+            filter.limit
         )
         .fetch_all(&self.db)
         .await?

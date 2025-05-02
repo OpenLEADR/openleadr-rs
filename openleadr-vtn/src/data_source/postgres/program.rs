@@ -15,7 +15,7 @@ use openleadr_wire::{
     Program,
 };
 use sqlx::PgPool;
-use tracing::{error, trace};
+use tracing::error;
 
 #[async_trait]
 impl ProgramCrud for PgProgramStorage {}
@@ -118,27 +118,6 @@ impl TryFrom<PostgresProgram> for Program {
                 targets,
             },
         })
-    }
-}
-
-#[derive(Debug, Default)]
-struct PostgresFilter {
-    targets: Option<TargetEntry>,
-
-    skip: i64,
-    limit: i64,
-}
-
-impl From<&QueryParams> for PostgresFilter {
-    fn from(query: &QueryParams) -> Self {
-        let mut filter = Self {
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        filter.targets = query.targets.clone().into();
-
-        filter
     }
 }
 
@@ -284,10 +263,8 @@ impl Crud for PgProgramStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
-
-        let target_values = pg_filter.targets.as_ref().map(|t| t.values.clone());
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -332,13 +309,13 @@ impl Crud for PgProgramStorage {
             ORDER BY p.created_date_time DESC
             OFFSET $6 LIMIT $7
             "#,
-            pg_filter.targets.as_ref().map(|t| t.label.as_str()),
+            target.as_ref().map(|t| t.label.as_str()),
             target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
             user.is_business(),
-            pg_filter.skip,
-            pg_filter.limit,
+            filter.skip,
+            filter.limit,
         )
         .fetch_all(&self.db)
         .await?
