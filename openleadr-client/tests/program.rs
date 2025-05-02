@@ -155,7 +155,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         program_name: "program2".to_string(),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 2".to_string()],
+            values: vec!["Group 2".to_string()],
         }])),
         ..default_content()
     };
@@ -163,12 +163,20 @@ async fn retrieve_all_with_filter(db: PgPool) {
         program_name: "program3".to_string(),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 1".to_string()],
+            values: vec!["Group 1".to_string()],
+        }])),
+        ..default_content()
+    };
+    let program4 = ProgramContent {
+        program_name: "program4".to_string(),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetType::Group,
+            values: vec!["Group 1".to_string(), "Group 3".to_string()],
         }])),
         ..default_content()
     };
 
-    for content in [program1, program2, program3] {
+    for content in [program1, program2, program3, program4] {
         let _ = client.create_program(content).await.unwrap();
     }
 
@@ -176,14 +184,14 @@ async fn retrieve_all_with_filter(db: PgPool) {
         .get_programs(Filter::none(), PaginationOptions { skip: 0, limit: 50 })
         .await
         .unwrap();
-    assert_eq!(programs.len(), 3);
+    assert_eq!(programs.len(), 4);
 
     // skip
     let programs = client
         .get_programs(Filter::none(), PaginationOptions { skip: 1, limit: 50 })
         .await
         .unwrap();
-    assert_eq!(programs.len(), 2);
+    assert_eq!(programs.len(), 3);
 
     // limit
     let programs = client
@@ -241,11 +249,47 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
+    assert_eq!(programs.len(), 3);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetType::Group, &["Group 1", "Group 3"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
     assert_eq!(programs.len(), 2);
 
     let programs = client
         .get_programs(
+            Filter::By(TargetType::Group, &["Group 2", "Group 3"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 2);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetType::Group, &["Group 3"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 1);
+
+    let programs = client
+        .get_programs(
             Filter::By(TargetType::Group, &["Group 1"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(programs.len(), 2);
+
+    let programs = client
+        .get_programs(
+            Filter::By(TargetType::Group, &["Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

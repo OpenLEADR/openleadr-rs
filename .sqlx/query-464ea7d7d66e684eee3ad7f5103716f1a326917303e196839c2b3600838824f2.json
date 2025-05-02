@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT business_id AS id FROM program WHERE id = $1\n            ",
+  "query": "\n            SELECT business_id FROM program WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "business_id",
         "type_info": "Text"
       }
     ],
@@ -18,5 +18,5 @@
       true
     ]
   },
-  "hash": "810c2ed4b2eac78871162f95b5763eebde9e724c67f3d3333a6abd21437e5bb3"
+  "hash": "464ea7d7d66e684eee3ad7f5103716f1a326917303e196839c2b3600838824f2"
 }

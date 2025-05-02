@@ -1,9 +1,6 @@
 use crate::{
     api::resource::QueryParams,
-    data_source::{
-        postgres::{to_json_value, PgTargetsFilter},
-        ResourceCrud, VenScopedCrud,
-    },
+    data_source::{postgres::to_json_value, ResourceCrud, VenScopedCrud},
     error::AppError,
     jwt::User,
 };
@@ -11,6 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::{Resource, ResourceContent, ResourceId},
+    target::TargetEntry,
     ven::VenId,
 };
 use sqlx::PgPool;
@@ -76,38 +74,6 @@ impl TryFrom<PostgresResource> for Resource {
                 targets,
             },
         })
-    }
-}
-
-#[derive(Debug, Default)]
-struct PostgresFilter<'a> {
-    resource_name: Option<&'a str>,
-    targets: Vec<PgTargetsFilter<'a>>,
-    skip: i64,
-    limit: i64,
-}
-
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
-        let mut filter = Self {
-            resource_name: query.resource_name.as_deref(),
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = values
-                    .iter()
-                    .map(|value| PgTargetsFilter {
-                        label: label.as_str(),
-                        value: [value.clone()],
-                    })
-                    .collect()
-            }
-        };
-
-        filter
     }
 }
 
@@ -189,8 +155,8 @@ impl VenScopedCrud for PgResourceStorage {
         filter: &Self::Filter,
         _user: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         let res = sqlx::query_as!(
             PostgresResource,
@@ -205,21 +171,28 @@ impl VenScopedCrud for PgResourceStorage {
                 r.targets
             FROM resource r
               LEFT JOIN LATERAL ( 
-                  SELECT r.id as r_id, 
-                         json_array(jsonb_array_elements(r.targets)) <@ $3::jsonb AS target_test )
+                  
+                    SELECT targets.r_id,
+                           (t ->> 'type' = $3) AND
+                           (t -> 'values' ?| $4) AS target_test
+                    FROM (SELECT resource.id                            AS r_id,
+                                 jsonb_array_elements(resource.targets) AS t
+                          FROM resource) AS targets
+                  
+                   )
                   ON r.id = r_id
             WHERE r.ven_id = $1
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3::jsonb = '[]'::jsonb OR target_test)
+                AND ($3 IS NULL OR $4 IS NULL OR target_test)
             ORDER BY r.created_date_time
-            OFFSET $4 LIMIT $5
+            OFFSET $5 LIMIT $6
             "#,
             ven_id.as_str(),
-            pg_filter.resource_name,
-            serde_json::to_value(pg_filter.targets)
-                .map_err(AppError::SerdeJsonInternalServerError)?,
-            pg_filter.skip,
-            pg_filter.limit,
+            filter.resource_name,
+            target.as_ref().map(|t| t.label.as_str()),
+            target_values.as_deref(),
+            filter.skip,
+            filter.limit,
         )
         .fetch_all(&self.db)
         .await?
@@ -351,7 +324,7 @@ impl PgResourceStorage {
 #[cfg(feature = "live-db-test")]
 mod test {
     use crate::{
-        api::resource::QueryParams,
+        api::{resource::QueryParams, TargetQueryParams},
         data_source::{postgres::resource::PgResourceStorage, VenScopedCrud},
         jwt::{AuthRole, User},
     };
@@ -361,8 +334,10 @@ mod test {
         fn default() -> Self {
             Self {
                 resource_name: None,
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }

@@ -1,7 +1,7 @@
 use crate::{
     api::event::QueryParams,
     data_source::{
-        postgres::{extract_business_ids, to_json_value, PgTargetsFilter},
+        postgres::{extract_business_ids, to_json_value},
         Crud, EventCrud,
     },
     error::AppError,
@@ -11,11 +11,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     event::{EventContent, EventId, Priority},
+    target::TargetEntry,
     Event,
 };
 use sqlx::PgPool;
 use std::str::FromStr;
-use tracing::{error, trace};
+use tracing::error;
 
 #[async_trait]
 impl EventCrud for PgEventStorage {}
@@ -114,53 +115,15 @@ impl TryFrom<PostgresEvent> for Event {
     }
 }
 
-#[derive(Default, Debug)]
-struct PostgresFilter<'a> {
-    program_id: Option<&'a str>,
-    targets: Vec<PgTargetsFilter<'a>>,
-
-    skip: i64,
-    limit: i64,
-}
-
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
-        let mut filter = Self {
-            program_id: query.program_id.as_ref().map(|id| id.as_str()),
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = values
-                    .iter()
-                    .map(|value| PgTargetsFilter {
-                        label: label.as_str(),
-                        value: [value.clone()],
-                    })
-                    .collect()
-            }
-        };
-
-        filter
-    }
-}
-
-struct MaybePgId {
-    id: Option<String>,
-}
-
 async fn check_write_permission(
     program_id: &str,
     user: &Claims,
     db: &PgPool,
 ) -> Result<(), AppError> {
     if let Some(business_ids) = extract_business_ids(user) {
-        let MaybePgId { id } = sqlx::query_as!(
-            MaybePgId,
+        let db_business_id = sqlx::query_scalar!(
             r#"
-            SELECT business_id AS id FROM program WHERE id = $1
+            SELECT business_id FROM program WHERE id = $1
             "#,
             program_id
         )
@@ -168,7 +131,7 @@ async fn check_write_permission(
         .await?;
 
         // If no business is connected, anyone may write
-        if let Some(id) = id {
+        if let Some(id) = db_business_id {
             if !business_ids.contains(&id) {
                 Err(AppError::Auth("You do not have write permissions for events belonging to a program that belongs to another business logic".to_string()))?;
             }
@@ -255,13 +218,13 @@ impl Crud for PgEventStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
-
         let business_ids = match user.business_ids() {
             BusinessIds::Specific(ids) => Some(ids),
             BusinessIds::Any => None,
         };
+
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -271,29 +234,36 @@ impl Crud for PgEventStorage {
               JOIN program p on p.id = e.program_id
               LEFT JOIN ven_program vp ON p.id = vp.program_id
               LEFT JOIN LATERAL (
-                  SELECT e.id as e_id, 
-                         json_array(jsonb_array_elements(e.targets)) <@ $2::jsonb AS target_test )
+                  
+                    SELECT targets.e_id,
+                           (t ->> 'type' = $2) AND
+                           (t -> 'values' ?| $3) AS target_test
+                    FROM (SELECT event.id                            AS e_id,
+                                 jsonb_array_elements(event.targets) AS t
+                          FROM event) AS targets
+                  
+                  )
                   ON e.id = e_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND ($2::jsonb = '[]'::jsonb OR target_test)
+              AND ($2 IS NULL OR $3 IS NULL OR target_test)
               AND (
-                  ($3 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($4)))
+                  ($4 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($5)))
                   OR 
-                  ($5 AND ($6::text[] IS NULL OR p.business_id = ANY ($6)))
+                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
                   )
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC
-            OFFSET $7 LIMIT $8
+            OFFSET $8 LIMIT $9
             "#,
-            pg_filter.program_id,
-            serde_json::to_value(pg_filter.targets)
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            filter.program_id.as_ref().map(|id| id.as_str()),
+            target.as_ref().map(|t| t.label.as_str()),
+            target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
             user.is_business(),
             business_ids.as_deref(),
-            pg_filter.skip,
-            pg_filter.limit
+            filter.skip,
+            filter.limit
         )
         .fetch_all(&self.db)
         .await?
@@ -386,7 +356,7 @@ mod tests {
     use sqlx::PgPool;
 
     use crate::{
-        api::event::QueryParams,
+        api::{event::QueryParams, TargetQueryParams},
         data_source::{postgres::event::PgEventStorage, Crud},
         error::AppError,
         jwt::{Claims, User},
@@ -404,8 +374,10 @@ mod tests {
         fn default() -> Self {
             Self {
                 program_id: None,
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }
@@ -424,11 +396,11 @@ mod tests {
                 targets: Some(TargetMap(vec![
                     TargetEntry {
                         label: TargetType::Group,
-                        values: ["group-1".to_string()],
+                        values: vec!["group-1".to_string()],
                     },
                     TargetEntry {
                         label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: ["private value".to_string()],
+                        values: vec!["private value".to_string()],
                     },
                 ])),
                 report_descriptors: None,
@@ -465,7 +437,7 @@ mod tests {
                 priority: None.into(),
                 targets: Some(TargetMap(vec![TargetEntry {
                     label: TargetType::Private("SOME_TARGET".to_string()),
-                    values: ["target-1".to_string()],
+                    values: vec!["target-1".to_string()],
                 }])),
                 report_descriptors: None,
                 payload_descriptors: None,
@@ -561,8 +533,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -575,8 +549,10 @@ mod tests {
             let mut events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Private("SOME_TARGET".to_string())),
-                        target_values: Some(vec!["target-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Private("SOME_TARGET".to_string())),
+                            values: Some(vec!["target-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -590,8 +566,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["not-existent".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["not-existent".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -603,8 +581,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Private("NOT_EXISTENT".to_string())),
-                        target_values: Some(vec!["target-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Private("NOT_EXISTENT".to_string())),
+                            values: Some(vec!["target-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -616,8 +596,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["target-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["target-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -634,8 +616,10 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["private value".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["private value".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -666,7 +650,10 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         program_id: Some("program-1".parse().unwrap()),
-                        target_type: Some(TargetType::Group),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: None,
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

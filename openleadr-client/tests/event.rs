@@ -163,7 +163,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         event_name: Some("event2".to_string()),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 2".to_string()],
+            values: vec!["Group 2".to_string()],
         }])),
         ..default_content(client.id())
     };
@@ -172,12 +172,21 @@ async fn retrieve_all_with_filter(db: PgPool) {
         event_name: Some("event3".to_string()),
         targets: Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["Group 1".to_string()],
+            values: vec!["Group 1".to_string()],
+        }])),
+        ..default_content(client.id())
+    };
+    let event4 = EventContent {
+        program_id: client.id().clone(),
+        event_name: Some("event4".to_string()),
+        targets: Some(TargetMap(vec![TargetEntry {
+            label: TargetType::Group,
+            values: vec!["Group 1".to_string(), "Group 3".to_string()],
         }])),
         ..default_content(client.id())
     };
 
-    for content in [event1, event2, event3] {
+    for content in [event1, event2, event3, event4] {
         let _ = client.create_event(content).await.unwrap();
     }
 
@@ -185,14 +194,14 @@ async fn retrieve_all_with_filter(db: PgPool) {
         .get_events_request(Filter::none(), PaginationOptions { skip: 0, limit: 50 })
         .await
         .unwrap();
-    assert_eq!(events.len(), 3);
+    assert_eq!(events.len(), 4);
 
     // skip
     let events = client
         .get_events_request(Filter::none(), PaginationOptions { skip: 1, limit: 50 })
         .await
         .unwrap();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
 
     // limit
     let events = client
@@ -250,11 +259,47 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
+    assert_eq!(events.len(), 3);
+
+    let events = client
+        .get_events_request(
+            Filter::By(TargetType::Group, &["Group 1", "Group 3"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
     assert_eq!(events.len(), 2);
 
     let events = client
         .get_events_request(
+            Filter::By(TargetType::Group, &["Group 2", "Group 3"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 2);
+
+    let events = client
+        .get_events_request(
+            Filter::By(TargetType::Group, &["Group 3"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1);
+
+    let events = client
+        .get_events_request(
             Filter::By(TargetType::Group, &["Group 1"]),
+            PaginationOptions { skip: 0, limit: 50 },
+        )
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 2);
+
+    let events = client
+        .get_events_request(
+            Filter::By(TargetType::Group, &["Group 2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

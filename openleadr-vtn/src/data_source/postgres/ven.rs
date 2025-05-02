@@ -1,7 +1,7 @@
 use crate::{
     api::ven::QueryParams,
     data_source::{
-        postgres::{resource::PgResourceStorage, to_json_value, PgTargetsFilter},
+        postgres::{resource::PgResourceStorage, to_json_value},
         Crud, VenCrud, VenPermissions,
     },
     error::AppError,
@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::Resource,
+    target::TargetEntry,
     ven::{Ven, VenContent, VenId},
 };
 use sqlx::PgPool;
@@ -71,38 +72,6 @@ impl PostgresVen {
             modification_date_time: self.modification_date_time,
             content: VenContent::new(self.ven_name, attributes, targets, resources),
         })
-    }
-}
-
-#[derive(Debug, Default)]
-struct PostgresFilter<'a> {
-    ven_name: Option<&'a str>,
-    targets: Vec<PgTargetsFilter<'a>>,
-    skip: i64,
-    limit: i64,
-}
-
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
-        let mut filter = Self {
-            ven_name: query.ven_name.as_deref(),
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = values
-                    .iter()
-                    .map(|value| PgTargetsFilter {
-                        label: label.as_str(),
-                        value: [value.clone()],
-                    })
-                    .collect()
-            }
-        };
-
-        filter
     }
 }
 
@@ -186,10 +155,10 @@ impl Crud for PgVenStorage {
         filter: &Self::Filter,
         permissions: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
-
         let ids = permissions.as_value();
+
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         let pg_vens: Vec<PostgresVen> = sqlx::query_as!(
             PostgresVen,
@@ -204,21 +173,28 @@ impl Crud for PgVenStorage {
             FROM ven v
               LEFT JOIN resource r ON r.ven_id = v.id
               LEFT JOIN LATERAL (
-                  SELECT v.id as v_id, 
-                         json_array(jsonb_array_elements(v.targets)) <@ $2::jsonb AS target_test )
+                  
+                    SELECT targets.v_id,
+                           (t ->> 'type' = $2) AND
+                           (t -> 'values' ?| $3) AS target_test
+                    FROM (SELECT ven.id                            AS v_id,
+                                 jsonb_array_elements(ven.targets) AS t
+                          FROM ven) AS targets
+                  
+                   )
                   ON v.id = v_id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2::jsonb = '[]'::jsonb OR target_test)
-              AND ($3::text[] IS NULL OR v.id = ANY($3))
+              AND ($2 IS NULL OR $3 IS NULL OR target_test)
+              AND ($4::text[] IS NULL OR v.id = ANY($4))
             ORDER BY v.created_date_time DESC
-            OFFSET $4 LIMIT $5
+            OFFSET $5 LIMIT $6
             "#,
-            pg_filter.ven_name,
-            serde_json::to_value(pg_filter.targets)
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            filter.ven_name,
+            target.as_ref().map(|t| t.label.as_str()),
+            target_values.as_deref(),
             ids.as_deref(),
-            pg_filter.skip,
-            pg_filter.limit,
+            filter.skip,
+            filter.limit,
         )
         .fetch_all(&self.db)
         .await?;
@@ -327,7 +303,7 @@ impl Crud for PgVenStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::ven::QueryParams,
+        api::{ven::QueryParams, TargetQueryParams},
         data_source::{postgres::ven::PgVenStorage, Crud},
         error::AppError,
     };
@@ -341,8 +317,10 @@ mod tests {
         fn default() -> Self {
             Self {
                 ven_name: None,
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }
@@ -360,11 +338,11 @@ mod tests {
                 Some(TargetMap(vec![
                     TargetEntry {
                         label: TargetType::Group,
-                        values: ["group-1".to_string()],
+                        values: vec!["group-1".to_string()],
                     },
                     TargetEntry {
                         label: TargetType::Private("PRIVATE_LABEL".into()),
-                        values: ["private value".to_string()],
+                        values: vec!["private value".to_string()],
                     },
                 ])),
                 None,
@@ -450,8 +428,10 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,
@@ -463,8 +443,10 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["not-existent".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["not-existent".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,

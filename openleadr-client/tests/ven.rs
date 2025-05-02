@@ -60,7 +60,7 @@ async fn crud() {
         }]);
         let updated_targets = Some(TargetMap(vec![TargetEntry {
             label: TargetType::Group,
-            values: ["group-1".to_string()],
+            values: vec!["group-1".to_string()],
         }]));
 
         get_ven.content_mut().ven_name = updated_name.clone();

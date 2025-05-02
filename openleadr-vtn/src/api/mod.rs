@@ -8,9 +8,10 @@ use axum::{
     Form, Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
+use openleadr_wire::target::{TargetEntry, TargetType};
 use reqwest::StatusCode;
-use serde::de::DeserializeOwned;
-use validator::Validate;
+use serde::{de::DeserializeOwned, Deserialize};
+use validator::{Validate, ValidationError};
 
 pub(crate) mod auth;
 pub(crate) mod event;
@@ -31,6 +32,67 @@ pub(crate) struct ValidatedQuery<T>(pub T);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedJson<T>(pub T);
+
+#[derive(Deserialize, Validate, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+#[validate(schema(function = "validate_target_type_value_pair"))]
+pub(crate) struct TargetQueryParams {
+    #[serde(default)]
+    pub(crate) target_type: Option<TargetType>,
+    #[serde(default, deserialize_with = "from_str")]
+    #[serde(rename = "targetValues")]
+    pub(crate) values: Option<Vec<String>>,
+}
+
+fn validate_target_type_value_pair(query: &TargetQueryParams) -> Result<(), ValidationError> {
+    if query.target_type.is_some() == query.values.is_some() {
+        Ok(())
+    } else {
+        Err(ValidationError::new("targetType and targetValues query parameter must either both be set or not set at the same time."))
+    }
+}
+
+fn from_str<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StrOrArray {
+        String(String),
+        Array(Vec<String>),
+    }
+
+    Ok(
+        <Option<StrOrArray> as serde::Deserialize>::deserialize(deserializer)?.and_then(
+            |str_or_array| match str_or_array {
+                StrOrArray::String(s) => {
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(vec![s])
+                    }
+                }
+                StrOrArray::Array(v) => {
+                    if v.is_empty() {
+                        None
+                    } else {
+                        Some(v)
+                    }
+                }
+            },
+        ),
+    )
+}
+
+impl From<TargetQueryParams> for Option<TargetEntry> {
+    fn from(query: TargetQueryParams) -> Self {
+        query
+            .target_type
+            .zip(query.values)
+            .map(|(label, values)| TargetEntry { label, values })
+    }
+}
 
 impl<T, S> FromRequest<S> for ValidatedJson<T>
 where

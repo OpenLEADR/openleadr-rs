@@ -1,7 +1,7 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{extract_business_id, extract_vens, to_json_value, PgTargetsFilter},
+        postgres::{extract_business_id, extract_vens, to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
@@ -11,10 +11,11 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     program::{ProgramContent, ProgramId},
+    target::TargetEntry,
     Program,
 };
 use sqlx::PgPool;
-use tracing::{error, trace};
+use tracing::error;
 
 #[async_trait]
 impl ProgramCrud for PgProgramStorage {}
@@ -117,37 +118,6 @@ impl TryFrom<PostgresProgram> for Program {
                 targets,
             },
         })
-    }
-}
-
-#[derive(Debug, Default)]
-struct PostgresFilter<'a> {
-    targets: Vec<PgTargetsFilter<'a>>,
-
-    skip: i64,
-    limit: i64,
-}
-
-impl<'a> From<&'a QueryParams> for PostgresFilter<'a> {
-    fn from(query: &'a QueryParams) -> Self {
-        let mut filter = Self {
-            skip: query.skip,
-            limit: query.limit,
-            ..Default::default()
-        };
-        if let Some(ref label) = query.target_type {
-            if let Some(values) = query.target_values.as_ref() {
-                filter.targets = values
-                    .iter()
-                    .map(|value| PgTargetsFilter {
-                        label: label.as_str(),
-                        value: [value.clone()],
-                    })
-                    .collect()
-            }
-        };
-
-        filter
     }
 }
 
@@ -293,8 +263,8 @@ impl Crud for PgProgramStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let pg_filter: PostgresFilter = filter.into();
-        trace!(?pg_filter);
+        let target: Option<TargetEntry> = filter.targets.clone().into();
+        let target_values = target.as_ref().map(|t| t.values.clone());
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -319,26 +289,33 @@ impl Crud for PgProgramStorage {
               LEFT JOIN ven_program vp ON p.id = vp.program_id
               LEFT JOIN ven v ON v.id = vp.ven_id
               LEFT JOIN LATERAL (
-                  SELECT p.id as p_id, 
-                         json_array(jsonb_array_elements(p.targets)) <@ $1::jsonb AS target_test )
+
+                  SELECT targets.p_id,
+                           (t ->> 'type' = $1) AND
+                           (t -> 'values' ?| $2) AS target_test
+                    FROM (SELECT program.id                            AS p_id,
+                                 jsonb_array_elements(program.targets) AS t
+                          FROM program) AS targets
+                  
+                  )
                   ON p.id = p_id
-            WHERE ($1::jsonb = '[]'::jsonb OR target_test)
+            WHERE ($1 IS NULL OR $2 IS NULL OR target_test)
               AND (
-                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
+                  ($3 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($4)))
                   OR
-                  ($4)
+                  ($5)
                   )
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $5 LIMIT $6
+            OFFSET $6 LIMIT $7
             "#,
-            serde_json::to_value(pg_filter.targets)
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            target.as_ref().map(|t| t.label.as_str()),
+            target_values.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
             user.is_business(),
-            pg_filter.skip,
-            pg_filter.limit,
+            filter.skip,
+            filter.limit,
         )
         .fetch_all(&self.db)
         .await?
@@ -489,7 +466,7 @@ impl Crud for PgProgramStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::program::QueryParams,
+        api::{program::QueryParams, TargetQueryParams},
         data_source::{postgres::program::PgProgramStorage, Crud},
         error::AppError,
         jwt::{Claims, User},
@@ -506,8 +483,10 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                target_type: None,
-                target_values: None,
+                targets: TargetQueryParams {
+                    target_type: None,
+                    values: None,
+                },
                 skip: 0,
                 limit: 50,
             }
@@ -542,11 +521,11 @@ mod tests {
                 targets: Some(TargetMap(vec![
                     TargetEntry {
                         label: TargetType::Group,
-                        values: ["group-1".to_string()],
+                        values: vec!["group-1".to_string()],
                     },
                     TargetEntry {
                         label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: ["private value".to_string()],
+                        values: vec!["private value".to_string()],
                     },
                 ])),
             },
@@ -572,7 +551,10 @@ mod tests {
                 binding_events: None,
                 local_price: None,
                 payload_descriptors: None,
-                targets: None,
+                targets: Some(TargetMap(vec![TargetEntry {
+                    label: TargetType::Group,
+                    values: vec!["group-1".to_string(), "group-2".to_string()],
+                }])),
             },
         }
     }
@@ -582,6 +564,7 @@ mod tests {
             id: "program-3".parse().unwrap(),
             content: ProgramContent {
                 program_name: "program-3".to_string(),
+                targets: None,
                 ..program_2().content
             },
             ..program_2()
@@ -655,21 +638,25 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["group-1".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
                 )
                 .await
                 .unwrap();
-            assert_eq!(programs.len(), 1);
+            assert_eq!(programs.len(), 2);
 
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["not-existent".to_string()]),
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["not-existent".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -686,8 +673,12 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        target_type: Some(TargetType::Group),
-                        target_values: Some(vec!["private value".to_string()]),
+                        // The target type and target value are both in the program, but not in the same target, i.e.,
+                        // there exists a target type group with some value and another target type with the value 'private value'
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["private value".to_string()]),
+                        },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -695,6 +686,74 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(programs.len(), 0);
+        }
+
+        #[sqlx::test(fixtures("programs"))]
+        async fn filter_multiple_target_values(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string(), "group-2".to_string()]),
+                        },
+                        ..Default::default()
+                    },
+                    &User(Claims::any_business_user()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec![
+                                "group-1".to_string(),
+                                "group-not-existent".to_string(),
+                            ]),
+                        },
+                        ..Default::default()
+                    },
+                    &User(Claims::any_business_user()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-2".to_string()]),
+                        },
+                        ..Default::default()
+                    },
+                    &User(Claims::any_business_user()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 1);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams {
+                            target_type: Some(TargetType::Group),
+                            values: Some(vec!["group-1".to_string()]),
+                        },
+                        ..Default::default()
+                    },
+                    &User(Claims::any_business_user()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
         }
     }
 

@@ -7,20 +7,20 @@ use axum::{
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::{info, trace};
-use validator::{Validate, ValidationError};
+use validator::Validate;
 
 use openleadr_wire::{
     program::{ProgramContent, ProgramId},
-    target::TargetType,
     Program,
 };
 
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::ProgramCrud,
     error::AppError,
     jwt::{BusinessUser, User},
 };
+
 pub async fn get_all(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -82,11 +82,11 @@ pub async fn delete(
 }
 
 #[derive(Deserialize, Validate, Debug)]
-#[validate(schema(function = "validate_target_type_value_pair"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
-    pub(crate) target_type: Option<TargetType>,
-    pub(crate) target_values: Option<Vec<String>>,
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
@@ -94,14 +94,6 @@ pub struct QueryParams {
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
-}
-
-fn validate_target_type_value_pair(query: &QueryParams) -> Result<(), ValidationError> {
-    if query.target_type.is_some() == query.target_values.is_some() {
-        Ok(())
-    } else {
-        Err(ValidationError::new("targetType and targetValues query parameter must either both be set or not set at the same time."))
-    }
 }
 
 fn get_50() -> i64 {
@@ -129,7 +121,7 @@ mod test {
     use http_body_util::BodyExt;
     use openleadr_wire::{
         problem::Problem,
-        target::{TargetEntry, TargetMap},
+        target::{TargetEntry, TargetMap, TargetType},
         Event,
     };
     use sqlx::PgPool;
@@ -380,7 +372,7 @@ mod test {
                     vec![
                         TargetEntry {
                             label: TargetType::Private("".to_string()),
-                            values: ["test".to_string()]
+                            values: vec!["test".to_string()]
                         }
                     ])),
                 ..default_content()
@@ -390,7 +382,7 @@ mod test {
                     vec![
                         TargetEntry {
                             label: TargetType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
-                            values: ["test".to_string()]
+                            values: vec!["test".to_string()]
                         }
                     ])),
                 ..default_content()
@@ -445,7 +437,7 @@ mod test {
             program_name: "program2".to_string(),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Group,
-                values: ["Group 2".to_string()],
+                values: vec!["Group 2".to_string()],
             }])),
             ..default_content()
         };
@@ -453,7 +445,7 @@ mod test {
             program_name: "program3".to_string(),
             targets: Some(TargetMap(vec![TargetEntry {
                 label: TargetType::Group,
-                values: ["Group 1".to_string()],
+                values: vec!["Group 1".to_string()],
             }])),
             ..default_content()
         };
@@ -542,7 +534,7 @@ mod test {
 
     mod permissions {
         use super::*;
-        use openleadr_wire::target::{TargetEntry, TargetMap};
+        use openleadr_wire::target::{TargetEntry, TargetMap, TargetType};
 
         #[sqlx::test(fixtures("users", "business"))]
         async fn business_can_create_program(db: PgPool) {
@@ -613,7 +605,7 @@ mod test {
             let content = ProgramContent {
                 targets: Some(TargetMap(vec![TargetEntry {
                     label: TargetType::VENName,
-                    values: ["ven-1-name".to_string()],
+                    values: vec!["ven-1-name".to_string()],
                 }])),
                 ..default_content()
             };
