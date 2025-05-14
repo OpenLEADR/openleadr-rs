@@ -7,7 +7,7 @@
 
 ![LF energy OpenLEADR logo](../openleadr-logo.svg)
 
-This crate contains an OpenADR VTN implementation.  
+This crate contains an OpenADR VTN implementation.
 
 The following contains information specific to the VTN application, i.e., the server.
 If you are interested in information about the whole project, please visit the [project level Readme](../README.md).
@@ -53,7 +53,7 @@ The VTN implementation does feature an implementation of an OAuth provider inclu
 to allow for an easy setup.
 The OpenADR specification does not require this feature but mentions that there must exist some OAuth provider somewhere.
 Generally, the idea of OAuth is to decouple the authorization from the resource server, here the VTN.
-Therefore, the OAuth provider feature is optional. 
+Therefore, the OAuth provider feature is optional.
 You can either disable it during compile time or runtime.
 
 **During runtime**
