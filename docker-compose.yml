@@ -29,7 +29,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    ports: 
+    ports:
       - ${PG_PORT}:5432
     volumes:
       - database-data:/var/lib/postgresql/data/
