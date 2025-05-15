@@ -97,52 +97,62 @@ impl InitialClaims {
     /// The initial claims can contain alternative roles like ReadAll, WritePrograms, etc.
     /// these are mapped to our internal AuthRoles here.
     fn map_initial_roles(&self) -> Vec<AuthRole> {
-      let i = &self.roles;
-      let mut roles = Vec::new();
+        let i = &self.roles;
+        let mut roles = Vec::new();
 
-      // If read_all && write_vens -> VenManager
-      if i.iter().any(|r| r == &InitialRole::ReadAll) && i.iter().any(|r| r == &InitialRole::WriteVens)  {
-        roles.push(AuthRole::VenManager);
-      }
-
-      // If read_all && write_reports -> Ven("anonymous")
-      if i.iter().any(|r| r == &InitialRole::ReadAll) && i.iter().any(|r| r == &InitialRole::WriteReports)  {
-        roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
-      }
-
-      // If read_all && write_programs && write_events -> AnyBusiness
-      if i.iter().any(|r| r == &InitialRole::ReadAll) && i.iter().any(|r| r == &InitialRole::WritePrograms) && i.iter().any(|r| r == &InitialRole::WriteEvents) {
-        roles.push(AuthRole::AnyBusiness);
-      }
-
-      for role in i {
-        match role {
-
-          // Keep UserManager
-          InitialRole::UserManager => roles.push(AuthRole::UserManager),
-
-          // Keep VenManager, if not given already
-          InitialRole::VenManager => if !roles.iter().any(|r| r == &AuthRole::VenManager) {
+        // If read_all && write_vens -> VenManager
+        if i.iter().any(|r| r == &InitialRole::ReadAll)
+            && i.iter().any(|r| r == &InitialRole::WriteVens)
+        {
             roles.push(AuthRole::VenManager);
-          },
-
-          // Keep AnyBusiness, if not given already
-          InitialRole::AnyBusiness => if !roles.iter().any(|r| r == &AuthRole::AnyBusiness) {
-            roles.push(AuthRole::AnyBusiness);
-          },
-
-          // Keep Business
-          InitialRole::Business(x) => roles.push(AuthRole::Business(x.to_string())),
-
-          // Keep VEN
-          InitialRole::VEN(x) => roles.push(AuthRole::VEN(x.clone())),
-
-          // Other roles should already be processed
-          _ => {}
         }
-      }
 
-      roles
+        // If read_all && write_reports -> Ven("anonymous")
+        if i.iter().any(|r| r == &InitialRole::ReadAll)
+            && i.iter().any(|r| r == &InitialRole::WriteReports)
+        {
+            roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
+        }
+
+        // If read_all && write_programs && write_events -> AnyBusiness
+        if i.iter().any(|r| r == &InitialRole::ReadAll)
+            && i.iter().any(|r| r == &InitialRole::WritePrograms)
+            && i.iter().any(|r| r == &InitialRole::WriteEvents)
+        {
+            roles.push(AuthRole::AnyBusiness);
+        }
+
+        for role in i {
+            match role {
+                // Keep UserManager
+                InitialRole::UserManager => roles.push(AuthRole::UserManager),
+
+                // Keep VenManager, if not given already
+                InitialRole::VenManager => {
+                    if !roles.iter().any(|r| r == &AuthRole::VenManager) {
+                        roles.push(AuthRole::VenManager);
+                    }
+                }
+
+                // Keep AnyBusiness, if not given already
+                InitialRole::AnyBusiness => {
+                    if !roles.iter().any(|r| r == &AuthRole::AnyBusiness) {
+                        roles.push(AuthRole::AnyBusiness);
+                    }
+                }
+
+                // Keep Business
+                InitialRole::Business(x) => roles.push(AuthRole::Business(x.to_string())),
+
+                // Keep VEN
+                InitialRole::VEN(x) => roles.push(AuthRole::VEN(x.clone())),
+
+                // Other roles should already be processed
+                _ => {}
+            }
+        }
+
+        roles
     }
 }
 
