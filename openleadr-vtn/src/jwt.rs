@@ -56,12 +56,107 @@ impl AuthRole {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(PartialOrd, Ord))]
+#[serde(tag = "role", content = "id")]
+enum InitialRole {
+    UserManager,
+    VenManager,
+    Business(String),
+    AnyBusiness,
+    VEN(VenId),
+    #[serde(rename = "read_all")]
+    ReadAll,
+    #[serde(rename = "write_programs")]
+    WritePrograms,
+    #[serde(rename = "write_reports")]
+    WriteReports,
+    #[serde(rename = "write_events")]
+    WriteEvents,
+    #[serde(rename = "write_vens")]
+    WriteVens,
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Claims {
     exp: usize,
     nbf: usize,
     pub(crate) sub: String,
     pub(crate) roles: Vec<AuthRole>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct InitialClaims {
+    exp: usize,
+    nbf: usize,
+    sub: String,
+    roles: Vec<InitialRole>,
+}
+
+impl InitialClaims {
+    /// The initial claims can contain alternative roles like ReadAll, WritePrograms, etc.
+    /// these are mapped to our internal AuthRoles here.
+    fn map_initial_roles(&self) -> Vec<AuthRole> {
+      let i = &self.roles;
+      let mut roles = Vec::new();
+
+      // If read_all && write_vens -> VenManager
+      if i.iter().any(|r| r == &InitialRole::ReadAll) && i.iter().any(|r| r == &InitialRole::WriteVens)  {
+        roles.push(AuthRole::VenManager);
+      }
+
+      // If read_all && write_reports -> Ven("anonymous")
+      if i.iter().any(|r| r == &InitialRole::ReadAll) && i.iter().any(|r| r == &InitialRole::WriteReports)  {
+        roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
+      }
+
+      // If read_all && write_programs && write_events -> AnyBusiness
+      if i.iter().any(|r| r == &InitialRole::ReadAll) && i.iter().any(|r| r == &InitialRole::WritePrograms) && i.iter().any(|r| r == &InitialRole::WriteEvents) {
+        roles.push(AuthRole::AnyBusiness);
+      }
+
+      for role in i {
+        match role {
+
+          // Keep UserManager
+          InitialRole::UserManager => roles.push(AuthRole::UserManager),
+
+          // Keep VenManager, if not given already
+          InitialRole::VenManager => if !roles.iter().any(|r| r == &AuthRole::VenManager) {
+            roles.push(AuthRole::VenManager);
+          },
+
+          // Keep AnyBusiness, if not given already
+          InitialRole::AnyBusiness => if !roles.iter().any(|r| r == &AuthRole::AnyBusiness) {
+            roles.push(AuthRole::AnyBusiness);
+          },
+
+          // Keep Business
+          InitialRole::Business(x) => roles.push(AuthRole::Business(x.to_string())),
+
+          // Keep VEN
+          InitialRole::VEN(x) => roles.push(AuthRole::VEN(x.clone())),
+
+          // Other roles should already be processed
+          _ => {}
+        }
+      }
+
+      roles
+    }
+}
+
+impl TryFrom<InitialClaims> for Claims {
+    type Error = jsonwebtoken::errors::Error;
+
+    fn try_from(initial: InitialClaims) -> Result<Self, Self::Error> {
+        Ok(Claims {
+            roles: initial.map_initial_roles(),
+            exp: initial.exp,
+            nbf: initial.nbf,
+            sub: initial.sub,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -204,10 +299,11 @@ impl JwtManager {
     }
 
     /// Decode and validate a given JWT token, returning the validated claims
+    /// Note that token roles are remapped into our internal roles
     fn decode_and_validate(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-        let token_data =
-            jsonwebtoken::decode::<Claims>(token, &self.decoding_key, &self.validation)?;
-        Ok(token_data.claims)
+        let initial_token =
+            jsonwebtoken::decode::<InitialClaims>(token, &self.decoding_key, &self.validation)?;
+        initial_token.claims.try_into()
     }
 }
 
