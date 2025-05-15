@@ -25,7 +25,7 @@ Additionally, the [client](https://crates.io/crates/openleadr-client), [server](
 and [common data types](https://crates.io/crates/openleadr-wire) are published to crates.io
 and have documentation available on docs.rs.
 As an addition, [#17](https://github.com/OpenLEADR/openleadr-rs/issues/17) aims
-to produce a detailed OpenAPI specification of the VTN API we provide. 
+to produce a detailed OpenAPI specification of the VTN API we provide.
 
 ## Getting started
 
@@ -50,7 +50,7 @@ docker compose up -d    # start all other containers, i.e., the VTN
 Afterward, the VTN should be reachable at `http://localhost:3000`.
 
 For a more detailed guide,
-please refer to the Readmes in the [`./openleadr-client`](./openleadr-client) and 
+please refer to the Readmes in the [`./openleadr-client`](./openleadr-client) and
 [`./openleadr-vtn`](./openleadr-vtn) directories.
 
 ## Supported features
@@ -62,7 +62,7 @@ While we currently do not plan to add this ourselves, we warmly welcome any cont
 See the [Contributing section](#contributing) if you are interested.
 
 At the moment, the VTN implements its own OAuth provider,
-but we plan to allow for a third-party OAuth provider as well, 
+but we plan to allow for a third-party OAuth provider as well,
 see [#26](https://github.com/openLEADR/openleadr-rs/issues/26).
 
 The client and server do support creating, retrieving, updating,
@@ -76,7 +76,7 @@ Again, we warmly welcome contributions or sponsoring if you are interested in ad
 
 The VEN is a library for conveniently interacting with the REST API provided by a VTN.
 We aim for a clean and easy-to-understand API of the library to be used by business or VEN logic.
-Additionally, we will use the library to create a CLI application for easy testing and prototyping, 
+Additionally, we will use the library to create a CLI application for easy testing and prototyping,
 see [#52](https://github.com/OpenLEADR/openleadr-rs/issues/52) for the current progress.
 
 ## Testing
@@ -116,7 +116,7 @@ See also [Supported features](#supported-features).
 ## Contributing
 We expect you to follow our [code of conduct](CODE_OF_CONDUCT.md) for any contribution.
 
-If you are missing a feature or see unexpected behavior, 
+If you are missing a feature or see unexpected behavior,
 do not hesitate to open an issue on our [GitHub](https://github.com/OpenLEADR/openleadr-rs) page.
 If you suspect a security-critical issue, please refer to [`SECURITY.md`](SECURITY.md).
 
@@ -128,7 +128,7 @@ as the [LF energy contribution guidelines](https://tac.lfenergy.org/process/cont
 By doing so, you acknowledge the text in [`CONTRIBUTING`](CONTRIBUTING).
 The easiest way is to add a `-s` flag to the `git commit` command, i.e. use `git commit -s`.
 
-If you are interested in contributing but don't know where to start, 
+If you are interested in contributing but don't know where to start,
 check out issues marked as [good first issue](https://github.com/OpenLEADR/openleadr-rs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 or [help wanted](https://github.com/OpenLEADR/openleadr-rs/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22),
 or simply open an issue and ask for good starting points.
@@ -145,7 +145,7 @@ It is mainly a thin layer to abstract the HTTP interaction with the VTN.
 Thus, if your application is written in another language than Rust,
 it is most likely less work
 to write a small HTTP abstraction layer yourself
-than using a language interoperability layer on top of our client library.  
+than using a language interoperability layer on top of our client library.
 
 ## Help us make an impact: We're seeking funding!
 
