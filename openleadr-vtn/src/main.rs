@@ -29,7 +29,7 @@ async fn main() {
         warn!("Database migration failed: {}", e);
     }
 
-    let state = AppState::new(storage);
+    let state = AppState::new(storage).await;
     if let Err(e) = axum::serve(listener, state.into_router())
         .with_graceful_shutdown(shutdown_signal())
         .await

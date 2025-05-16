@@ -179,7 +179,7 @@ mod test {
             programs.push(p);
         }
 
-        (AppState::new(store), programs)
+        (AppState::new(store).await, programs)
     }
 
     async fn get_help(app: &mut Router, token: &str, id: &str) -> Response<Body> {
@@ -356,7 +356,7 @@ mod test {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let programs = [
             ProgramContent {

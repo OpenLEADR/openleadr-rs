@@ -16,14 +16,18 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use jsonwebtoken::{DecodingKey, EncodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use openleadr_wire::ven::VenId;
 use tracing::trace;
+use crate::state::OAuthKeyType;
+
+use serde::{Serialize, Deserialize};
+use std::env;
 
 pub struct JwtManager {
     #[cfg(feature = "internal-oauth")]
     encoding_key: Option<EncodingKey>,
-    decoding_key: DecodingKey,
+    decoding_key: Option<DecodingKey>,
     validation: Validation,
 }
 
@@ -55,6 +59,70 @@ impl AuthRole {
         matches!(self, AuthRole::VenManager)
     }
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Algorithm")]
+pub enum AlgorithmDef {
+    HS256,
+    HS384,
+    HS512,
+    ES256,
+    ES384,
+    RS256,
+    RS384,
+    RS512,
+    PS256,
+    PS384,
+    PS512,
+    EdDSA,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct RsaKey {
+  kty: OAuthKeyType,
+  #[serde(with = "AlgorithmDef")]
+  alg: Algorithm,
+  n: String,
+  e: String,
+  kid: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct RsaKeys {
+  keys: Vec<RsaKey>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EcKey {
+  kty: OAuthKeyType,
+  #[serde(with = "AlgorithmDef")]
+  alg: Algorithm,
+  x: String,
+  y: String,
+  crv: String,
+  kid: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EcKeys {
+  keys: Vec<EcKey>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EdKey {
+  kty: OAuthKeyType,
+  #[serde(with = "AlgorithmDef")]
+  alg: Algorithm,
+  x: String,
+  crv: String,
+  kid: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EdKeys {
+  keys: Vec<EdKey>,
+}
+
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Claims {
@@ -149,7 +217,7 @@ impl JwtManager {
     /// Create a new JWT manager with a specific encoding and decoding key
     pub fn new(
         encoding_key: Option<EncodingKey>,
-        decoding_key: DecodingKey,
+        decoding_key: Option<DecodingKey>,
         validation: Validation,
     ) -> Self {
         if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
@@ -204,10 +272,89 @@ impl JwtManager {
     }
 
     /// Decode and validate a given JWT token, returning the validated claims
-    fn decode_and_validate(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-        let token_data =
-            jsonwebtoken::decode::<Claims>(token, &self.decoding_key, &self.validation)?;
-        Ok(token_data.claims)
+    async fn decode_and_validate(&self, token: &str) -> Result<Claims, ResponseOAuthError> {
+
+        // Fetch server keys
+        let keys = self.fetch_keys().await;
+
+        // Try multiple keys; if fail then try to fetch new keys
+        if keys.len() < 1 {
+            return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
+                .with_description("No usable keys returned from the OAuth server".to_string())
+                .into());
+        }
+
+        let mut error;
+
+        for decoding_key in keys {
+            let token_data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &self.validation);
+
+            match token_data {
+                Result::Ok(data) => return Ok(data.claims),
+
+                // Ignore and try next key
+                Err(err) => {
+                    println!("ERROR --> {:?}", err);
+                    error = err;
+                }
+            }
+        }
+
+        return Err(OAuthError::new(OAuthErrorType::UnsupportedGrantType)
+            .with_description("No usabe".to_string())
+            .into());
+    }
+
+    /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
+    pub async fn fetch_keys(&self) -> Vec<DecodingKey> {
+
+        let mut keys = Vec::new();
+        let key_type: OAuthKeyType = env::var("OAUTH_KEY_TYPE").ok().map(|k| k.parse().expect("Invalid value for OAUTH_KEY_TYPE environment variable. Allowed are HMAC, RSA, EC, and ED.")).unwrap();
+
+        match key_type {
+            OAuthKeyType::Hmac => {},
+            OAuthKeyType::Rsa => {
+                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
+                let rsa_params = reqwest::get(jwks_location).await.expect("Could not reach OAUTH_JWKS_LOCATION");
+                let rsa_keys: RsaKeys = rsa_params.json().await.expect("Could not parse RSA key from OAUTH_JWKS_LOCATION");
+
+                for key in rsa_keys.keys {
+                  if key.kty == OAuthKeyType::Rsa && self.validation.algorithms.contains(&key.alg) {
+                    keys.push(DecodingKey::from_rsa_components(&key.n, &key.e).expect("Cannot read RSA key"));
+                  }
+                }
+
+                if keys.len() < 1 {
+                  panic!("No usuable keys found at OAUTH_JWKS_LOCATION");
+                }
+            }
+            OAuthKeyType::Ec => {
+                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
+                let ec_params = reqwest::get(jwks_location).await.expect("Could not reach OAUTH_JWKS_LOCATION");
+                let ec_keys: EcKeys = ec_params.json().await.expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
+
+                let mut keys = Vec::new();
+                for key in ec_keys.keys {
+                  if key.kty == OAuthKeyType::Ec && self.validation.algorithms.contains(&key.alg) {
+                    keys.push(DecodingKey::from_ec_components(&key.x, &key.y).expect("Cannot read EC key"));
+                  }
+                }
+            }
+            OAuthKeyType::Ed => {
+                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
+                let ed_params = reqwest::get(jwks_location).await.expect("Could not reach OAUTH_JWKS_LOCATION");
+                let ed_keys: EdKeys = ed_params.json().await.expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
+
+                let mut keys = Vec::new();
+                for key in ed_keys.keys {
+                    if key.kty == OAuthKeyType::Ed && self.validation.algorithms.contains(&key.alg) {
+                        keys.push(DecodingKey::from_ed_components(&key.x).expect("Cannot read Ed key"));
+                    }
+                }
+            }
+        }
+
+        keys
     }
 }
 
@@ -244,7 +391,7 @@ where
 
         let jwt_manager = Arc::<JwtManager>::from_ref(state);
 
-        let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()) else {
+        let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()).await else {
             return Err(AppError::Forbidden("Invalid authentication token provided"));
         };
 

@@ -172,9 +172,9 @@ mod test {
     }
 
     impl ApiTest {
-        pub(crate) fn new(db: PgPool, roles: Vec<AuthRole>) -> Self {
+        pub(crate) async fn new(db: PgPool, roles: Vec<AuthRole>) -> Self {
             let store = PostgresStorage::new(db).unwrap();
-            let app_state = AppState::new(store);
+            let app_state = AppState::new(store).await;
 
             let token = app_state
                 .jwt_manager
@@ -257,7 +257,7 @@ mod test {
 
     pub(crate) async fn state(db: PgPool) -> AppState {
         let store = PostgresStorage::new(db).unwrap();
-        AppState::new(store)
+        AppState::new(store).await
     }
 
     #[sqlx::test]
@@ -265,7 +265,7 @@ mod test {
         let mut test = ApiTest::new(
             db.clone(),
             vec![AuthRole::AnyBusiness, AuthRole::UserManager],
-        );
+        ).await;
 
         let response = (&mut test.router)
             .oneshot(
@@ -293,7 +293,7 @@ mod test {
 
     #[sqlx::test]
     async fn method_not_allowed(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![]);
+        let test = ApiTest::new(db.clone(), vec![]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::DELETE, "/programs", Body::empty())
@@ -304,7 +304,7 @@ mod test {
 
     #[sqlx::test]
     async fn not_found(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
@@ -314,7 +314,7 @@ mod test {
 
     #[sqlx::test]
     async fn healthcheck(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![]);
+        let test = ApiTest::new(db.clone(), vec![]).await;
 
         let status = test.empty_request(Method::GET, "/health").await;
         assert_eq!(status, StatusCode::OK);

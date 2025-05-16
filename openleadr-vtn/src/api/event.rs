@@ -177,7 +177,7 @@ mod test {
             assert_eq!(events[events.len() - 1].content, event)
         }
 
-        (AppState::new(store), events)
+        (AppState::new(store).await, events)
     }
 
     async fn get_help(id: &str, token: &str, app: &mut Router) -> Response<Body> {
@@ -371,7 +371,7 @@ mod test {
             ..default_event_content()
         };
 
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         for event in vec![event1, event2, event3] {
             let (status, _) = test
@@ -480,7 +480,7 @@ mod test {
     #[ignore = "Depends on https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/104"]
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let events = [
             EventContent {
@@ -532,7 +532,7 @@ mod test {
 
     #[sqlx::test(fixtures("programs"))]
     async fn ordered_by_priority(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let events = vec![
             EventContent {
