@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 #[cfg(feature = "internal-oauth")]
-use crate::api::auth::ResponseOAuthError;
-#[cfg(feature = "internal-oauth")]
 use jsonwebtoken::{encode, Header};
-#[cfg(feature = "internal-oauth")]
+
+use crate::api::auth::ResponseOAuthError;
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 
 use crate::{error::AppError, state::OAuthKeyType};
