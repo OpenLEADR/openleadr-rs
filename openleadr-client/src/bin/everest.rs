@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::spawn(async move {
         while let Some(enforced_limits) = output_receiver.recv().await {
-            eprintln!("received by mock everest: {:?}", enforced_limits);
+            eprintln!("received by mock everest: {enforced_limits:?}");
         }
     });
 

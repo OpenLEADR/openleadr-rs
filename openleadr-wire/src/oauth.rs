@@ -9,6 +9,7 @@ pub enum OAuthErrorType {
     UnsupportedGrantType,
     // InvalidScope,
     ServerError,
+    NoAvailableKeys,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

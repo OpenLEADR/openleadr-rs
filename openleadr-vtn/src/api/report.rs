@@ -128,7 +128,7 @@ mod test {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
 
         let reports = [
             ReportContent {

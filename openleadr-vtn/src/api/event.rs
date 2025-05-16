@@ -153,7 +153,7 @@ mod test {
         Request::builder()
             .method(method)
             .uri(format!("/events/{}", event.id))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(&event).unwrap()))
             .unwrap()
@@ -177,15 +177,15 @@ mod test {
             assert_eq!(events[events.len() - 1].content, event)
         }
 
-        (AppState::new(store), events)
+        (AppState::new(store).await, events)
     }
 
     async fn get_help(id: &str, token: &str, app: &mut Router) -> Response<Body> {
         app.oneshot(
             Request::builder()
                 .method(http::Method::GET)
-                .uri(format!("/events/{}", id))
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .uri(format!("/events/{id}"))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -236,7 +236,7 @@ mod test {
 
         let request = Request::builder()
             .method(http::Method::DELETE)
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .uri(format!("/events/{event_id}"))
             .body(Body::empty())
             .unwrap();
@@ -292,7 +292,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::POST)
             .uri("/events")
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(content).unwrap()))
             .unwrap();
@@ -328,7 +328,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::GET)
             .uri(format!("/events?{query_params}"))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::empty())
             .unwrap();
@@ -371,7 +371,7 @@ mod test {
             ..default_event_content()
         };
 
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         for event in vec![event1, event2, event3] {
             let (status, _) = test
@@ -480,7 +480,7 @@ mod test {
     #[ignore = "Depends on https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/104"]
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let events = [
             EventContent {
@@ -532,7 +532,7 @@ mod test {
 
     #[sqlx::test(fixtures("programs"))]
     async fn ordered_by_priority(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]);
+        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let events = vec![
             EventContent {
@@ -623,7 +623,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -638,7 +638,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::from(serde_json::to_vec(&content).unwrap()))
                         .unwrap(),
@@ -654,7 +654,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::from(serde_json::to_vec(&content).unwrap()))
                         .unwrap(),
@@ -670,7 +670,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -840,7 +840,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -854,7 +854,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::from(
                             serde_json::to_vec(&default_event_content()).unwrap(),
