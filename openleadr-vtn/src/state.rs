@@ -25,10 +25,10 @@ use base64::{
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
 use std::{cmp::PartialEq, env, env::VarError, str::FromStr, sync::Arc};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
-use serde::{Serialize,Deserialize};
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -165,42 +165,21 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     validation.algorithms = signing_algorithms_from_key_type(&key_type);
     validation.set_audience(&valid_audiences);
 
-    let key;
-
-    match key_type {
+    let key = match key_type {
         OAuthKeyType::Hmac => {
             let secret = hmac_from_env().expect("OAUTH_BASE64_SECRET environment variable must be set for external OAuth provider with key type HMAC");
-            key = Some(DecodingKey::from_secret(&secret));
-        },
+            Some(DecodingKey::from_secret(&secret))
+        }
         _ => {
             let _location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
-            key = None;
+            None
         }
-    }
+    };
 
-    let manager = JwtManager::new(
-        None,
-        key,
-        validation,
-    );
-
-    /*
-    match key_type {
-        OAuthKeyType::Hmac => {},
-        _ => {
-            let keys = manager.fetch_keys().await;
-            if keys.len() < 1 {
-              panic!("No usuable keys found at OAUTH_JWKS_LOCATION");
-            }
-        }
-    }
-    */
-
-    manager
+    JwtManager::new(None, key, validation)
 }
 
 impl AppState {
-
     pub async fn new<S: DataSource>(storage: S) -> Self {
         let oauth_type: OAuthType = env::var("OAUTH_TYPE")
             .inspect_err(|_|{

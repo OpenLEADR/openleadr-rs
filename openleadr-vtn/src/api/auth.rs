@@ -48,7 +48,7 @@ impl IntoResponse for ResponseOAuthError {
                 (StatusCode::INTERNAL_SERVER_ERROR, Json(self.0)).into_response()
             }
             OAuthErrorType::OAuthNotEnabled => AppError::NotFound.into_response(),
-            _ => (StatusCode::BAD_REQUEST, Json(self.0)).into_response()
+            _ => (StatusCode::BAD_REQUEST, Json(self.0)).into_response(),
         }
     }
 }

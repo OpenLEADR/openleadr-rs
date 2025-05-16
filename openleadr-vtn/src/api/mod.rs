@@ -265,7 +265,8 @@ mod test {
         let mut test = ApiTest::new(
             db.clone(),
             vec![AuthRole::AnyBusiness, AuthRole::UserManager],
-        ).await;
+        )
+        .await;
 
         let response = (&mut test.router)
             .oneshot(
