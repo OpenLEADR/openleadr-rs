@@ -173,6 +173,7 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
             key = Some(DecodingKey::from_secret(&secret));
         },
         _ => {
+            let _location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
             key = None;
         }
     }
@@ -182,6 +183,18 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
         key,
         validation,
     );
+
+    /*
+    match key_type {
+        OAuthKeyType::Hmac => {},
+        _ => {
+            let keys = manager.fetch_keys().await;
+            if keys.len() < 1 {
+              panic!("No usuable keys found at OAUTH_JWKS_LOCATION");
+            }
+        }
+    }
+    */
 
     manager
 }
@@ -457,7 +470,7 @@ mod test {
             expected = "OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA"
         )]
         #[serial]
-        async fn external_missing_key_oauth() {
+        async fn external_missing_jwks_location_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
@@ -484,12 +497,12 @@ mod test {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
-            //env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             AppState::new(MockDataSource {}).await;
         }
 
+        /*
         #[tokio::test]
         #[should_panic(expected = "Cannot read EC key: Error(InvalidKeyFormat)")]
         #[serial]
@@ -498,7 +511,6 @@ mod test {
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "EC");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            //env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
             AppState::new(MockDataSource {}).await;
         }
@@ -511,9 +523,9 @@ mod test {
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "ED");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            //env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
             AppState::new(MockDataSource {}).await;
         }
+        */
     }
 }

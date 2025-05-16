@@ -274,35 +274,52 @@ impl JwtManager {
     /// Decode and validate a given JWT token, returning the validated claims
     async fn decode_and_validate(&self, token: &str) -> Result<Claims, ResponseOAuthError> {
 
-        // Fetch server keys
-        let keys = self.fetch_keys().await;
+        // Validate only the signature
+        let mut signature_validation = Validation::default();
+        signature_validation.algorithms = self.validation.algorithms.clone();
+        signature_validation.validate_exp = false;
+        signature_validation.validate_aud = false;
 
-        // Try multiple keys; if fail then try to fetch new keys
-        if keys.len() < 1 {
-            return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
-                .with_description("No usable keys returned from the OAuth server".to_string())
-                .into());
-        }
+        match &self.decoding_key {
 
-        let mut error;
+            Some(key) => {
+                let token_data = jsonwebtoken::decode::<Claims>(token, &key, &self.validation)?;
+                return Ok(token_data.claims);
+            },
 
-        for decoding_key in keys {
-            let token_data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &self.validation);
+            None => {
+                // Fetch server keys
+                let keys = self.fetch_keys().await;
 
-            match token_data {
-                Result::Ok(data) => return Ok(data.claims),
-
-                // Ignore and try next key
-                Err(err) => {
-                    println!("ERROR --> {:?}", err);
-                    error = err;
+                // Try multiple keys; if fail then try to fetch new keys
+                if keys.len() < 1 {
+                    return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
+                        .with_description("No usable keys returned from the OAuth server".to_string())
+                        .into());
                 }
+
+                for decoding_key in keys {
+
+                    let signature_data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &signature_validation);
+                    match signature_data {
+
+                        // If signature is correct, validate claims
+                        Result::Ok(_) => {
+                            let token_data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &self.validation)?;
+                            return Ok(token_data.claims);
+                        }
+
+                        // Otherwise ignore and try next key
+                        Err(_) => {}
+                    }
+                }
+
+                return Err(OAuthError::new(OAuthErrorType::UnsupportedGrantType)
+                    .with_description("No usable keys found".to_string())
+                    .into());
+
             }
         }
-
-        return Err(OAuthError::new(OAuthErrorType::UnsupportedGrantType)
-            .with_description("No usabe".to_string())
-            .into());
     }
 
     /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
@@ -323,17 +340,12 @@ impl JwtManager {
                     keys.push(DecodingKey::from_rsa_components(&key.n, &key.e).expect("Cannot read RSA key"));
                   }
                 }
-
-                if keys.len() < 1 {
-                  panic!("No usuable keys found at OAUTH_JWKS_LOCATION");
-                }
             }
             OAuthKeyType::Ec => {
                 let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
                 let ec_params = reqwest::get(jwks_location).await.expect("Could not reach OAUTH_JWKS_LOCATION");
                 let ec_keys: EcKeys = ec_params.json().await.expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
 
-                let mut keys = Vec::new();
                 for key in ec_keys.keys {
                   if key.kty == OAuthKeyType::Ec && self.validation.algorithms.contains(&key.alg) {
                     keys.push(DecodingKey::from_ec_components(&key.x, &key.y).expect("Cannot read EC key"));
@@ -345,7 +357,6 @@ impl JwtManager {
                 let ed_params = reqwest::get(jwks_location).await.expect("Could not reach OAUTH_JWKS_LOCATION");
                 let ed_keys: EdKeys = ed_params.json().await.expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
 
-                let mut keys = Vec::new();
                 for key in ed_keys.keys {
                     if key.kty == OAuthKeyType::Ed && self.validation.algorithms.contains(&key.alg) {
                         keys.push(DecodingKey::from_ed_components(&key.x).expect("Cannot read Ed key"));
