@@ -7,8 +7,7 @@ use jsonwebtoken::{encode, Header};
 #[cfg(feature = "internal-oauth")]
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 
-use crate::error::AppError;
-use crate::state::OAuthKeyType;
+use crate::{error::AppError, state::OAuthKeyType};
 use axum::{
     extract::{FromRef, FromRequestParts},
     http::request::Parts,
@@ -300,6 +299,7 @@ impl JwtManager {
                 for decoding_key in keys {
                     let signature_data =
                         jsonwebtoken::decode::<Claims>(token, &decoding_key, &signature_validation);
+
                     match signature_data {
                         // If signature is correct, validate claims
                         Result::Ok(_) => {
@@ -312,7 +312,9 @@ impl JwtManager {
                         }
 
                         // Otherwise ignore and try next key
-                        Err(_) => {}
+                        Err(_) => {
+                            trace!("Signature failed");
+                        }
                     }
                 }
 

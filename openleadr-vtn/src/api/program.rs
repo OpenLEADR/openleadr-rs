@@ -155,8 +155,8 @@ mod test {
     ) -> Request<Body> {
         Request::builder()
             .method(method)
-            .uri(format!("/programs/{}", id))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .uri(format!("/programs/{id}"))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(&program).unwrap()))
             .unwrap()
@@ -186,8 +186,8 @@ mod test {
         app.oneshot(
             Request::builder()
                 .method(http::Method::GET)
-                .uri(format!("/programs/{}", id))
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .uri(format!("/programs/{id}"))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -236,7 +236,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::DELETE)
             .uri(format!("/programs/{program_id}"))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .body(Body::empty())
             .unwrap();
 
@@ -328,7 +328,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::POST)
             .uri("/programs")
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(body).unwrap()))
             .unwrap();
@@ -414,7 +414,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::GET)
             .uri(format!("/programs?{query_params}"))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::empty())
             .unwrap();
@@ -724,7 +724,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/programs/{}", "program-1"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )

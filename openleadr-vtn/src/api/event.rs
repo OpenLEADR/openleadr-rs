@@ -153,7 +153,7 @@ mod test {
         Request::builder()
             .method(method)
             .uri(format!("/events/{}", event.id))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(&event).unwrap()))
             .unwrap()
@@ -184,8 +184,8 @@ mod test {
         app.oneshot(
             Request::builder()
                 .method(http::Method::GET)
-                .uri(format!("/events/{}", id))
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .uri(format!("/events/{id}"))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -236,7 +236,7 @@ mod test {
 
         let request = Request::builder()
             .method(http::Method::DELETE)
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .uri(format!("/events/{event_id}"))
             .body(Body::empty())
             .unwrap();
@@ -292,7 +292,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::POST)
             .uri("/events")
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(content).unwrap()))
             .unwrap();
@@ -328,7 +328,7 @@ mod test {
         let request = Request::builder()
             .method(http::Method::GET)
             .uri(format!("/events?{query_params}"))
-            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::empty())
             .unwrap();
@@ -623,7 +623,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -638,7 +638,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::from(serde_json::to_vec(&content).unwrap()))
                         .unwrap(),
@@ -654,7 +654,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::from(serde_json::to_vec(&content).unwrap()))
                         .unwrap(),
@@ -670,7 +670,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -840,7 +840,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -854,7 +854,7 @@ mod test {
                     Request::builder()
                         .method(http::Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                         .body(Body::from(
                             serde_json::to_vec(&default_event_content()).unwrap(),
