@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 #[cfg(feature = "internal-oauth")]
-use crate::api::auth::ResponseOAuthError;
-#[cfg(feature = "internal-oauth")]
 use jsonwebtoken::{encode, Header};
-#[cfg(feature = "internal-oauth")]
+
+use crate::api::auth::ResponseOAuthError;
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 
-use crate::error::AppError;
+use crate::{error::AppError, state::OAuthKeyType};
 use axum::{
     extract::{FromRef, FromRequestParts},
     http::request::Parts,
@@ -16,14 +15,18 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use jsonwebtoken::{DecodingKey, EncodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use openleadr_wire::ven::VenId;
 use tracing::trace;
+
+use serde::Deserializer;
+use serde::{Deserialize, Serialize};
+use std::env;
 
 pub struct JwtManager {
     #[cfg(feature = "internal-oauth")]
     encoding_key: Option<EncodingKey>,
-    decoding_key: DecodingKey,
+    decoding_key: Option<DecodingKey>,
     validation: Validation,
 }
 
@@ -56,15 +59,26 @@ impl AuthRole {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Algorithm")]
+pub enum AlgorithmDef {
+    HS256,
+    HS384,
+    HS512,
+    ES256,
+    ES384,
+    RS256,
+    RS384,
+    RS512,
+    PS256,
+    PS384,
+    PS512,
+    EdDSA,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(PartialOrd, Ord))]
-#[serde(tag = "role", content = "id")]
-enum InitialRole {
-    UserManager,
-    VenManager,
-    Business(String),
-    AnyBusiness,
-    VEN(VenId),
+pub enum Scope {
     #[serde(rename = "read_all")]
     ReadAll,
     #[serde(rename = "write_programs")]
@@ -77,6 +91,52 @@ enum InitialRole {
     WriteVens,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct RsaKey {
+    kty: OAuthKeyType,
+    #[serde(with = "AlgorithmDef")]
+    alg: Algorithm,
+    n: String,
+    e: String,
+    kid: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct RsaKeys {
+    keys: Vec<RsaKey>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EcKey {
+    kty: OAuthKeyType,
+    #[serde(with = "AlgorithmDef")]
+    alg: Algorithm,
+    x: String,
+    y: String,
+    crv: String,
+    kid: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EcKeys {
+    keys: Vec<EcKey>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EdKey {
+    kty: OAuthKeyType,
+    #[serde(with = "AlgorithmDef")]
+    alg: Algorithm,
+    x: String,
+    crv: String,
+    kid: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct EdKeys {
+    keys: Vec<EdKey>,
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Claims {
     exp: usize,
@@ -85,87 +145,111 @@ pub(crate) struct Claims {
     pub(crate) roles: Vec<AuthRole>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct InitialClaims {
     exp: usize,
     nbf: usize,
     sub: String,
-    roles: Vec<InitialRole>,
+    roles: Option<Vec<AuthRole>>,
+    scope: Option<Scopes>,
 }
 
-impl InitialClaims {
-    /// The initial claims can contain alternative roles like ReadAll, WritePrograms, etc.
-    /// these are mapped to our internal AuthRoles here.
-    fn map_initial_roles(&self) -> Vec<AuthRole> {
-        let i = &self.roles;
-        let mut roles = Vec::new();
+#[derive(Clone, Debug, serde::Serialize)]
+struct Scopes {
+    scopes: Vec<Scope>,
+}
 
-        // If read_all && write_vens -> VenManager
-        if i.iter().any(|r| r == &InitialRole::ReadAll)
-            && i.iter().any(|r| r == &InitialRole::WriteVens)
-        {
-            roles.push(AuthRole::VenManager);
-        }
+impl<'de> Deserialize<'de> for Scopes {
+    fn deserialize<D>(deserializer: D) -> Result<Scopes, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        let parts = s.split(" ");
 
-        // If read_all && write_reports -> Ven("anonymous")
-        if i.iter().any(|r| r == &InitialRole::ReadAll)
-            && i.iter().any(|r| r == &InitialRole::WriteReports)
-        {
-            roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
-        }
-
-        // If read_all && write_programs && write_events -> AnyBusiness
-        if i.iter().any(|r| r == &InitialRole::ReadAll)
-            && i.iter().any(|r| r == &InitialRole::WritePrograms)
-            && i.iter().any(|r| r == &InitialRole::WriteEvents)
-        {
-            roles.push(AuthRole::AnyBusiness);
-        }
-
-        for role in i {
-            match role {
-                // Keep UserManager
-                InitialRole::UserManager => roles.push(AuthRole::UserManager),
-
-                // Keep VenManager, if not given already
-                InitialRole::VenManager => {
-                    if !roles.iter().any(|r| r == &AuthRole::VenManager) {
-                        roles.push(AuthRole::VenManager);
-                    }
-                }
-
-                // Keep AnyBusiness, if not given already
-                InitialRole::AnyBusiness => {
-                    if !roles.iter().any(|r| r == &AuthRole::AnyBusiness) {
-                        roles.push(AuthRole::AnyBusiness);
-                    }
-                }
-
-                // Keep Business
-                InitialRole::Business(x) => roles.push(AuthRole::Business(x.to_string())),
-
-                // Keep VEN
-                InitialRole::VEN(x) => roles.push(AuthRole::VEN(x.clone())),
-
-                // Other roles should already be processed
+        let mut scopes: Vec<Scope> = Vec::new();
+        for part in parts {
+            match part {
+                "read_all" => scopes.push(Scope::ReadAll),
+                "write_vens" => scopes.push(Scope::WriteVens),
+                "write_programs" => scopes.push(Scope::WritePrograms),
+                "write_events" => scopes.push(Scope::WriteEvents),
+                "write_reports" => scopes.push(Scope::WriteReports),
                 _ => {}
             }
         }
 
-        roles
+        Ok(Scopes { scopes })
+    }
+}
+
+impl InitialClaims {
+    fn map_scope_to_roles(&self) -> Vec<AuthRole> {
+        let mut roles: Vec<AuthRole> = Vec::new();
+        match &self.scope {
+            None => roles,
+            Some(s) => {
+                // If ReadAll && WriteVens -> VenManager
+                if s.scopes.iter().any(|r| r == &Scope::ReadAll)
+                    && s.scopes.iter().any(|r| r == &Scope::WriteVens)
+                {
+                    roles.push(AuthRole::VenManager);
+                }
+
+                // If ReadAll && WriteReports -> Ven("anonymous")
+                if s.scopes.iter().any(|r| r == &Scope::ReadAll)
+                    && s.scopes.iter().any(|r| r == &Scope::WriteReports)
+                {
+                    roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
+                }
+
+                // If ReadAll && WritePrograms && WriteEvents -> AnyBusiness
+                if s.scopes.iter().any(|r| r == &Scope::ReadAll)
+                    && s.scopes.iter().any(|r| r == &Scope::WritePrograms)
+                    && s.scopes.iter().any(|r| r == &Scope::WriteEvents)
+                {
+                    roles.push(AuthRole::AnyBusiness);
+                }
+
+                roles
+            }
+        }
     }
 }
 
 impl TryFrom<InitialClaims> for Claims {
-    type Error = jsonwebtoken::errors::Error;
+    type Error = ResponseOAuthError;
 
     fn try_from(initial: InitialClaims) -> Result<Self, Self::Error> {
-        Ok(Claims {
-            roles: initial.map_initial_roles(),
-            exp: initial.exp,
-            nbf: initial.nbf,
-            sub: initial.sub,
-        })
+        match initial.roles {
+            // when roles are empty, check scopes
+            // and map these to our roles
+            None => {
+                if initial.scope.is_none() {
+                    return Err(OAuthError::new(OAuthErrorType::InvalidGrant)
+                        .with_description(
+                            "Token must contain valid roles or a valid scope".to_string(),
+                        )
+                        .into());
+                }
+
+                Ok(Claims {
+                    roles: initial.map_scope_to_roles(),
+                    exp: initial.exp,
+                    nbf: initial.nbf,
+                    sub: initial.sub,
+                })
+            }
+
+            // otherwise ignore scope and use
+            // the given roles
+            Some(roles) => Ok(Claims {
+                roles,
+                exp: initial.exp,
+                nbf: initial.nbf,
+                sub: initial.sub,
+            }),
+        }
     }
 }
 
@@ -254,7 +338,7 @@ impl JwtManager {
     /// Create a new JWT manager with a specific encoding and decoding key
     pub fn new(
         encoding_key: Option<EncodingKey>,
-        decoding_key: DecodingKey,
+        decoding_key: Option<DecodingKey>,
         validation: Validation,
     ) -> Self {
         if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
@@ -308,12 +392,134 @@ impl JwtManager {
         }
     }
 
-    /// Decode and validate a given JWT token, returning the validated claims
-    /// Note that token roles are remapped into our internal roles
-    fn decode_and_validate(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-        let initial_token =
-            jsonwebtoken::decode::<InitialClaims>(token, &self.decoding_key, &self.validation)?;
-        initial_token.claims.try_into()
+    async fn decode_and_validate(&self, token: &str) -> Result<Claims, ResponseOAuthError> {
+        // Validate only the signature
+        let mut signature_validation = Validation::default();
+        signature_validation.algorithms = self.validation.algorithms.clone();
+        signature_validation.validate_exp = false;
+        signature_validation.validate_aud = false;
+
+        match &self.decoding_key {
+            Some(key) => {
+                let token_data =
+                    jsonwebtoken::decode::<InitialClaims>(token, key, &self.validation)?;
+                token_data.claims.try_into()
+            }
+
+            None => {
+                // Fetch server keys
+                let keys = self.fetch_keys().await;
+
+                // Try multiple keys; if fail then try to fetch new keys
+                if keys.is_empty() {
+                    return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
+                        .with_description(
+                            "No usable keys returned from the OAuth server".to_string(),
+                        )
+                        .into());
+                }
+
+                for decoding_key in keys {
+                    let signature_data = jsonwebtoken::decode::<InitialClaims>(
+                        token,
+                        &decoding_key,
+                        &signature_validation,
+                    );
+
+                    match signature_data {
+                        // If signature is correct, validate claims
+                        Result::Ok(_) => {
+                            let initial_token = jsonwebtoken::decode::<InitialClaims>(
+                                token,
+                                &decoding_key,
+                                &self.validation,
+                            )?;
+                            return initial_token.claims.try_into();
+                        }
+
+                        // Otherwise ignore and try next key
+                        Err(_) => {
+                            trace!("Signature failed");
+                        }
+                    }
+                }
+
+                Err(OAuthError::new(OAuthErrorType::UnsupportedGrantType)
+                    .with_description("No usable keys found".to_string())
+                    .into())
+            }
+        }
+    }
+
+    /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
+    pub async fn fetch_keys(&self) -> Vec<DecodingKey> {
+        let mut keys = Vec::new();
+        let key_type: OAuthKeyType = env::var("OAUTH_KEY_TYPE").ok().map(|k| k.parse().expect("Invalid value for OAUTH_KEY_TYPE environment variable. Allowed are HMAC, RSA, EC, and ED.")).unwrap();
+
+        match key_type {
+            OAuthKeyType::Hmac => {}
+            OAuthKeyType::Rsa => {
+                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
+                let rsa_params = reqwest::get(jwks_location)
+                    .await
+                    .expect("Could not reach OAUTH_JWKS_LOCATION");
+                let rsa_keys: RsaKeys = rsa_params
+                    .json()
+                    .await
+                    .expect("Could not parse RSA key from OAUTH_JWKS_LOCATION");
+
+                for key in rsa_keys.keys {
+                    if key.kty == OAuthKeyType::Rsa && self.validation.algorithms.contains(&key.alg)
+                    {
+                        keys.push(
+                            DecodingKey::from_rsa_components(&key.n, &key.e)
+                                .expect("Cannot read RSA key"),
+                        );
+                    }
+                }
+            }
+            OAuthKeyType::Ec => {
+                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
+                let ec_params = reqwest::get(jwks_location)
+                    .await
+                    .expect("Could not reach OAUTH_JWKS_LOCATION");
+                let ec_keys: EcKeys = ec_params
+                    .json()
+                    .await
+                    .expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
+
+                for key in ec_keys.keys {
+                    if key.kty == OAuthKeyType::Ec && self.validation.algorithms.contains(&key.alg)
+                    {
+                        keys.push(
+                            DecodingKey::from_ec_components(&key.x, &key.y)
+                                .expect("Cannot read EC key"),
+                        );
+                    }
+                }
+            }
+            OAuthKeyType::Ed => {
+                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
+                let ed_params = reqwest::get(jwks_location)
+                    .await
+                    .expect("Could not reach OAUTH_JWKS_LOCATION");
+                let ed_keys: EdKeys = ed_params
+                    .json()
+                    .await
+                    .expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
+
+                for key in ed_keys.keys {
+                    if key.kty == OAuthKeyType::Ed && self.validation.algorithms.contains(&key.alg)
+                    {
+                        keys.push(
+                            DecodingKey::from_ed_components(&key.x).expect("Cannot read Ed key"),
+                        );
+                    }
+                }
+            }
+        }
+
+        keys
     }
 }
 
@@ -350,7 +556,7 @@ where
 
         let jwt_manager = Arc::<JwtManager>::from_ref(state);
 
-        let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()) else {
+        let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()).await else {
             return Err(AppError::Forbidden("Invalid authentication token provided"));
         };
 
@@ -419,5 +625,166 @@ where
             ));
         }
         Ok(VenManagerUser(user))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::jwt::{AuthRole, Claims, InitialClaims, Scope, Scopes, VenId};
+
+    #[test]
+    fn test_no_roles_no_scope_into_claims() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: None,
+            scope: None,
+        };
+
+        let claims: Result<Claims, _> = initial.try_into();
+        assert!(claims.is_err());
+    }
+
+    #[test]
+    fn test_initial_roles_into_claims() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: Some(vec![AuthRole::AnyBusiness, AuthRole::VenManager]),
+            scope: None,
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(
+            values.roles,
+            vec![AuthRole::AnyBusiness, AuthRole::VenManager]
+        );
+    }
+
+    #[test]
+    fn test_scope_ignored_if_roles_present() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: Some(vec![AuthRole::AnyBusiness]),
+            scope: Some(Scopes {
+                scopes: vec![Scope::ReadAll, Scope::WriteVens],
+            }),
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.roles, vec![AuthRole::AnyBusiness]);
+    }
+
+    #[test]
+    fn test_scope_into_any_business_role() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: None,
+            scope: Some(Scopes {
+                scopes: vec![Scope::ReadAll, Scope::WritePrograms, Scope::WriteEvents],
+            }),
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(values.roles, vec![AuthRole::AnyBusiness]);
+    }
+
+    #[test]
+    fn test_scope_into_ven_manager_role() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: None,
+            scope: Some(Scopes {
+                scopes: vec![Scope::ReadAll, Scope::WriteVens],
+            }),
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(values.roles, vec![AuthRole::VenManager]);
+    }
+
+    #[test]
+    fn test_scope_into_anonymous_ven_role() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: None,
+            scope: Some(Scopes {
+                scopes: vec![Scope::ReadAll, Scope::WriteReports],
+            }),
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(
+            values.roles,
+            vec![AuthRole::VEN(VenId::new("anonymous").unwrap())]
+        );
+    }
+
+    #[test]
+    fn test_scope_into_multiple_roles() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: None,
+            scope: Some(Scopes {
+                scopes: vec![
+                    Scope::ReadAll,
+                    Scope::WriteVens,
+                    Scope::WritePrograms,
+                    Scope::WriteEvents,
+                ],
+            }),
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(
+            values.roles,
+            vec![AuthRole::VenManager, AuthRole::AnyBusiness]
+        );
     }
 }

@@ -4,11 +4,12 @@ pub enum OAuthErrorType {
     OAuthNotEnabled,
     InvalidRequest,
     InvalidClient,
-    // InvalidGrant,
+    InvalidGrant,
     // UnauthorizedClient,
     UnsupportedGrantType,
     // InvalidScope,
     ServerError,
+    NoAvailableKeys,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

@@ -234,8 +234,7 @@ impl Display for Duration {
         } = self.0;
 
         f.write_fmt(format_args!(
-            "P{}Y{}M{}DT{}H{}M{}S",
-            year, month, day, hour, minute, second
+            "P{year}Y{month}M{day}DT{hour}H{minute}M{second}S",
         ))
     }
 }

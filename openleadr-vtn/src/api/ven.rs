@@ -111,7 +111,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_unfiltered(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VenManager]);
+        let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
         let (status, mut vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
@@ -126,7 +126,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_filetred(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]);
+        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens?skip=1", Body::empty())
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(vens.len(), 1);
         assert_eq!(vens[0].id.as_str(), "ven-1");
 
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
@@ -162,7 +162,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_ven_user(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
@@ -175,7 +175,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_single(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VenManager]);
+        let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
         let (status, ven) = test
             .request::<Ven>(Method::GET, "/vens/ven-1", Body::empty())
@@ -187,7 +187,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn add_edit_delete_ven(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VenManager]);
+        let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
         let new_ven = r#"{"venName":"new-ven"}"#;
         let (status, ven) = test
@@ -235,7 +235,7 @@ mod tests {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VenManager]);
+        let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
         let vens = [
             VenContent::new("".to_string(), None, None, None),

@@ -206,8 +206,8 @@ mod test {
         app.oneshot(
             Request::builder()
                 .method(http::Method::GET)
-                .uri(format!("/users/{}", id))
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .uri(format!("/users/{id}"))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -220,7 +220,7 @@ mod test {
             Request::builder()
                 .method(http::Method::GET)
                 .uri("/users")
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -238,7 +238,7 @@ mod test {
             Request::builder()
                 .method(http::Method::POST)
                 .uri(path)
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                 .body(Body::from(serde_json::to_vec(body).unwrap()))
                 .unwrap(),
@@ -260,8 +260,8 @@ mod test {
         app.oneshot(
             Request::builder()
                 .method(http::Method::PUT)
-                .uri(format!("/users/{}", id))
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .uri(format!("/users/{id}"))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                 .body(Body::from(serde_json::to_vec(&user).unwrap()))
                 .unwrap(),
@@ -284,7 +284,7 @@ mod test {
             Request::builder()
                 .method(http::Method::DELETE)
                 .uri(path)
-                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )

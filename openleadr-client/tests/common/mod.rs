@@ -106,7 +106,7 @@ async fn local_vtn_test_client(db: PgPool, auth_role: AuthRole) -> TestContext {
     let cred = default_credentials(auth_role);
     let storage = PostgresStorage::new(db).unwrap();
 
-    let router = AppState::new(storage).into_router();
+    let router = AppState::new(storage).await.into_router();
     TestContext {
         client: MockClientRef::new(router).into_client(Some(cred)),
     }
@@ -120,7 +120,7 @@ pub async fn setup_mock_client(db: PgPool) -> Client {
     let storage = PostgresStorage::new(db).unwrap();
     // storage.auth.try_write().unwrap().push(auth_info);
 
-    let app_state = AppState::new(storage);
+    let app_state = AppState::new(storage).await;
 
     MockClientRef::new(app_state.into_router()).into_client(Some(client_credentials))
 }
