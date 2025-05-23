@@ -78,11 +78,11 @@ impl From<openleadr_wire::oauth::OAuthError> for Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Error::Reqwest(err) => write!(f, "Reqwest error: {}", err),
-            Error::Serde(err) => write!(f, "Serde error: {}", err),
-            Error::UrlParseError(err) => write!(f, "URL parse error: {}", err),
-            Error::Problem(err) => write!(f, "OpenADR Problem: {:?}", err),
-            Error::AuthProblem(err) => write!(f, "Authentication problem: {:?}", err),
+            Error::Reqwest(err) => write!(f, "Reqwest error: {err}"),
+            Error::Serde(err) => write!(f, "Serde error: {err}"),
+            Error::UrlParseError(err) => write!(f, "URL parse error: {err}"),
+            Error::Problem(err) => write!(f, "OpenADR Problem: {err:?}"),
+            Error::AuthProblem(err) => write!(f, "Authentication problem: {err:?}"),
             Error::ObjectNotFound => write!(f, "Object not found"),
             Error::DuplicateObject => write!(f, "Found more than one object matching the filter"),
             Error::InvalidParentObject => write!(f, "Invalid parent object"),

@@ -20,6 +20,8 @@ use axum::{
 use axum_extra::headers::{authorization::Bearer, Header};
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 use reqwest::header;
+
+#[cfg(feature = "internal-oauth")]
 use tracing::trace;
 
 #[derive(Debug, Deserialize, Validate)]

@@ -61,7 +61,8 @@ The OAuth configuration of the VTN is done via the following environment variabl
 - `OAUTH_TYPE` (allowed values: `INTERNAL`, `EXTERNAL`. Defaults to `INTERNAL`)
 - `OAUTH_BASE64_SECRET` (must be at least 256 bit long. Required if `OAUTH_KEY_TYPE` is `HMAC`)
 - `OAUTH_KEY_TYPE`(allows values: `HMAC`, `RSA`, `EC`, `ED`. Defaults to `HMAC`)
-- `OAUTH_PEM` (path to a PEM encoded public key file. Required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
+- `OAUTH_PEM` (path to a PEM encoded public key file. Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
+- `OAUTH_JWKS_LOCATION` (path to the OAUTH server well known JWKS endpoint.  Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
 - `OAUTH_VALID_AUDIENCES` (specifies the list of valid audiences for token validation, ensuring that the token is intended for the correct recipient. Required when `OAUTH_TYPE` is `EXTERNAL`. Optional and defaults to an empty list when `OAUTH_TYPE` is `INTERNAL`, which will fail validation if an `aud` claim is present in the decoded access token.)
 
 The internal OAuth provider does only support `HMAC`.

@@ -25,7 +25,15 @@ use base64::{
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use reqwest::StatusCode;
-use std::{cmp::PartialEq, env, env::VarError, fs::File, io::Read, str::FromStr, sync::Arc};
+use serde::{Deserialize, Serialize};
+use std::{
+    cmp::PartialEq,
+    env,
+    env::VarError,
+    io::{BufReader, Read},
+    str::FromStr,
+    sync::Arc,
+};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
@@ -36,7 +44,7 @@ pub struct AppState {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-enum OAuthType {
+pub(crate) enum OAuthType {
     #[default]
     Internal,
     External,
@@ -54,11 +62,12 @@ impl FromStr for OAuthType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum OAuthKeyType {
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub(crate) enum OAuthKeyType {
     Hmac,
     Rsa,
     Ec,
+    #[serde(rename = "OKP")]
     Ed,
 }
 
@@ -83,7 +92,7 @@ fn audiences_from_env() -> Result<Vec<String>, VarError> {
     })
 }
 
-fn hmac_from_env() -> Result<Vec<u8>, VarError> {
+pub(crate) fn hmac_from_env() -> Result<Vec<u8>, VarError> {
     env::var("OAUTH_BASE64_SECRET").map(|base64_secret| {
         let secret = GeneralPurpose::new(&alphabet::STANDARD, PAD)
             .decode(base64_secret)
@@ -147,12 +156,12 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
 
     JwtManager::new(
         Some(EncodingKey::from_secret(&secret)),
-        DecodingKey::from_secret(&secret),
+        Some(DecodingKey::from_secret(&secret)),
         validation,
     )
 }
 
-fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
+async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     let key_type = key_type.expect("Must specify key type for external OAuth provider. Use OAUTH_KEY_TYPE environment variable");
 
     let valid_audiences = audiences_from_env().expect(
@@ -163,55 +172,75 @@ fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     validation.algorithms = signing_algorithms_from_key_type(&key_type);
     validation.set_audience(&valid_audiences);
 
-    match key_type {
+    let oauth_jwks_location = env::var("OAUTH_JWKS_LOCATION");
+    let oauth_keyfile = env::var("OAUTH_PEM");
+
+    // Try to load decoding key from environment;
+    //
+    // for HMAC by loading OAUTH_BASE64_SECRET
+    // for other key types, by looking at OAUTH_PEM
+    let key = match key_type {
         OAuthKeyType::Hmac => {
             let secret = hmac_from_env().expect("OAUTH_BASE64_SECRET environment variable must be set for external OAuth provider with key type HMAC");
-            JwtManager::new(None, DecodingKey::from_secret(&secret), validation)
+            Some(DecodingKey::from_secret(&secret))
         }
-        OAuthKeyType::Rsa => {
-            let rsa_file = env::var("OAUTH_PEM").expect("OAUTH_PEM environment variable must be set for external OAuth provider with key type RSA");
-            let pem_bytes = File::open(rsa_file)
-                .expect("File specified in OAUTH_PEM environment variable does not exist")
+
+        OAuthKeyType::Rsa => match oauth_keyfile {
+            Ok(rsa_file) => {
+                let pem_bytes = BufReader::new(
+                    std::fs::File::open(rsa_file)
+                        .expect("File specified in OAUTH_PEM environment variable does not exist"),
+                )
                 .bytes()
                 .collect::<Result<Vec<u8>, _>>()
                 .expect("Cannot read RSA key");
-            JwtManager::new(
-                None,
-                DecodingKey::from_rsa_pem(&pem_bytes).expect("Cannot read RSA key"),
-                validation,
-            )
-        }
-        OAuthKeyType::Ec => {
-            let ec_file = env::var("OAUTH_PEM").expect("OAUTH_PEM environment variable must be set for external OAuth provider with key type EC");
-            let pem_bytes = File::open(ec_file)
-                .expect("File specified in OAUTH_PEM environment variable does not exist")
+
+                Some(DecodingKey::from_rsa_pem(&pem_bytes).expect("Cannot read RSA key"))
+            }
+            Err(_) => None,
+        },
+
+        OAuthKeyType::Ec => match oauth_keyfile {
+            Ok(ec_file) => {
+                let pem_bytes = BufReader::new(
+                    std::fs::File::open(ec_file)
+                        .expect("File specified in OAUTH_PEM environment variable does not exist"),
+                )
                 .bytes()
                 .collect::<Result<Vec<u8>, _>>()
-                .expect("Cannot read EC key");
-            JwtManager::new(
-                None,
-                DecodingKey::from_ec_pem(&pem_bytes).expect("Cannot read EC key"),
-                validation,
-            )
-        }
-        OAuthKeyType::Ed => {
-            let ed_file = env::var("OAUTH_PEM").expect("OAUTH_PEM environment variable must be set for external OAuth provider with key type ED");
-            let pem_bytes = File::open(ed_file)
-                .expect("File specified in OAUTH_PEM environment variable does not exist")
+                .expect("Cannot read RSA key");
+
+                Some(DecodingKey::from_ec_pem(&pem_bytes).expect("Cannot read EC key"))
+            }
+            Err(_) => None,
+        },
+
+        OAuthKeyType::Ed => match oauth_keyfile {
+            Ok(ed_file) => {
+                let pem_bytes = BufReader::new(
+                    std::fs::File::open(ed_file)
+                        .expect("File specified in OAUTH_PEM environment variable does not exist"),
+                )
                 .bytes()
                 .collect::<Result<Vec<u8>, _>>()
-                .expect("Cannot read Ed key");
-            JwtManager::new(
-                None,
-                DecodingKey::from_ed_pem(&pem_bytes).expect("Cannot read Ed key"),
-                validation,
-            )
-        }
+                .expect("Cannot read RSA key");
+
+                Some(DecodingKey::from_ed_pem(&pem_bytes).expect("Cannot read Ed key"))
+            }
+            Err(_) => None,
+        },
+    };
+
+    // If no decoding key was found, then OAUTH_JWKS_LOCATION must be used
+    if key.is_none() && oauth_jwks_location.is_err() {
+        panic!("OAUTH_PEM or OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with the given key type");
     }
+
+    JwtManager::new(None, key, validation)
 }
 
 impl AppState {
-    pub fn new<S: DataSource>(storage: S) -> Self {
+    pub async fn new<S: DataSource>(storage: S) -> Self {
         let oauth_type: OAuthType = env::var("OAUTH_TYPE")
             .inspect_err(|_|{
             info!("Did not find OAUTH_TYPE environment variable, using internal OAuth provider.")}
@@ -224,7 +253,7 @@ impl AppState {
 
         let jwt_manager = match oauth_type {
             OAuthType::Internal => internal_oauth_from_env(key_type),
-            OAuthType::External => external_oauth_from_env(key_type),
+            OAuthType::External => external_oauth_from_env(key_type).await,
         };
 
         Self {
@@ -390,53 +419,54 @@ mod test {
             env::remove_var("OAUTH_TYPE");
             env::remove_var("OAUTH_KEY_TYPE");
             env::remove_var("OAUTH_PEM");
+            env::remove_var("OAUTH_JWKS_LOCATION");
             env::remove_var("OAUTH_VALID_AUDIENCES");
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(expected = "OAUTH_BASE64_SECRET must have at least 32 bytes")]
         #[serial]
-        fn internal_oauth_short_secret() {
+        async fn internal_oauth_short_secret() {
             clean_env();
             env::set_var("OAUTH_BASE64_SECRET", "1234");
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(expected = "OAUTH_BASE64_SECRET contains invalid base64 string")]
         #[serial]
-        fn internal_oauth_invalid_base64_secret() {
+        async fn internal_oauth_invalid_base64_secret() {
             clean_env();
             env::set_var("OAUTH_BASE64_SECRET", "&");
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[serial]
-        fn implicit_internal_oauth() {
+        async fn implicit_internal_oauth() {
             clean_env();
             env::set_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[serial]
-        fn explicit_internal_oauth() {
+        async fn explicit_internal_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "INTERNAL");
             env::set_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[serial]
-        fn explicit_internal_explicit_key_type_oauth() {
+        async fn explicit_internal_explicit_key_type_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "INTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "HMAC");
@@ -444,13 +474,13 @@ mod test {
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(expected = "Internal OAuth provider only supports HMAC JWT keys")]
         #[serial]
-        fn explicit_internal_explicit_wrong_key_type_oauth() {
+        async fn explicit_internal_explicit_wrong_key_type_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "INTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
@@ -458,81 +488,81 @@ mod test {
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(
             expected = "Must specify key type for external OAuth provider. Use OAUTH_KEY_TYPE environment variable"
         )]
         #[serial]
-        fn external_missing_key_type_oauth() {
+        async fn external_missing_key_type_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            env::set_var("OAUTH_PEM", "./key.pem");
-            AppState::new(MockDataSource {});
+            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(
-            expected = "OAUTH_PEM environment variable must be set for external OAuth provider with key type RSA"
+            expected = "OAUTH_PEM or OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with the given key type"
         )]
         #[serial]
-        fn external_missing_key_oauth() {
+        async fn external_missing_jwks_location_oauth_and_oauth_pem() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(
             expected = "OAUTH_VALID_AUDIENCES environment variable must be set for external Oauth provider"
         )]
         #[serial]
-        fn external_missing_valid_audiences_oauth() {
+        async fn external_missing_valid_audiences_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
-            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
-            AppState::new(MockDataSource {});
+            env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[serial]
-        fn external_rsa() {
+        async fn external_rsa() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "RSA");
-            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
+            env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(expected = "Cannot read EC key: Error(InvalidKeyFormat)")]
         #[serial]
-        fn external_provide_rsa_key_instead_of_ec() {
+        async fn external_provide_rsa_key_instead_of_ec() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "EC");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
 
-        #[test]
+        #[tokio::test]
         #[should_panic(expected = "Cannot read Ed key: Error(InvalidKeyFormat)")]
         #[serial]
-        fn external_provide_rsa_key_instead_of_ed() {
+        async fn external_provide_rsa_key_instead_of_ed() {
             clean_env();
             env::set_var("OAUTH_TYPE", "EXTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "ED");
             env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
-            AppState::new(MockDataSource {});
+            AppState::new(MockDataSource {}).await;
         }
     }
 }
