@@ -11,7 +11,7 @@ OpenADR is a protocol for automated demand-response in electricity grids, like d
 The [OpenADR alliance](https://www.openadr.org/) is responsible for the standard,
 which can be [downloaded](https://www.openadr.org/specification) free of charge.
 
-This implementation is still work-in-progress. We aim for a first field-test-ready release in Dec 2024 / Jan 2025.
+This implementation is still work-in-progress.
 
 Thanks to our sponsors [ElaadNL](https://elaad.nl/en/) and [Tweede golf](https://tweedegolf.nl/en)
 for making this work possible.
