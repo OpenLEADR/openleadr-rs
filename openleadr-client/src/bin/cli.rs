@@ -4,7 +4,6 @@ use openleadr_wire::program::ProgramContent;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reqwest_client = reqwest::Client::new();
-
     let client = openleadr_client::Client::with_details(
         "http://localhost:3000/".try_into()?,
         "http://localhost:8080/token".try_into()?,

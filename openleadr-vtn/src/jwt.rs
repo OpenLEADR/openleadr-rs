@@ -391,6 +391,7 @@ impl JwtManager {
         }
     }
 
+    /// Decode and validate a given JWT token, returning the validated claims
     async fn decode_and_validate(&self, token: &str) -> Result<Claims, ResponseOAuthError> {
         // Validate only the signature
         let mut signature_validation = Validation::default();
@@ -409,7 +410,6 @@ impl JwtManager {
                 // Fetch server keys
                 let keys = self.fetch_keys().await;
 
-                // Try multiple keys; if fail then try to fetch new keys
                 if keys.is_empty() {
                     return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
                         .with_description(
@@ -428,12 +428,12 @@ impl JwtManager {
                     match signature_data {
                         // If signature is correct, validate claims
                         Result::Ok(_) => {
-                            let initial_token = jsonwebtoken::decode::<InitialClaims>(
+                            let token_data = jsonwebtoken::decode::<Claims>(
                                 token,
                                 &decoding_key,
                                 &self.validation,
                             )?;
-                            return initial_token.claims.try_into();
+                            return Ok(token_data.claims);
                         }
 
                         // Otherwise ignore and try next key
