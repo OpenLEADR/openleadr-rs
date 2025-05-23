@@ -26,7 +26,14 @@ use base64::{
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::{cmp::PartialEq, env, env::VarError, fs::File, io::Read, str::FromStr, sync::Arc};
+use std::{
+    cmp::PartialEq,
+    env,
+    env::VarError,
+    io::{BufReader, Read},
+    str::FromStr,
+    sync::Arc,
+};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
@@ -173,56 +180,55 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     // for HMAC by loading OAUTH_BASE64_SECRET
     // for other key types, by looking at OAUTH_PEM
     let key = match key_type {
-
         OAuthKeyType::Hmac => {
             let secret = hmac_from_env().expect("OAUTH_BASE64_SECRET environment variable must be set for external OAuth provider with key type HMAC");
             Some(DecodingKey::from_secret(&secret))
         }
 
-        OAuthKeyType::Rsa => {
-            match oauth_keyfile {
-                Ok(rsa_file) => {
-                    let pem_bytes = File::open(rsa_file)
-                        .expect("File specified in OAUTH_PEM environment variable does not exist")
-                        .bytes()
-                        .collect::<Result<Vec<u8>, _>>()
-                        .expect("Cannot read RSA key");
+        OAuthKeyType::Rsa => match oauth_keyfile {
+            Ok(rsa_file) => {
+                let pem_bytes = BufReader::new(
+                    std::fs::File::open(rsa_file)
+                        .expect("File specified in OAUTH_PEM environment variable does not exist"),
+                )
+                .bytes()
+                .collect::<Result<Vec<u8>, _>>()
+                .expect("Cannot read RSA key");
 
-                    Some(DecodingKey::from_rsa_pem(&pem_bytes).expect("Cannot read RSA key"))
-                },
-                Err(_) => None,
+                Some(DecodingKey::from_rsa_pem(&pem_bytes).expect("Cannot read RSA key"))
             }
-        }
+            Err(_) => None,
+        },
 
-        OAuthKeyType::Ec => {
-            match oauth_keyfile {
-                Ok(ec_file) => {
-                    let pem_bytes = File::open(ec_file)
-                        .expect("File specified in OAUTH_PEM environment variable does not exist")
-                        .bytes()
-                        .collect::<Result<Vec<u8>, _>>()
-                        .expect("Cannot read RSA key");
+        OAuthKeyType::Ec => match oauth_keyfile {
+            Ok(ec_file) => {
+                let pem_bytes = BufReader::new(
+                    std::fs::File::open(ec_file)
+                        .expect("File specified in OAUTH_PEM environment variable does not exist"),
+                )
+                .bytes()
+                .collect::<Result<Vec<u8>, _>>()
+                .expect("Cannot read RSA key");
 
-                    Some(DecodingKey::from_ec_pem(&pem_bytes).expect("Cannot read EC key"))
-                },
-                Err(_) => None,
+                Some(DecodingKey::from_ec_pem(&pem_bytes).expect("Cannot read EC key"))
             }
-        }
+            Err(_) => None,
+        },
 
-        OAuthKeyType::Ed => {
-            match oauth_keyfile {
-                Ok(ed_file) => {
-                    let pem_bytes = File::open(ed_file)
-                        .expect("File specified in OAUTH_PEM environment variable does not exist")
-                        .bytes()
-                        .collect::<Result<Vec<u8>, _>>()
-                        .expect("Cannot read RSA key");
+        OAuthKeyType::Ed => match oauth_keyfile {
+            Ok(ed_file) => {
+                let pem_bytes = BufReader::new(
+                    std::fs::File::open(ed_file)
+                        .expect("File specified in OAUTH_PEM environment variable does not exist"),
+                )
+                .bytes()
+                .collect::<Result<Vec<u8>, _>>()
+                .expect("Cannot read RSA key");
 
-                    Some(DecodingKey::from_ed_pem(&pem_bytes).expect("Cannot read Ed key"))
-                },
-                Err(_) => None,
+                Some(DecodingKey::from_ed_pem(&pem_bytes).expect("Cannot read Ed key"))
             }
-        }
+            Err(_) => None,
+        },
     };
 
     // If no decoding key was found, then OAUTH_JWKS_LOCATION must be used

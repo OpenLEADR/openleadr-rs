@@ -276,8 +276,6 @@ impl JwtManager {
         signature_validation.validate_exp = false;
         signature_validation.validate_aud = false;
 
-        println!("---> Received token: {:?}", token);
-
         match &self.decoding_key {
             Some(key) => {
                 let token_data = jsonwebtoken::decode::<Claims>(token, key, &self.validation)?;
