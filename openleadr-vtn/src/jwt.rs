@@ -174,7 +174,9 @@ impl<'de> Deserialize<'de> for Scopes {
                 "write_programs" => scopes.push(Scope::WritePrograms),
                 "write_events" => scopes.push(Scope::WriteEvents),
                 "write_reports" => scopes.push(Scope::WriteReports),
-                _ => {}
+                _ => {
+                    trace!("Unknown scope encountered: {:?}", part);
+                }
             }
         }
 
