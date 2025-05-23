@@ -4,7 +4,7 @@ pub enum OAuthErrorType {
     OAuthNotEnabled,
     InvalidRequest,
     InvalidClient,
-    // InvalidGrant,
+    InvalidGrant,
     // UnauthorizedClient,
     UnsupportedGrantType,
     // InvalidScope,
