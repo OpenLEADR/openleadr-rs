@@ -63,7 +63,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@52039f232923165906a3c824622a332e84ca4560 # v2.52.0
+        uses: taiki-e/install-action@6c6479b49816fcc0975a31af977bdc1f847c2920 # v2.52.1
         with:
           tool: cargo-llvm-cov
 
@@ -113,7 +113,7 @@ jobs:
           toolchain: nightly
 
       - name: Install udeps
-        uses: taiki-e/install-action@52039f232923165906a3c824622a332e84ca4560 # v2.52.0
+        uses: taiki-e/install-action@6c6479b49816fcc0975a31af977bdc1f847c2920 # v2.52.1
         with:
           tool: cargo-udeps
 
@@ -178,7 +178,7 @@ jobs:
         if: ${{matrix.use_zig}}
 
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@52039f232923165906a3c824622a332e84ca4560 # v2.52.0
+        uses: taiki-e/install-action@6c6479b49816fcc0975a31af977bdc1f847c2920 # v2.52.1
         with:
           tool: cargo-zigbuild
         if: ${{matrix.use_zig}}
