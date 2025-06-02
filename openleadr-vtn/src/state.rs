@@ -63,6 +63,7 @@ impl FromStr for OAuthType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub(crate) enum OAuthKeyType {
     Hmac,
     Rsa,
