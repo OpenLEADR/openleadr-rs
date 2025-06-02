@@ -149,7 +149,9 @@ struct InitialClaims {
     exp: usize,
     nbf: usize,
     sub: String,
+    #[serde(default)]
     roles: Option<Vec<AuthRole>>,
+    #[serde(default)]
     scope: Option<Scopes>,
 }
 
