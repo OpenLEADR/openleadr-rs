@@ -75,6 +75,22 @@ pub enum AlgorithmDef {
     EdDSA,
 }
 
+mod opt_algorithm_def {
+    use super::{Algorithm, AlgorithmDef};
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Algorithm>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper(#[serde(with = "AlgorithmDef")] Algorithm);
+
+        let helper = Option::deserialize(deserializer)?;
+        Ok(helper.map(|Helper(external)| external))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(PartialOrd, Ord))]
 pub enum Scope {
@@ -93,8 +109,8 @@ pub enum Scope {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct RsaKey {
     kty: OAuthKeyType,
-    #[serde(with = "AlgorithmDef")]
-    alg: Algorithm,
+    #[serde(default, with = "opt_algorithm_def")]
+    alg: Option<Algorithm>,
     n: String,
     e: String,
     kid: String,
@@ -108,8 +124,8 @@ struct RsaKeys {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct EcKey {
     kty: OAuthKeyType,
-    #[serde(with = "AlgorithmDef")]
-    alg: Algorithm,
+    #[serde(default, with = "opt_algorithm_def")]
+    alg: Option<Algorithm>,
     x: String,
     y: String,
     crv: String,
@@ -124,8 +140,8 @@ struct EcKeys {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct EdKey {
     kty: OAuthKeyType,
-    #[serde(with = "AlgorithmDef")]
-    alg: Algorithm,
+    #[serde(default, with = "opt_algorithm_def")]
+    alg: Option<Algorithm>,
     x: String,
     crv: String,
     kid: String,
@@ -150,7 +166,13 @@ struct InitialClaims {
     nbf: usize,
     sub: String,
     #[serde(default)]
-    roles: Option<Vec<AuthRole>>,
+    // Allow the roles claim to either contain the internal roles structure of OpenLEADR
+    // or the scopes structure of the typical scope claim.
+    // or the internal roles of OpenLEADR.
+    // This is needed since a major auth provider (Entra) does not support setting
+    // scopes for machine-to-machine authentication. Only allowing the roles claim
+    // to be set.
+    roles: Option<RolesOrScopes>,
     #[serde(default)]
     scope: Option<Scopes>,
 }
@@ -158,6 +180,13 @@ struct InitialClaims {
 #[derive(Clone, Debug, serde::Serialize)]
 struct Scopes {
     scopes: Vec<Scope>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum RolesOrScopes {
+    AuthRoles(Vec<AuthRole>),
+    Scopes(Vec<Scope>),
 }
 
 impl<'de> Deserialize<'de> for Scopes {
@@ -187,35 +216,38 @@ impl<'de> Deserialize<'de> for Scopes {
 }
 
 impl InitialClaims {
+    fn scopes_to_roles(scopes: &[Scope]) -> Vec<AuthRole> {
+        let mut roles = Vec::new();
+
+        if scopes.contains(&Scope::ReadAll) && scopes.contains(&Scope::WriteVens) {
+            roles.push(AuthRole::VenManager);
+        }
+
+        if scopes.contains(&Scope::ReadAll) && scopes.contains(&Scope::WriteReports) {
+            roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
+        }
+
+        if scopes.contains(&Scope::ReadAll)
+            && scopes.contains(&Scope::WritePrograms)
+            && scopes.contains(&Scope::WriteEvents)
+        {
+            roles.push(AuthRole::AnyBusiness);
+        }
+
+        roles
+    }
+
+    fn map_scope_roles_to_internal_roles(&self) -> Vec<AuthRole> {
+        match &self.roles {
+            Some(RolesOrScopes::Scopes(scope_list)) => Self::scopes_to_roles(scope_list),
+            _ => vec![],
+        }
+    }
+
     fn map_scope_to_roles(&self) -> Vec<AuthRole> {
-        let mut roles: Vec<AuthRole> = Vec::new();
         match &self.scope {
-            None => roles,
-            Some(s) => {
-                // If ReadAll && WriteVens -> VenManager
-                if s.scopes.iter().any(|r| r == &Scope::ReadAll)
-                    && s.scopes.iter().any(|r| r == &Scope::WriteVens)
-                {
-                    roles.push(AuthRole::VenManager);
-                }
-
-                // If ReadAll && WriteReports -> Ven("anonymous")
-                if s.scopes.iter().any(|r| r == &Scope::ReadAll)
-                    && s.scopes.iter().any(|r| r == &Scope::WriteReports)
-                {
-                    roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
-                }
-
-                // If ReadAll && WritePrograms && WriteEvents -> AnyBusiness
-                if s.scopes.iter().any(|r| r == &Scope::ReadAll)
-                    && s.scopes.iter().any(|r| r == &Scope::WritePrograms)
-                    && s.scopes.iter().any(|r| r == &Scope::WriteEvents)
-                {
-                    roles.push(AuthRole::AnyBusiness);
-                }
-
-                roles
-            }
+            None => vec![],
+            Some(s) => Self::scopes_to_roles(&s.scopes),
         }
     }
 }
@@ -244,14 +276,29 @@ impl TryFrom<InitialClaims> for Claims {
                 })
             }
 
-            // otherwise ignore scope and use
-            // the given roles
-            Some(roles) => Ok(Claims {
+            // otherwise ignore scope and use the roles claim.
+            // The roles claim can be one of two types:
+            // 1. The internal auth roles from OpenLEADR
+            // 2. The standard list of oadr scopes, similar to the scopes claim.
+            // Reason 2 exists since Entra ID does not allow setting the scope claim
+            // for machine to machine authentication, forcing the usage of the roles claim.
+            // To ensure a wide range of compatibility with auth providers, both are supported here.
+            Some(RolesOrScopes::AuthRoles(roles)) => Ok(Claims {
                 roles,
                 exp: initial.exp,
                 nbf: initial.nbf,
                 sub: initial.sub,
             }),
+
+            Some(RolesOrScopes::Scopes(_)) => {
+                let roles = initial.map_scope_roles_to_internal_roles();
+                Ok(Claims {
+                    roles,
+                    exp: initial.exp,
+                    nbf: initial.nbf,
+                    sub: initial.sub,
+                })
+            }
         }
     }
 }
@@ -461,8 +508,12 @@ impl JwtManager {
                     .expect("Could not parse RSA key from OAUTH_JWKS_LOCATION");
 
                 for key in rsa_keys.keys {
-                    if key.kty == OAuthKeyType::Rsa && self.validation.algorithms.contains(&key.alg)
-                    {
+                    let should_add = match &key.alg {
+                        Some(alg) => self.validation.algorithms.contains(alg),
+                        None => true, // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
+                    };
+
+                    if key.kty == OAuthKeyType::Rsa && should_add {
                         keys.push(
                             DecodingKey::from_rsa_components(&key.n, &key.e)
                                 .expect("Cannot read RSA key"),
@@ -481,8 +532,12 @@ impl JwtManager {
                     .expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
 
                 for key in ec_keys.keys {
-                    if key.kty == OAuthKeyType::Ec && self.validation.algorithms.contains(&key.alg)
-                    {
+                    let should_add = match &key.alg {
+                        Some(alg) => self.validation.algorithms.contains(alg),
+                        None => true, // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
+                    };
+
+                    if key.kty == OAuthKeyType::Ec && should_add {
                         keys.push(
                             DecodingKey::from_ec_components(&key.x, &key.y)
                                 .expect("Cannot read EC key"),
@@ -501,8 +556,12 @@ impl JwtManager {
                     .expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
 
                 for key in ed_keys.keys {
-                    if key.kty == OAuthKeyType::Ed && self.validation.algorithms.contains(&key.alg)
-                    {
+                    let should_add = match &key.alg {
+                        Some(alg) => self.validation.algorithms.contains(alg),
+                        None => true, // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
+                    };
+
+                    if key.kty == OAuthKeyType::Ed && should_add {
                         keys.push(
                             DecodingKey::from_ed_components(&key.x).expect("Cannot read Ed key"),
                         );
@@ -623,7 +682,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use crate::jwt::{AuthRole, Claims, InitialClaims, Scope, Scopes, VenId};
+    use crate::jwt::{AuthRole, Claims, InitialClaims, RolesOrScopes, Scope, Scopes, VenId};
 
     #[test]
     fn test_no_roles_no_scope_into_claims() {
@@ -645,7 +704,10 @@ mod tests {
             exp: 10,
             nbf: 10,
             sub: "test".to_string(),
-            roles: Some(vec![AuthRole::AnyBusiness, AuthRole::VenManager]),
+            roles: Some(RolesOrScopes::AuthRoles(vec![
+                AuthRole::AnyBusiness,
+                AuthRole::VenManager,
+            ])),
             scope: None,
         };
 
@@ -668,7 +730,7 @@ mod tests {
             exp: 10,
             nbf: 10,
             sub: "test".to_string(),
-            roles: Some(vec![AuthRole::AnyBusiness]),
+            roles: Some(RolesOrScopes::AuthRoles(vec![AuthRole::AnyBusiness])),
             scope: Some(Scopes {
                 scopes: vec![Scope::ReadAll, Scope::WriteVens],
             }),
@@ -777,6 +839,79 @@ mod tests {
         assert_eq!(
             values.roles,
             vec![AuthRole::VenManager, AuthRole::AnyBusiness]
+        );
+    }
+
+    #[test]
+    fn test_oadr_roles_into_any_business_role() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: Some(RolesOrScopes::Scopes(vec![
+                Scope::ReadAll,
+                Scope::WritePrograms,
+                Scope::WriteEvents,
+            ])),
+            scope: None,
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(values.roles, vec![AuthRole::AnyBusiness]);
+    }
+
+    #[test]
+    fn test_oadr_roles_into_ven_manager_role() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: Some(RolesOrScopes::Scopes(vec![
+                Scope::ReadAll,
+                Scope::WriteVens,
+            ])),
+            scope: None,
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(values.roles, vec![AuthRole::VenManager]);
+    }
+
+    #[test]
+    fn test_oadr_roles_into_anonymous_ven_role() {
+        let initial = InitialClaims {
+            exp: 10,
+            nbf: 10,
+            sub: "test".to_string(),
+            roles: Some(RolesOrScopes::Scopes(vec![
+                Scope::ReadAll,
+                Scope::WriteReports,
+            ])),
+            scope: None,
+        };
+
+        let claims: Result<Claims, _> = initial.clone().try_into();
+        assert!(claims.is_ok());
+
+        let values = claims.unwrap();
+        assert_eq!(values.exp, initial.exp);
+        assert_eq!(values.nbf, initial.nbf);
+        assert_eq!(values.sub, initial.sub);
+        assert_eq!(
+            values.roles,
+            vec![AuthRole::VEN(VenId::new("anonymous").unwrap())]
         );
     }
 }
