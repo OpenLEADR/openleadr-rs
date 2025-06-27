@@ -19,7 +19,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use openleadr_wire::ven::VenId;
 use tracing::trace;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::env;
 
 pub struct JwtManager {
@@ -91,6 +91,25 @@ mod opt_algorithm_def {
     }
 }
 
+fn deserialize_vec_skipping_invalid<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    // Deserialize as Vec<Value> first
+    let raw_vec: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+
+    // Try to deserialize each element into T, skipping errors
+    let mut result = Vec::new();
+    for val in raw_vec {
+        if let Ok(item) = serde_json::from_value(val) {
+            result.push(item);
+        }
+        // else: ignore invalid items silently
+    }
+    Ok(result)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(PartialOrd, Ord))]
 pub enum Scope {
@@ -118,6 +137,7 @@ struct RsaKey {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct RsaKeys {
+    #[serde(deserialize_with = "deserialize_vec_skipping_invalid")]
     keys: Vec<RsaKey>,
 }
 
@@ -134,6 +154,7 @@ struct EcKey {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct EcKeys {
+    #[serde(deserialize_with = "deserialize_vec_skipping_invalid")]
     keys: Vec<EcKey>,
 }
 
@@ -149,6 +170,7 @@ struct EdKey {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct EdKeys {
+    #[serde(deserialize_with = "deserialize_vec_skipping_invalid")]
     keys: Vec<EdKey>,
 }
 
