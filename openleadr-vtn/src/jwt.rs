@@ -17,7 +17,7 @@ use axum_extra::{
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use openleadr_wire::ven::VenId;
-use tracing::trace;
+use tracing::{trace, warn};
 
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::env;
@@ -102,10 +102,10 @@ where
     // Try to deserialize each element into T, skipping errors
     let mut result = Vec::new();
     for val in raw_vec {
-        if let Ok(item) = serde_json::from_value(val) {
-            result.push(item);
+        match serde_json::from_value(val) {
+            Ok(item) => result.push(item),
+            Err(err) => warn!("Ignoring invalid JWK: {err:?}"),
         }
-        // else: ignore invalid items silently
     }
     Ok(result)
 }
@@ -703,7 +703,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use crate::jwt::{AuthRole, Claims, InitialClaims, RolesOrScopes, Scope, Scopes, VenId};
 
     #[test]
