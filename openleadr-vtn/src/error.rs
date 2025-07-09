@@ -303,8 +303,8 @@ impl AppError {
                 );
                 Problem {
                     r#type: Default::default(),
-                    title: Some(StatusCode::BAD_REQUEST.to_string()),
-                    status: StatusCode::BAD_REQUEST,
+                    title: Some(StatusCode::CONFLICT.to_string()),
+                    status: StatusCode::CONFLICT,
                     detail: Some(err.to_string()),
                     instance: Some(reference.to_string()),
                 }
