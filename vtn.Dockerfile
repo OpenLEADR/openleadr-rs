@@ -28,10 +28,12 @@ RUN addgroup -g ${gid} ${group} && \
 
 EXPOSE 3000
 
+WORKDIR /dist
+
 # get the pre-built binary from builder so that we don't have to re-build every time
-COPY --from=1 --chown=nonroot:nonroot /app/openleadr-vtn/openleadr-vtn /home/nonroot/openleadr-vtn
-RUN chmod 777 /home/nonroot/openleadr-vtn
+COPY --from=builder --chown=nonroot:nonroot /app/openleadr-vtn/openleadr-vtn /dist/openleadr-vtn
+RUN chmod 777 /dist/openleadr-vtn
 
 USER $user
 
-ENTRYPOINT ["./home/nonroot/openleadr-vtn"]
+ENTRYPOINT ["/dist/openleadr-vtn"]
