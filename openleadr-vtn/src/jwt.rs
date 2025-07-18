@@ -123,6 +123,8 @@ pub enum Scope {
     WriteEvents,
     #[serde(rename = "write_vens")]
     WriteVens,
+    #[serde(untagged)]
+    UnknownScope(String),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
