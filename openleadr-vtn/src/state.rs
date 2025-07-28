@@ -151,6 +151,7 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     });
 
     let mut validation = Validation::default();
+    validation.validate_nbf = true;
     validation.algorithms =
         signing_algorithms_from_key_type(&key_type.unwrap_or(OAuthKeyType::Hmac));
     validation.set_audience(&valid_audiences);
@@ -172,6 +173,7 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     let mut validation = Validation::default();
     validation.algorithms = signing_algorithms_from_key_type(&key_type);
     validation.set_audience(&valid_audiences);
+    validation.validate_nbf = true;
 
     let oauth_jwks_location = env::var("OAUTH_JWKS_LOCATION");
     let oauth_keyfile = env::var("OAUTH_PEM");

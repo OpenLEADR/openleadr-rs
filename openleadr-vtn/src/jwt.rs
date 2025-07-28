@@ -179,7 +179,7 @@ struct EdKeys {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Claims {
     exp: usize,
-    nbf: usize,
+    nbf: Option<usize>,
     pub(crate) sub: String,
     pub(crate) roles: Vec<AuthRole>,
 }
@@ -187,7 +187,7 @@ pub(crate) struct Claims {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct InitialClaims {
     exp: usize,
-    nbf: usize,
+    nbf: Option<usize>,
     sub: String,
     #[serde(default)]
     // Allow the roles claim to either contain the internal roles structure of OpenLEADR
@@ -333,7 +333,7 @@ impl Claims {
     pub(crate) fn new(roles: Vec<AuthRole>) -> Self {
         Self {
             exp: 0,
-            nbf: 0,
+            nbf: Some(0),
             sub: "".to_string(),
             roles,
         }
@@ -449,7 +449,7 @@ impl JwtManager {
 
         let claims = Claims {
             exp: exp.timestamp() as usize,
-            nbf: now.timestamp() as usize,
+            nbf: Some(now.timestamp() as usize),
             sub: client_id,
             roles,
         };
@@ -711,7 +711,7 @@ mod tests {
     fn test_no_roles_no_scope_into_claims() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: None,
             scope: None,
@@ -725,7 +725,7 @@ mod tests {
     fn test_initial_roles_into_claims() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: Some(RolesOrScopes::AuthRoles(vec![
                 AuthRole::AnyBusiness,
@@ -751,7 +751,7 @@ mod tests {
     fn test_scope_ignored_if_roles_present() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: Some(RolesOrScopes::AuthRoles(vec![AuthRole::AnyBusiness])),
             scope: Some(Scopes {
@@ -770,7 +770,7 @@ mod tests {
     fn test_scope_into_any_business_role() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: None,
             scope: Some(Scopes {
@@ -792,7 +792,7 @@ mod tests {
     fn test_scope_into_ven_manager_role() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: None,
             scope: Some(Scopes {
@@ -814,7 +814,7 @@ mod tests {
     fn test_scope_into_anonymous_ven_role() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: None,
             scope: Some(Scopes {
@@ -839,7 +839,7 @@ mod tests {
     fn test_scope_into_multiple_roles() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: None,
             scope: Some(Scopes {
@@ -869,7 +869,7 @@ mod tests {
     fn test_oadr_roles_into_any_business_role() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: Some(RolesOrScopes::Scopes(vec![
                 Scope::ReadAll,
@@ -893,7 +893,7 @@ mod tests {
     fn test_oadr_roles_into_ven_manager_role() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: Some(RolesOrScopes::Scopes(vec![
                 Scope::ReadAll,
@@ -916,7 +916,7 @@ mod tests {
     fn test_oadr_roles_into_anonymous_ven_role() {
         let initial = InitialClaims {
             exp: 10,
-            nbf: 10,
+            nbf: Some(10),
             sub: "test".to_string(),
             roles: Some(RolesOrScopes::Scopes(vec![
                 Scope::ReadAll,
