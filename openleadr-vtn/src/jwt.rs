@@ -474,10 +474,9 @@ impl JwtManager {
                     jsonwebtoken::decode::<InitialClaims>(token, key, &self.validation)?;
                 token_data.claims.try_into()
             }
-
             None => {
-                // Fetch server keys
-                let keys = self.fetch_keys().await;
+                // Fetch server keys with kid references
+                let keys = self.fetch_keys_with_kid().await;
 
                 if keys.is_empty() {
                     return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
@@ -487,22 +486,34 @@ impl JwtManager {
                         .into());
                 }
 
-                for decoding_key in keys {
-                    // Go through the list of known decoding keys and try to validate and decode the token
+                for (kid, decoding_key) in keys.iter() {
+                    let key_ref = kid.as_deref().unwrap_or("no_kid");
+
                     let token_data = jsonwebtoken::decode::<InitialClaims>(
                         token,
-                        &decoding_key,
+                        decoding_key,
                         &self.validation,
                     );
 
                     match token_data {
-                        Result::Ok(data) => {
+                        Ok(data) => {
                             return data.claims.try_into();
                         }
-
-                        // Otherwise ignore and try next key
-                        Err(_) => {
-                            trace!("Signature failed");
+                        Err(e) => {
+                            use jsonwebtoken::errors::ErrorKind;
+                            match e.kind() {
+                                ErrorKind::InvalidSignature => {
+                                    tracing::warn!("JWT signature failed for kid={}: {e}", key_ref);
+                                    // In case of invalid signature, try next key
+                                }
+                                _ => {
+                                    tracing::error!("JWT validation failed for kid={}: {e}", key_ref);
+                                    // Stop trying, return error
+                                    return Err(OAuthError::new(OAuthErrorType::InvalidGrant)
+                                        .with_description(format!("JWT validation failed: {e}"))
+                                        .into());
+                                }
+                            }
                         }
                     }
                 }
@@ -515,7 +526,7 @@ impl JwtManager {
     }
 
     /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
-    pub async fn fetch_keys(&self) -> Vec<DecodingKey> {
+    pub async fn fetch_keys_with_kid(&self) -> Vec<(Option<String>, DecodingKey)> {
         let mut keys = Vec::new();
         let key_type: OAuthKeyType = env::var("OAUTH_KEY_TYPE").ok().map(|k| k.parse().expect("Invalid value for OAUTH_KEY_TYPE environment variable. Allowed are HMAC, RSA, EC, and ED.")).unwrap();
 
@@ -538,10 +549,11 @@ impl JwtManager {
                     };
 
                     if key.kty == OAuthKeyType::Rsa && should_add {
-                        keys.push(
+                        keys.push((
+                            Some(key.kid.clone()),
                             DecodingKey::from_rsa_components(&key.n, &key.e)
                                 .expect("Cannot read RSA key"),
-                        );
+                        ));
                     }
                 }
             }
@@ -562,10 +574,11 @@ impl JwtManager {
                     };
 
                     if key.kty == OAuthKeyType::Ec && should_add {
-                        keys.push(
+                        keys.push((
+                            Some(key.kid.clone()),
                             DecodingKey::from_ec_components(&key.x, &key.y)
                                 .expect("Cannot read EC key"),
-                        );
+                        ));
                     }
                 }
             }
@@ -586,9 +599,10 @@ impl JwtManager {
                     };
 
                     if key.kty == OAuthKeyType::Ed && should_add {
-                        keys.push(
+                        keys.push((
+                            Some(key.kid.clone()),
                             DecodingKey::from_ed_components(&key.x).expect("Cannot read Ed key"),
-                        );
+                        ));
                     }
                 }
             }
