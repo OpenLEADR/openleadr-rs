@@ -507,7 +507,10 @@ impl JwtManager {
                                     // In case of invalid signature, try next key
                                 }
                                 _ => {
-                                    tracing::error!("JWT validation failed for kid={}: {e}", key_ref);
+                                    tracing::error!(
+                                        "JWT validation failed for kid={}: {e}",
+                                        key_ref
+                                    );
                                     // Stop trying, return error
                                     return Err(OAuthError::new(OAuthErrorType::InvalidGrant)
                                         .with_description(format!("JWT validation failed: {e}"))
