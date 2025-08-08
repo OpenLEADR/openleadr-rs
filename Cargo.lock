@@ -1406,7 +1406,7 @@ checksum = "d75b0bedcc4fe52caa0e03d9f1151a323e4aa5e2d78ba3580400cd3c9e2bc4bc"
 
 [[package]]
 name = "openleadr-client"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "async-trait",
  "axum",
@@ -1432,7 +1432,7 @@ dependencies = [
 
 [[package]]
 name = "openleadr-vtn"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "openleadr-wire"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "chrono",
  "http",
