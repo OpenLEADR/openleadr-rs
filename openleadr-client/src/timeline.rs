@@ -143,7 +143,7 @@ impl Timeline {
     pub fn at_datetime(
         &self,
         datetime: &DateTime<Utc>,
-    ) -> Option<(&Range<DateTime<Utc>>, Interval)> {
+    ) -> Option<(&Range<DateTime<Utc>>, Interval<'_>)> {
         let (range, internal_interval) = self.data.get_key_value(datetime)?;
 
         let interval = Interval {
