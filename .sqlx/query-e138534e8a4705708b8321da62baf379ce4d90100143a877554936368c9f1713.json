@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT\n                r.id AS \"id!\", \n                r.created_date_time AS \"created_date_time!\", \n                r.modification_date_time AS \"modification_date_time!\",\n                r.resource_name AS \"resource_name!\",\n                r.ven_id AS \"ven_id!\",\n                r.attributes,\n                r.targets\n            FROM resource r\n              LEFT JOIN LATERAL ( \n                  \n                    SELECT targets.r_id,\n                           (t ->> 'type' = $3) AND\n                           (t -> 'values' ?| $4) AS target_test\n                    FROM (SELECT resource.id                            AS r_id,\n                                 jsonb_array_elements(resource.targets) AS t\n                          FROM resource) AS targets\n                  \n                   )\n                  ON r.id = r_id\n            WHERE r.ven_id = $1\n                AND ($2::text IS NULL OR r.resource_name = $2)\n                AND ($3 IS NULL OR $4 IS NULL OR target_test)\n            ORDER BY r.created_date_time\n            OFFSET $5 LIMIT $6\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ven_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "targets",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "e138534e8a4705708b8321da62baf379ce4d90100143a877554936368c9f1713"
+}

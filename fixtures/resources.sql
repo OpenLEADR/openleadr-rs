@@ -17,6 +17,12 @@ VALUES ('resource-1',
             "values": [
               "group-1"
             ]
+          },
+          {
+            "type": "POWER_SERVICE_LOCATION",
+            "values": [
+              "somewhere in the nowhere"
+            ]
           }
         ]'),
        ('resource-2',

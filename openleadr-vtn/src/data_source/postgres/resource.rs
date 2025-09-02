@@ -161,7 +161,7 @@ impl VenScopedCrud for PgResourceStorage {
         let res = sqlx::query_as!(
             PostgresResource,
             r#"
-            SELECT
+            SELECT DISTINCT
                 r.id AS "id!", 
                 r.created_date_time AS "created_date_time!", 
                 r.modification_date_time AS "modification_date_time!",
