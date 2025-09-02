@@ -63,9 +63,9 @@ Currently, real-time updates via the webhook mechanism, known as subscriptions i
 While we currently do not plan to add this ourselves, we warmly welcome any contribution or sponsoring to add it.
 See the [Contributing section](#contributing) if you are interested.
 
-At the moment, the VTN implements its own OAuth provider,
-but we plan to allow for a third-party OAuth provider as well,
-see [#26](https://github.com/openLEADR/openleadr-rs/issues/26).
+The VTN implements its own OAuth provider, which is mainly relevant for testing and prototyping.
+Besides that, the VTN can also be configured to use a third-party OAuth provider,
+see the [documentation](./openleadr-vtn/README.md#internal-vs-external-oauth-provider) for details.
 
 The client and server do support creating, retrieving, updating,
 and deleting programs, events, reports, VENs, and resources.
