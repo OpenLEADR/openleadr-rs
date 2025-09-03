@@ -4,7 +4,9 @@ use crate::{
     error::{Error, Result},
     ClientRef, ReportClient,
 };
-use openleadr_wire::{event::EventContent, report::ReportContent, Event, Report};
+use openleadr_wire::event::EventRequest;
+use openleadr_wire::report::ReportRequest;
+use openleadr_wire::{Event, Report};
 
 /// Client to manage the data of a specific event and the reports contained in that event
 ///
@@ -55,14 +57,14 @@ impl EventClient {
     }
 
     /// Read the data of the event
-    pub fn content(&self) -> &EventContent {
+    pub fn content(&self) -> &EventRequest {
         &self.data.content
     }
 
     /// Modify the data of the event.
     /// Make sure to call [`update`](Self::update)
     /// after your modifications to store them on the VTN
-    pub fn content_mut(&mut self) -> &mut EventContent {
+    pub fn content_mut(&mut self) -> &mut EventRequest {
         &mut self.data.content
     }
 
@@ -82,9 +84,8 @@ impl EventClient {
     }
 
     /// Create a new report object
-    pub fn new_report(&self, client_name: String) -> ReportContent {
-        ReportContent {
-            program_id: self.content().program_id.clone(),
+    pub fn new_report(&self, client_name: String) -> ReportRequest {
+        ReportRequest {
             event_id: self.id().clone(),
             client_name,
             report_name: None,
@@ -96,11 +97,7 @@ impl EventClient {
     /// Create a new report on the VTN.
     /// The content should be created with [`EventClient::new_report`]
     /// to automatically insert the correct program ID and event ID
-    pub async fn create_report(&self, report_data: ReportContent) -> Result<ReportClient> {
-        if report_data.program_id != self.content().program_id {
-            return Err(Error::InvalidParentObject);
-        }
-
+    pub async fn create_report(&self, report_data: ReportRequest) -> Result<ReportClient> {
         if &report_data.event_id != self.id() {
             return Err(Error::InvalidParentObject);
         }
