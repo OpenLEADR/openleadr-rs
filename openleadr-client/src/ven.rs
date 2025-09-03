@@ -1,8 +1,9 @@
 use crate::{resource::ResourceClient, ClientRef, Error, Result};
 use chrono::{DateTime, Utc};
+use openleadr_wire::ven::BlVenRequest;
 use openleadr_wire::{
-    resource::{Resource, ResourceContent, ResourceId},
-    ven::{VenContent, VenId},
+    resource::{Resource, ResourceId, ResourceRequest},
+    ven::VenId,
     Ven,
 };
 use std::sync::Arc;
@@ -35,14 +36,14 @@ impl VenClient {
     }
 
     /// Read the content of the VEN
-    pub fn content(&self) -> &VenContent {
+    pub fn content(&self) -> &BlVenRequest {
         &self.data.content
     }
 
     /// Modify the content of the VEN.
     /// Make sure to call [`update`](Self::update)
     /// after your modifications to store them on the VTN.
-    pub fn content_mut(&mut self) -> &mut VenContent {
+    pub fn content_mut(&mut self) -> &mut BlVenRequest {
         &mut self.data.content
     }
 
@@ -65,7 +66,7 @@ impl VenClient {
     }
 
     /// Create a resource as a child of this VEN
-    pub async fn create_resource(&self, resource: ResourceContent) -> Result<ResourceClient> {
+    pub async fn create_resource(&self, resource: ResourceRequest) -> Result<ResourceClient> {
         let resource = self
             .client
             .post(&format!("vens/{}/resources", self.id()), &resource)

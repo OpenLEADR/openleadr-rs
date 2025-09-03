@@ -1,7 +1,7 @@
 use crate::{ClientRef, Result};
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    resource::{Resource, ResourceContent, ResourceId},
+    resource::{BlResourceRequest, Resource, ResourceId},
     ven::VenId,
 };
 use std::sync::Arc;
@@ -43,14 +43,14 @@ impl ResourceClient {
     }
 
     /// Read the content of the resource
-    pub fn content(&self) -> &ResourceContent {
+    pub fn content(&self) -> &BlResourceRequest {
         &self.data.content
     }
 
     /// Modify the data of the resource.
     /// Make sure to call [`update`](Self::update)
     /// after your modifications to store them on the VTN.
-    pub fn content_mut(&mut self) -> &mut ResourceContent {
+    pub fn content_mut(&mut self) -> &mut BlResourceRequest {
         &mut self.data.content
     }
 
