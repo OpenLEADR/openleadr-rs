@@ -1,5 +1,5 @@
 use openleadr_client::ClientCredentials;
-use openleadr_wire::program::ProgramContent;
+use openleadr_wire::program::ProgramRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )),
     );
 
-    let _created_program = client.create_program(ProgramContent::new("name")).await?;
+    let _created_program = client.create_program(ProgramRequest::new("name")).await?;
     // let created_program_1 = client.create_program(ProgramContent::new("name1")).await?;
     // let program = client.get_program_by_name("name").await?;
     // let created_event = program
