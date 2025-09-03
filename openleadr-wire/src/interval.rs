@@ -12,7 +12,7 @@ use serde_with::skip_serializing_none;
 pub struct Interval {
     /// A client generated number assigned an interval object. Not a sequence number.
     pub id: i32,
-    /// Defines default start and durations of intervals.
+    /// Defines start and durations of intervals.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interval_period: Option<IntervalPeriod>,
     /// A list of valuesMap objects.
@@ -29,14 +29,18 @@ impl Interval {
     }
 }
 
-/// Defines temporal aspects of intervals. A duration of default null indicates infinity. A
-/// randomizeStart of default null indicates no randomization.
+/// Defines temporal aspects of intervals.
+///
+/// A start of "0001-01-01" or "0001-01-01T00:00:00" may indicate 'now'. See User Guide.
+/// A duration of "P9999Y" may indicate infinity. See User Guide.
+/// A randomizeStart indicates absolute range of client applied offset to start. See User Guide.
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntervalPeriod {
     /// The start time of an interval or set of intervals.
     #[serde(with = "crate::serde_rfc3339")]
+    // FIXME field not required
     pub start: DateTime<Utc>,
     /// The duration of an interval or set of intervals.
     pub duration: Option<Duration>,

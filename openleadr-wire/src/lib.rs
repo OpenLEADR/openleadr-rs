@@ -343,6 +343,26 @@ pub enum Unit {
     Private(String),
 }
 
+// example: 249rj49jiej
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+pub struct ClientId(pub(crate) Identifier);
+
+impl Display for ClientId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl ClientId {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub fn new(identifier: &str) -> Option<Self> {
+        Some(Self(identifier.parse().ok()?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Attribute, DataQuality, Identifier, OperatingState, Unit};
