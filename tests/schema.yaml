@@ -14,79 +14,31 @@ properties:
 
 components:
   schemas:
+    # examples are provided at the element level to aid readability and to support Reference Implementation UI
     program:
       type: object
-      description: Provides program specific metadata from VTN to VEN.
+      description: Server provided representation of program
+      allOf:
+        - $ref: '#/components/schemas/objectMetadata'
+        - $ref: '#/components/schemas/programRequest'
+    programRequest:
+      type: object
+      description: Client provided description of program
       required:
         - programName
       properties:
-        id:
-          $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation.
-        createdDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object creation.
-        modificationDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object modification.
-        objectType:
-          type: string
-          description: Used as discriminator, e.g. notification.object
-          enum: [ PROGRAM ]
-          # VTN provisioned on object creation.
         programName:
           type: string
           description: Short name to uniquely identify program.
           minLength: 1
           maxLength: 128
           example: ResTOU
-        programLongName:
-          type: string
-          description: Long name of program for human readability.
-          example: Residential Time of Use-A
-          nullable: true
-          default: null
-        retailerName:
-          type: string
-          description: Short name of energy retailer providing the program.
-          example: ACME
-          nullable: true
-          default: null
-        retailerLongName:
-          type: string
-          description: Long name of energy retailer for human readability.
-          example: ACME Electric Inc.
-          nullable: true
-          default: null
-        programType:
-          type: string
-          description: A program defined categorization.
-          example: PRICING_TARIFF
-          nullable: true
-          default: null
-        country:
-          type: string
-          description: Alpha-2 code per ISO 3166-1.
-          example: US
-          nullable: true
-          default: null
-        principalSubdivision:
-          type: string
-          description: Coding per ISO 3166-2. E.g. state in US.
-          example: CO
-          nullable: true
-          default: null
-        timeZoneOffset:
-          $ref: '#/components/schemas/duration'
-          # Number of hours different from UTC for the standard time applicable to the program.
         intervalPeriod:
+          # The temporal span of the program, which could be years-long.
           $ref: '#/components/schemas/intervalPeriod'
-          # The temporal span of the program, could be years long.
         programDescriptions:
           type: array
           description: A list of programDescriptions
-          nullable: true
-          default: null
           items:
             required:
               - URL
@@ -94,23 +46,18 @@ components:
               URL:
                 type: string
                 format: uri
+                minLength: 2 # see https://www.rfc-editor.org/rfc/rfc3986#appendix-A
+                maxLength: 8000
+                # see https://www.rfc-editor.org/rfc/rfc7230#section-3.1.1
+                # see https://www.rfc-editor.org/rfc/rfc9110#section-4.1-5
+                # see also: https://stackoverflow.com/a/417184/6571327
                 description: A human or machine readable program description
-                example: www.myCorporation.com/myProgramDescription
-        bindingEvents:
-          type: boolean
-          description: True if events are fixed once transmitted.
-          example: false
-          default: false
-        localPrice:
-          type: boolean
-          description: True if events have been adapted from a grid event.
-          example: false
-          default: false
+                example: https://www.myCorporation.com/myProgramDescription
+          nullable: true
+          default: null
         payloadDescriptors:
           type: array
           description: A list of payloadDescriptors.
-          nullable: true
-          default: null
           items:
             anyOf:
               - $ref: '#/components/schemas/eventPayloadDescriptor'
@@ -119,6 +66,9 @@ components:
               propertyName: objectType
           nullable: true
           default: null
+        attributes:
+          type: array
+          description: A list of valuesMap objects describing attributes.
           items:
             $ref: '#/components/schemas/valuesMap'
           nullable: true
@@ -132,39 +82,30 @@ components:
           default: null
     report:
       type: object
+      description: Server provided representation of report
+      allOf:
+        - $ref: '#/components/schemas/objectMetadata'
+        - $ref: '#/components/schemas/reportRequest'
+        - type: object
+          required:
+            - clientID
+          properties:
+            clientID:
+              $ref: '#/components/schemas/clientID'
+    reportRequest:
+      type: object
       description: report object.
       required:
-        - programID
         - eventID
         - clientName
         - resources
       properties:
-        id:
-          $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation.
-        createdDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object creation.
-        modificationDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object modification.
-        objectType:
-          type: string
-          description: Used as discriminator, e.g. notification.object
-          enum: [ REPORT ]
-          # VTN provisioned on object creation.
-        programID:
-          $ref: '#/components/schemas/objectID'
-          # ID attribute of program object this report is associated with.
         eventID:
+          # ID attribute of the event object this report is associated with.
           $ref: '#/components/schemas/objectID'
-          # ID attribute of event object this report is associated with.
         clientName:
-          type: string
-          description: User generated identifier; may be VEN ID provisioned during program enrollment.
-          minLength: 1
-          maxLength: 128
-          example: VEN-999
+          # User generated identifier; may be VEN ID provisioned out-of-band.
+          $ref: '#/components/schemas/clientName'
         reportName:
           type: string
           description: User defined string for use in debugging or User Interface.
@@ -172,13 +113,13 @@ components:
           nullable: true
           default: null
         payloadDescriptors:
+          # An optional list of objects that provide context to payload types.
           type: array
           description: A list of reportPayloadDescriptors.
-          nullable: true
-          default: null
           items:
             $ref: '#/components/schemas/reportPayloadDescriptor'
-          # An optional list of objects that provide context to payload types.
+          nullable: true
+          default: null
         resources:
           type: array
           description: A list of objects containing report data for a set of resources.
@@ -190,14 +131,10 @@ components:
               - intervals
             properties:
               resourceName:
-                type: string
-                minLength: 1
-                maxLength: 128
-                description: User generated identifier. A value of AGGREGATED_REPORT indicates an aggregation of more that one resource's data
-                example: RESOURCE-999
+                $ref: '#/components/schemas/resourceName'
               intervalPeriod:
-                $ref: '#/components/schemas/intervalPeriod'
                 # Defines default start and durations of intervals.
+                $ref: '#/components/schemas/intervalPeriod'
               intervals:
                 type: array
                 description: A list of interval objects.
@@ -205,36 +142,30 @@ components:
                   $ref: '#/components/schemas/interval'
     event:
       type: object
+      description: Server provided representation of event
+      allOf:
+        - $ref: '#/components/schemas/objectMetadata'
+        - $ref: '#/components/schemas/eventRequest'
+    eventRequest:
+      type: object
       description: |
         Event object to communicate a Demand Response request to VEN.
-        If intervalPeriod is present, sets start time and duration of intervals.
+        If intervalPeriod is present, sets default start time and duration of intervals.
       required:
         - programID
-        - intervals
       properties:
-        id:
-          $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation.
-        createdDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object creation.
-        modificationDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object modification.
-        objectType:
-          type: string
-          description: Used as discriminator, e.g. notification.object
-          enum: [ EVENT ]
-          # VTN provisioned on object creation.
         programID:
+          # ID attribute of the program object this event is associated with.
           $ref: '#/components/schemas/objectID'
-          # ID attribute of program object this event is associated with.
         eventName:
           type: string
           description: User defined string for use in debugging or User Interface.
           example: price event 11-18-2022
           nullable: true
           default: null
+        duration:
+          #  Optional duration of event. May be used to loop intervals. See User Guide.
+          $ref: '#/components/schemas/duration'
         priority:
           type: integer
           minimum: 0
@@ -252,20 +183,20 @@ components:
         reportDescriptors:
           type: array
           description: A list of reportDescriptor objects. Used to request reports from VEN.
-          nullable: true
-          default: null
           items:
             $ref: '#/components/schemas/reportDescriptor'
+          nullable: true
+          default: null
         payloadDescriptors:
           type: array
           description: A list of payloadDescriptor objects.
-          nullable: true
-          default: null
           items:
             $ref: '#/components/schemas/eventPayloadDescriptor'
+          nullable: true
+          default: null
         intervalPeriod:
-          $ref: '#/components/schemas/intervalPeriod'
           # Defines default start and durations of intervals.
+          $ref: '#/components/schemas/intervalPeriod'
         intervals:
           type: array
           description: A list of interval objects.
@@ -273,38 +204,32 @@ components:
             $ref: '#/components/schemas/interval'
     subscription:
       type: object
+      description: Server provided representation of subscription
+      allOf:
+        - $ref: '#/components/schemas/objectMetadata'
+        - $ref: '#/components/schemas/subscriptionRequest'
+        - type: object
+          required:
+            - clientID
+          properties:
+            clientID:
+              $ref: '#/components/schemas/clientID'
+    subscriptionRequest:
+      type: object
       description: |
         An object created by a client to receive notification of operations on objects.
         Clients may subscribe to be notified when a type of object is created,
         updated, or deleted.
       required:
         - clientName
-        - programID
         - objectOperations
       properties:
-        id:
-          $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation.
-        createdDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object creation.
-        modificationDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object modification.
-        objectType:
-          type: string
-          description: Used as discriminator, e.g. notification.object
-          enum: [ SUBSCRIPTION ]
-          # VTN provisioned on object creation.
         clientName:
-          type: string
-          description: User generated identifier, may be VEN identifier provisioned during program enrollment.
-          minLength: 1
-          maxLength: 128
-          example: VEN-999
+          # User generated identifier, may be VEN identifier provisioned out-of-band.
+          $ref: '#/components/schemas/clientName'
         programID:
+          # ID attribute of the program object this subscription is associated with.
           $ref: '#/components/schemas/objectID'
-          # ID attribute of program object this subscription is associated with.
         objectOperations:
           type: array
           description: list of objects and operations to subscribe to.
@@ -327,11 +252,13 @@ components:
                 items:
                   type: string
                   description: object operation to subscribe to.
-                  example: POST
-                  enum: [ GET, POST, PUT, DELETE ]
+                  example: CREATE
+                  enum: [READ, CREATE, UPDATE, DELETE]
               callbackUrl:
                 type: string
                 format: uri
+                minLength: 2
+                maxLength: 8000
                 description: User provided webhook URL.
                 example: https://myserver.com/send/callback/here
               bearerToken:
@@ -352,68 +279,94 @@ components:
           default: null
     ven:
       type: object
-      description: Ven represents a client with the ven role.
+      description: Server provided representation of ven
+      allOf:
+        - $ref: '#/components/schemas/objectMetadata'
+        - $ref: '#/components/schemas/BlVenRequest'
+    venRequest:
+      oneOf:
+        - $ref: '#/components/schemas/VenVenRequest'
+        - $ref: '#/components/schemas/BlVenRequest'
+      # discriminator:
+      #   propertyName: objectType
+    BlVenRequest:
+      type: object
+      description: Business Logic provided representation of ven.
       required:
-        - venName
+      - objectType
+      - clientID
+      - venName
       properties:
-        id:
-          $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation.
-        createdDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object creation.
-        modificationDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object modification.
-        objectType:
-          type: string
-          description: Used as discriminator, e.g. notification.object.
-          enum: [ VEN ]
-          # VTN provisioned on object creation.
-        venName:
-          type: string
-          description: User generated identifier, may be VEN identifier provisioned during program enrollment.
-          minLength: 1
-          maxLength: 128
-          example: VEN-999
-        attributes:
-          type: array
-          description: A list of valuesMap objects describing attributes.
-          items:
-            $ref: '#/components/schemas/valuesMap'
-        targets:
-          type: array
-          description: A list of valuesMap objects describing target criteria.
-          items:
-            $ref: '#/components/schemas/valuesMap'
-        resources:
-          type: array
-          description: A list of resource objects representing end-devices or systems.
-          nullable: true
-          default: null
-          items:
-            $ref: '#/components/schemas/resource'
+       objectType:
+         type: string
+         description: Used as discriminator.
+         enum: [ BL_VEN_REQUEST ]
+       clientID:
+          $ref: '#/components/schemas/clientID'
+       targets:
+         type: array
+         description: A list of targets.
+         items:
+           $ref: '#/components/schemas/target'
+         nullable: true
+         default: null          -
+       venName:
+         $ref: '#/components/schemas/venName'
+       attributes:
+         type: array
+         description: A list of valuesMap objects describing attributes.
+         items:
+           $ref: '#/components/schemas/valuesMap'
+         nullable: true
+         default: null
+    VenVenRequest:
+       type: object
+       description: VEN provided representation of ven.
+       required:
+       - objectType
+       - venName
+       properties:
+         objectType:
+           type: string
+           description: Used as discriminator.
+           enum: [ VEN_VEN_REQUEST ]
+         venName:
+           $ref: '#/components/schemas/venName'
+         attributes:
+           type: array
+           description: A list of valuesMap objects describing attributes.
+           items:
+             $ref: '#/components/schemas/valuesMap'
+           nullable: true
+           default: null
     resource:
       type: object
+      description: Server provided representation of resource
+      allOf:
+        - $ref: '#/components/schemas/objectMetadata'
+        - $ref: '#/components/schemas/BlResourceRequest'
+    resourceRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BlResourceRequest'
+        - $ref: '#/components/schemas/VenResourceRequest'
+      # discriminator:
+      #   propertyName: objectType
+    BlResourceRequest:
+      type: object
       description: |
-        A resource is an energy device or system subject to control by a VEN.
+        Business Logic provided representation of ven resource.
       required:
+        - objectType
+        - clientID
         - resourceName
+        - venID
       properties:
-        id:
-          $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation.
-        createdDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object creation.
-        modificationDateTime:
-          $ref: '#/components/schemas/dateTime'
-          #  VTN provisioned on object modification.
         objectType:
           type: string
-          description: Used as discriminator, e.g. notification.object
-          enum: [ RESOURCE ]
-          # VTN provisioned on object creation.
+          description: Used as discriminator.
+          enum: [BL_RESOURCE_REQUEST]
+        clientID:
+          $ref: '#/components/schemas/clientID'
         targets:
           type: array
           description: A list of targets.
@@ -422,24 +375,63 @@ components:
           nullable: true
           default: null
         resourceName:
-          type: string
-          description: User generated identifier, resource may be configured with identifier out-of-band.
-          minLength: 1
-          maxLength: 128
-          example: RESOURCE-999
+          $ref: '#/components/schemas/resourceName'
         venID:
+          # VTN provisioned on object creation based on the path, e.g., POST <>/ven/{venID}/resources.
           $ref: '#/components/schemas/objectID'
-          # VTN provisioned on object creation based on path, e.g. POST <>/ven/{venID}/resources.
         attributes:
           type: array
           description: A list of valuesMap objects describing attributes.
           items:
             $ref: '#/components/schemas/valuesMap'
-        targets:
+          nullable: true
+          default: null
+    VenResourceRequest:
+      type: object
+      description: |
+        Business Logic provided representation of ven resource.
+      required:
+        - objectType
+        - resourceName
+        - venID
+      properties:
+        objectType:
+          type: string
+          description: Used as discriminator.
+          enum: [VEN_RESOURCE_REQUEST]
+        resourceName:
+          $ref: '#/components/schemas/resourceName'
+        venID:
+          # VTN provisioned on object creation based on the path, e.g., POST <>/ven/{venID}/resources.
+          $ref: '#/components/schemas/objectID'
+        attributes:
           type: array
-          description: A list of valuesMap objects describing target criteria.
+          description: A list of valuesMap objects describing attributes.
           items:
             $ref: '#/components/schemas/valuesMap'
+          nullable: true
+          default: null
+    objectMetadata:
+      type: object
+      description: metadata common to all addressable objects. Values provided by VTN on object creation.
+      required:
+        - id
+        - createdDateTime
+        - modificationDateTime
+        - objectType
+      properties:
+        id:
+          # VTN provisioned on object creation.
+          $ref: '#/components/schemas/objectID'
+        createdDateTime:
+          #  VTN provisioned on object creation.
+          $ref: '#/components/schemas/dateTime'
+        modificationDateTime:
+          #  VTN provisioned on object modification.
+          $ref: '#/components/schemas/dateTime'
+        objectType:
+          # VTN provisioned on object creation.
+          $ref: '#/components/schemas/objectTypes'
     interval:
       type: object
       description: |
@@ -450,13 +442,13 @@ components:
         - payloads
       properties:
         id:
-          type: number
+          type: integer
           format: int32
           description: A client generated number assigned an interval object. Not a sequence number.
           example: 0
         intervalPeriod:
+          # Defines start and duration of the interval.
           $ref: '#/components/schemas/intervalPeriod'
-          # Defines default start and durations of intervals.
         payloads:
           type: array
           description: A list of valuesMap objects.
@@ -466,25 +458,25 @@ components:
       type: object
       description: |
         Defines temporal aspects of intervals.
-        A duration of default null indicates infinity.
-        A randomizeStart of default null indicates no randomization.
-      required:
-        - start
+        A start of "0001-01-01" or "0001-01-01T00:00:00" may indicate 'now'. See User Guide.
+        A duration of "P9999Y" may indicate infinity. See User Guide.
+        A randomizeStart indicates absolute range of client applied offset to start. See User Guide.
       properties:
         start:
-          $ref: '#/components/schemas/dateTime'
           #  The start time of an interval or set of intervals.
+          $ref: '#/components/schemas/dateTime'
         duration:
-          $ref: '#/components/schemas/duration'
           #  The duration of an interval or set of intervals.
-        randomizeStart:
           $ref: '#/components/schemas/duration'
+        randomizeStart:
           #  Indicates a randomization time that may be applied to start.
+          $ref: '#/components/schemas/duration'
     valuesMap:
       type: object
       description: |
         Represents one or more values associated with a type.
-        E.g. a type of PRICE contains a single float value.
+
+        See enumerations in Definitions for defined string values, or use privately defined strings
       required:
         - type
         - values
@@ -494,13 +486,14 @@ components:
           minLength: 1
           maxLength: 128
           description: |
-            Enumerated or private string signifying the nature of values.
-            E.G. "PRICE" indicates value is to be interpreted as a currency.
+            Represents the nature of values.
+
+            See enumerations in Definitions for defined string values, or use privately defined strings
           example: PRICE
         values:
           type: array
           description: A list of data points. Most often a singular value such as a price.
-          example: [ 0.17 ]
+          example: [0.17]
           items:
             anyOf:
               - type: number
@@ -520,15 +513,11 @@ components:
           format: float
           description: A value on an x axis.
           example: 1.0
-          nullable: true
-          default: null
         y:
           type: number
           format: float
           description: A value on a y axis.
           example: 2.0
-          nullable: true
-          default: null
     eventPayloadDescriptor:
       type: object
       description: |
@@ -536,24 +525,24 @@ components:
         E.g. a PRICE payload simply contains a price value, an
         associated descriptor provides necessary context such as units and currency.
       required:
+        - objectType
         - payloadType
       properties:
         objectType:
           type: string
-          description: Used as discriminator, e.g. program.payloadDescriptors
-          default: EVENT_PAYLOAD_DESCRIPTOR
+          description: Used as discriminator.
+          enum: [EVENT_PAYLOAD_DESCRIPTOR]
         payloadType:
           type: string
-          description: Enumerated or private string signifying the nature of values.
+          description: |
+            Represents the nature of values.
+
+            See enumerations in Definitions for defined string values, or use privately defined strings
           minLength: 1
           maxLength: 128
           example: PRICE
         units:
-          type: string
-          description: Units of measure.
-          example: KWH
-          nullable: true
-          default: null
+          $ref: '#/components/schemas/units'
         currency:
           type: string
           description: Currency of price payload.
@@ -567,30 +556,26 @@ components:
         E.g. a USAGE payload simply contains a usage value, an
         associated descriptor provides necessary context such as units and data quality.
       required:
+        - objectType
         - payloadType
       properties:
         objectType:
           type: string
-          description: Used as discriminator, e.g. program.payloadDescriptors
-          default: REPORT_PAYLOAD_DESCRIPTOR
+          description: Used as discriminator.
+          enum: [REPORT_PAYLOAD_DESCRIPTOR]
         payloadType:
           type: string
-          description: Enumerated or private string signifying the nature of values.
+          description: |
+            Represents the nature of values.
+
+            See enumerations in Definitions for defined string values, or use privately defined strings
           minLength: 1
           maxLength: 128
           example: USAGE
         readingType:
-          type: string
-          description: Enumerated or private string signifying the type of reading.
-          example: DIRECT_READ
-          nullable: true
-          default: null
+          $ref: '#/components/schemas/readingType'
         units:
-          type: string
-          description: Units of measure.
-          example: KWH
-          nullable: true
-          default: null
+          $ref: '#/components/schemas/units'
         accuracy:
           type: number
           format: float
@@ -605,33 +590,28 @@ components:
           maximum: 100
           description: A quantification of the confidence in a set of payload values.
           example: 100
-          default: 100
+          nullable: true
+          default: null
     reportDescriptor:
       type: object
       description: |
         An object that may be used to request a report from a VEN.
-        See OpenADR REST User Guide for detailed description of how configure a report request.
       required:
         - payloadType
       properties:
         payloadType:
           type: string
-          description: Enumerated or private string signifying the nature of values.
+          description: |
+            Represents the nature of values.
+
+            See enumerations in Definitions for defined string values, or use privately defined strings
           minLength: 1
           maxLength: 128
           example: USAGE
         readingType:
-          type: string
-          description: Enumerated or private string signifying the type of reading.
-          example: DIRECT_READ
-          nullable: true
-          default: null
+          $ref: '#/components/schemas/readingType'
         units:
-          type: string
-          description: Units of measure.
-          example: KWH
-          nullable: true
-          default: null
+          $ref: '#/components/schemas/units'
         targets:
           type: array
           description: A list of targets.
@@ -686,6 +666,12 @@ components:
             -1 indicates repeat indefinitely.
           example: 1
           default: 1
+        reportIntervals:
+          type: string
+          description: Indicates VEN report interval options. See User Guide.
+          example: INTERVALS
+          enum: [INTERVALS, SUB_INTERVALS, OPEN_INTERVALS ]
+          default: INTERVALS
     objectID:
       type: string
       pattern: '^[a-zA-Z0-9_-]*$'
@@ -693,6 +679,58 @@ components:
       maxLength: 128
       description: URL safe VTN assigned object ID.
       example: object-999
+    clientID:
+      type: string
+      description: |
+        ClientID as provisioned by Auhtentication Service and associated with client's bearer token
+      minLength: 1
+      maxLength: 128
+      example: 249rj49jiej
+    venName:
+      type: string
+      description: |
+        User generated identifier, may be VEN identifier provisioned out-of-band.
+        venName is expected to be unique within the scope of a VTN
+      minLength: 1
+      maxLength: 128
+      example: VEN-999
+    clientName:
+      type: string
+      description: User generated identifier, may be VEN identifier provisioned out-of-band.
+      minLength: 1
+      maxLength: 128
+      example: VEN-999
+    target:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: User generated target string.
+      example: group-1
+    resourceName:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: User generated identifier. A value of AGGREGATED_REPORT indicates an aggregation of more that one resource's data
+      example: RESOURCE-999
+    units:
+      type: string
+      description: Units of measure.
+      example: KWH
+      nullable: true
+      default: null
+      minLength: 1
+      maxLength: 128 # this may be excessive
+    readingType:
+      type: string
+      description: |
+        Represents the type of reading.
+
+        See enumerations in Definitions for defined string values, or use privately defined strings
+      example: DIRECT_READ
+      minLength: 1
+      maxLength: 128
+      nullable: true
+      default: null
     notification:
       type: object
       description: |
@@ -707,12 +745,12 @@ components:
         operation:
           type: string
           description: the operation on on object that triggered the notification.
-          example: POST
-          enum: [ GET, POST, PUT, DELETE ]
+          example: UPDATE
+          enum: [CREATE, READ, UPDATE, DELETE]
         object:
           type: object
           description: the object that is the subject of the notification.
-          example: { }
+          example: {}
           oneOf:
             - $ref: '#/components/schemas/program'
             - $ref: '#/components/schemas/report'
@@ -733,15 +771,292 @@ components:
       type: string
       description: Types of objects addressable through API.
       example: EVENT
-      enum: [ PROGRAM, EVENT, REPORT, SUBSCRIPTION, VEN, RESOURCE ]
+      enum: [PROGRAM, EVENT, REPORT, SUBSCRIPTION, VEN, RESOURCE]
     dateTime:
       type: string
       format: date-time
-      description: datetime in ISO 8601 format
+      description: datetime in RFC 3339 format
       example: 2023-06-15T09:30:00Z
     duration:
       type: string
-      pattern: /^(-?)P(?=\d|T\d)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)([DW]))?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
+      pattern: "^(-?)P(?=\\d|T\\d)(?:(\\d+)Y)?(?:(\\d+)M)?(?:(\\d+)([DW]))?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+(?:\\.\\d+)?)S)?)?$"
       description: duration in ISO 8601 format
       example: PT1H
       default: PT0S
+    clientCredentialRequest:
+      type: object
+      description: |
+        Body of POST request to /auth/token. Note snake case per https://www.rfc-editor.org/rfc/rfc6749
+      required:
+        - grant_type
+        - client_id
+        - client_secret
+      properties:
+        grant_type:
+          type: string
+          description: OAuth2 grant type, must be 'client_credentials'
+          example: client_credentials
+          enum: [client_credentials]
+        client_id:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: client ID to exchange for bearer token.
+          example: ven_client_99
+        client_secret:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: client secret to exchange for bearer token.
+          example: ven_secret_99
+        scope:
+          type: string
+          minLength: 0
+          maxLength: 4096
+          description: application defined scope.
+          example: read_all
+    clientCredentialResponse:
+      type: object
+      description: |
+        Body response from /auth/token. Note snake case per https://www.rfc-editor.org/rfc/rfc6749
+      required:
+        - access_token
+        - token_type
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: access token provided by Authorization service
+          example: MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3
+        token_type:
+          type: string
+          description: token type, must be Bearer.
+          example: Bearer
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: expiration period in seconds.
+          example: 3600
+        refresh_token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: refresh token provided by Authorization service
+          example: IwOGYzYTlmM2YxOTQ5MGE3YmNmMDFkNTVk
+        scope:
+          type: string
+          minLength: 0
+          maxLength: 4096
+          description: application defined scope.
+          example: read_all
+    authError:
+      type: object
+      description: error response on HTTP 400 from auth/token per https://www.rfc-editor.org/rfc/rfc6749
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: As described in rfc6749 |
+            invalid_request – The request is missing a parameter so the server can’t proceed with the request. This may also be returned if the request includes an unsupported parameter or repeats a parameter.
+            invalid_client – Client authentication failed, such as if the request contains an invalid client ID or secret. Send an HTTP 401 response in this case.
+            invalid_grant – The authorization code (or user’s password for the password grant type) is invalid or expired. This is also the error you would return if the redirect URL given in the authorization grant does not match the URL provided in this access token request.
+            invalid_scope – For access token requests that include a scope (password or client_credentials grants), this error indicates an invalid scope value in the request.
+            unauthorized_client – This client is not authorized to use the requested grant type. For example, if you restrict which applications can use the Implicit grant, you would return this error for the other apps.
+            unsupported_grant_type – If a grant type is requested that the authorization server doesn’t recognize, use this code. Note that unknown grant types also use this specific error code rather than using the invalid_request above.
+          example: invalid_request
+          enum:
+            [
+              invalid_request,
+              invalid_client,
+              invalid_grant,
+              invalid_scope,
+              unauthorized_client,
+              unsupported_grant_type,
+            ]
+        error_description:
+          type: string
+          description: Should be a sentence or two at most describing the circumstance of the error
+          example: Request was missing the 'client_id' parameter.
+        error_uri:
+          type: string
+          format: uri
+          minLength: 2
+          maxLength: 8000
+          description: Optional reference to more detailed error description
+          example: See the full API docs at https://authorization-server.com/docs/access_toke
+    authServerInfo:
+      type: object
+      required:
+        - tokenURL
+      properties:
+        tokenURL:
+          type: string
+          format: uri
+          minLength: 2
+          maxLength: 8000
+          description: URL of the token endpoint.
+    problem:
+      type: object
+      description: |
+        reusable error response. From https://opensource.zalando.com/problem/schema.yaml.
+      properties:
+        type:
+          type: string
+          format: uri
+          minLength: 2
+          maxLength: 8000
+          description: |
+            An absolute URI that identifies the problem type.
+            When dereferenced, it SHOULD provide human-readable documentation for the problem type
+            (e.g., using HTML).
+          default: 'about:blank'
+          example: 'https://zalando.github.io/problem/constraint-violation'
+        title:
+          type: string
+          description: |
+            A short, summary of the problem type. Written in english and readable
+            for engineers (usually not suited for non technical stakeholders and
+            not localized); example: Service Unavailable.
+        status:
+          type: integer
+          format: int32
+          description: |
+            The HTTP status code generated by the origin server for this occurrence
+            of the problem.
+          minimum: 100
+          maximum: 600
+          exclusiveMaximum: true
+          example: 503
+        detail:
+          type: string
+          description: |
+            A human readable explanation specific to this occurrence of the
+            problem.
+          example: Connection to database timed out
+        instance:
+          type: string
+          minLength: 3 # since this must be an absolute URI
+          maxLength: 8000
+          format: uri
+          description: |
+            An absolute URI that identifies the specific occurrence of the problem.
+            It may or may not yield further information if dereferenced.
+    notifiersResponse:
+      type: object
+      description: Provides details of each notifier binding supported
+      required:
+        - WEBHOOK
+      properties:
+        WEBHOOK:
+          type: boolean
+          description: 'Currently MUST be true'
+          example: true
+        MQTT:
+          $ref: '#/components/schemas/mqttNotifierBindingObject'
+    mqttNotifierBindingObject:
+      type: object
+      description: Details of MQTT binding for messaging protocol support
+      required:
+        - URIS
+        - serialization
+        - authentication
+      properties:
+        URIS:
+          type: array
+          items:
+            type: string
+            format: uri
+            description: URIs for connection to MQTT broker
+            example: 'mqtts://broker.vtn.company.com'
+        serialization:
+          type: string
+          description: Currently always JSON, perhaps other formats supported in future
+          enum: [JSON]
+        authentication:
+          oneOf:
+            - $ref: '#/components/schemas/mqttNotifierAuthenticationAnonymous'
+            - $ref: '#/components/schemas/mqttNotifierAuthenticationOauth2BearerToken'
+            - $ref: '#/components/schemas/mqttNotifierAuthenticationCertificate'
+          description: Authentication method supported for connection to MQTT broker
+    mqttNotifierAuthenticationAnonymous:
+      type: object
+      description: MQTT broker anonymous authentication details
+      required:
+        - method
+      properties:
+        method:
+          type: string
+          enum: [ANONYMOUS]
+          description: Specifies anonymous authentication
+    mqttNotifierAuthenticationOauth2BearerToken:
+      type: object
+      description: MQTT broker OAuth2 Bearer Token authentication details
+      required:
+        - method
+        - username
+      properties:
+        method:
+          type: string
+          enum: [OAUTH2_BEARER_TOKEN]
+          description: Specifies OAuth2 bearer token authentication
+        username:
+          type: string
+          description: 'Either the distinguished string "{clientID}", or any other literal string'
+    mqttNotifierAuthenticationCertificate:
+      type: object
+      description: MQTT broker mTLS client certificate authentication details
+      required:
+        - method
+        - caCert
+        - clientCert
+        - clientKey
+      properties:
+        method:
+          type: string
+          enum: [CERTIFICATE]
+          description: Specifies certificate authentication
+        caCert:
+          type: string
+          description: String containing the Certificate Authority certificate
+        clientCert:
+          type: string
+          description: String containing the Client certificate
+        clientKey:
+          type: string
+          description: String containing the client certificate private key
+    notifierOperationsTopics:
+      type: object
+      description: MQTT notifier topic names for notifications of subscribable-object operations
+      required:
+        - UPDATE
+        - DELETE
+      properties:
+        CREATE:
+          type: string
+          description: |
+            'Topic path for CREATE operations,
+             not provided for notifications for a specific object ID,
+             e.g. until programID foo is created, clients unable to
+             request notifications of its creation'
+          example: '{objectType}s/create'
+        UPDATE:
+          type: string
+          description: Topic path for UPDATE operations
+          example: '{objectType}s/update'
+        DELETE:
+          type: string
+          description: Topic path for DELETE operations
+          example: '{objectType}s/delete'
+        ALL:
+          type: string
+          description: Topic path for ALL operations, if supported by VTN
+          example: '{objectType}s/+'
+    notifierTopicsResponse:
+      type: object
+      required:
+        - topics
+      properties:
+        topics:
+          $ref: '#/components/schemas/notifierOperationsTopics'
