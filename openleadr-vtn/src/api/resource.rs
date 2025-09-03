@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::resource::{Resource, ResourceContent, ResourceId};
+use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
@@ -64,7 +64,7 @@ pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     user: User,
     Path(ven_id): Path<VenId>,
-    ValidatedJson(new_resource): ValidatedJson<ResourceContent>,
+    ValidatedJson(new_resource): ValidatedJson<BlResourceRequest>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
     has_write_permission(&user, &ven_id)?;
     let ven = resource_source.create(new_resource, ven_id, &user).await?;
@@ -76,7 +76,7 @@ pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path((ven_id, id)): Path<(VenId, ResourceId)>,
     user: User,
-    ValidatedJson(content): ValidatedJson<ResourceContent>,
+    ValidatedJson(content): ValidatedJson<BlResourceRequest>,
 ) -> AppResponse<Resource> {
     has_write_permission(&user, &ven_id)?;
     let resource = resource_source.update(&id, ven_id, content, &user).await?;
@@ -121,10 +121,8 @@ fn get_50() -> i64 {
 mod test {
     use crate::{api::test::ApiTest, jwt::AuthRole};
     use axum::body::Body;
-    use openleadr_wire::{
-        problem::Problem,
-        resource::{Resource, ResourceContent},
-    };
+    use openleadr_wire::resource::VenResourceRequest;
+    use openleadr_wire::{problem::Problem, resource::Resource};
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
@@ -305,8 +303,17 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let resources = [
-            ResourceContent{resource_name: "".to_string(), targets: vec![], attributes:None},
-            ResourceContent{resource_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),targets: vec![], attributes:None},
+            VenResourceRequest {
+                resource_name: "".to_string(),
+                attributes: None,
+            },
+            VenResourceRequest {
+                resource_name: "This is more than 128 characters long and should be\
+            rejected This is more than \
+            128 characters long and should be rejected asdfasd"
+                    .to_string(),
+                attributes: None,
+            },
         ];
 
         for resource in &resources {

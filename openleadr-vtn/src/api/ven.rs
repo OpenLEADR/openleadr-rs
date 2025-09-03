@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::ven::{Ven, VenContent, VenId};
+use openleadr_wire::ven::{BlVenRequest, Ven, VenId};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
@@ -49,7 +49,7 @@ pub async fn get(
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
     VenManagerUser(user): VenManagerUser,
-    ValidatedJson(new_ven): ValidatedJson<VenContent>,
+    ValidatedJson(new_ven): ValidatedJson<BlVenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
     let ven = ven_source.create(new_ven, &user.try_into()?).await?;
 
@@ -62,7 +62,7 @@ pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
     Path(id): Path<VenId>,
     VenManagerUser(user): VenManagerUser,
-    ValidatedJson(content): ValidatedJson<VenContent>,
+    ValidatedJson(content): ValidatedJson<BlVenRequest>,
 ) -> AppResponse<Ven> {
     let ven = ven_source.update(&id, content, &user.try_into()?).await?;
 
@@ -105,7 +105,7 @@ fn get_50() -> i64 {
 mod tests {
     use crate::{api::test::ApiTest, jwt::AuthRole};
     use axum::{body::Body, http::StatusCode};
-    use openleadr_wire::{problem::Problem, ven::VenContent, Ven};
+    use openleadr_wire::{problem::Problem, Ven};
     use reqwest::Method;
     use sqlx::PgPool;
 
