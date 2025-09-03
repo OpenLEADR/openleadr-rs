@@ -81,9 +81,9 @@ pub use ven::*;
 
 use crate::error::Result;
 use openleadr_wire::{
-    event::EventContent,
-    program::{ProgramContent, ProgramId},
-    ven::{VenContent, VenId},
+    program::{ProgramId, ProgramRequest},
+    ven::VenId,
+    ven::VenRequest,
     Program,
 };
 
@@ -491,7 +491,7 @@ impl Client {
     }
 
     /// Create a new program on the VTN.
-    pub async fn create_program(&self, program_content: ProgramContent) -> Result<ProgramClient> {
+    pub async fn create_program(&self, program_content: ProgramRequest) -> Result<ProgramClient> {
         let program = self.client_ref.post("programs", &program_content).await?;
         Ok(ProgramClient::from_program(self.clone(), program))
     }
@@ -601,7 +601,7 @@ impl Client {
     }
 
     /// Create a new VEN entity at the VTN. The content should be created with [`VenContent::new`].
-    pub async fn create_ven(&self, ven: VenContent) -> Result<VenClient> {
+    pub async fn create_ven(&self, ven: VenRequest) -> Result<VenClient> {
         let ven = self.client_ref.post("vens", &ven).await?;
         Ok(VenClient::from_ven(self.client_ref.clone(), ven))
     }

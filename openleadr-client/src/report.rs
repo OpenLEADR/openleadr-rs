@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use openleadr_wire::{report::ReportContent, Report};
+use openleadr_wire::{report::ReportRequest, Report};
 
 use crate::{error::Result, ClientRef};
 
@@ -53,14 +53,14 @@ impl ReportClient {
     }
 
     /// Read the data of the report
-    pub fn content(&self) -> &ReportContent {
+    pub fn content(&self) -> &ReportRequest {
         &self.data.content
     }
 
     /// Modify the data of the report.
     /// Make sure to call [`update`](Self::update)
     /// after your modifications to store them on the VTN
-    pub fn content_mut(&mut self) -> &mut ReportContent {
+    pub fn content_mut(&mut self) -> &mut ReportRequest {
         &mut self.data.content
     }
 

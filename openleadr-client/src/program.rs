@@ -1,10 +1,9 @@
 use crate::{
     error::{Error, Result},
-    Client, EventClient, EventContent, Filter, PaginationOptions, ProgramContent, ProgramId,
-    Timeline,
+    Client, EventClient, Filter, PaginationOptions, ProgramId, ProgramRequest, Timeline,
 };
 use openleadr_wire::{
-    event::{EventInterval, Priority},
+    event::{EventInterval, EventRequest, Priority},
     Program,
 };
 
@@ -40,14 +39,14 @@ impl ProgramClient {
     }
 
     /// Read the data of the program
-    pub fn content(&self) -> &ProgramContent {
+    pub fn content(&self) -> &ProgramRequest {
         &self.data.content
     }
 
     /// Modify the data of the program.
     /// Make sure to call [`update`](Self::update)
     /// after your modifications to store them on the VTN
-    pub fn content_mut(&mut self) -> &mut ProgramContent {
+    pub fn content_mut(&mut self) -> &mut ProgramRequest {
         &mut self.data.content
     }
 
@@ -73,7 +72,7 @@ impl ProgramClient {
     /// Create a new event on the VTN.
     /// The content should be created with [`ProgramClient::new_event`]
     /// to automatically insert the correct program ID
-    pub async fn create_event(&self, event_data: EventContent) -> Result<EventClient> {
+    pub async fn create_event(&self, event_data: EventRequest) -> Result<EventClient> {
         if &event_data.program_id != self.id() {
             return Err(Error::InvalidParentObject);
         }
@@ -85,8 +84,8 @@ impl ProgramClient {
     }
 
     /// Create a new event object within the program
-    pub fn new_event(&self, intervals: Vec<EventInterval>) -> EventContent {
-        EventContent {
+    pub fn new_event(&self, intervals: Vec<EventInterval>) -> EventRequest {
+        EventRequest {
             program_id: self.id().clone(),
             event_name: None,
             priority: Priority::UNSPECIFIED,
@@ -94,7 +93,8 @@ impl ProgramClient {
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,
-            intervals,
+            duration: None,
+            intervals: Some(intervals),
         }
     }
 
