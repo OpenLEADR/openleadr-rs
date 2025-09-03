@@ -10,7 +10,7 @@ use tracing::{info, trace};
 use validator::Validate;
 
 use openleadr_wire::{
-    program::{ProgramContent, ProgramId},
+    program::{ProgramId, ProgramRequest},
     Program,
 };
 
@@ -49,7 +49,7 @@ pub async fn get(
 pub async fn add(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     BusinessUser(user): BusinessUser,
-    ValidatedJson(new_program): ValidatedJson<ProgramContent>,
+    ValidatedJson(new_program): ValidatedJson<ProgramRequest>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
     let program = program_source.create(new_program, &User(user)).await?;
 
@@ -62,7 +62,7 @@ pub async fn edit(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
     BusinessUser(user): BusinessUser,
-    ValidatedJson(content): ValidatedJson<ProgramContent>,
+    ValidatedJson(content): ValidatedJson<ProgramRequest>,
 ) -> AppResponse<Program> {
     let program = program_source.update(&id, content, &User(user)).await?;
 
@@ -119,37 +119,26 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use openleadr_wire::{
-        problem::Problem,
-        target::{TargetEntry, TargetMap, TargetType},
-        Event,
-    };
+    use openleadr_wire::target::Target;
+    use openleadr_wire::{problem::Problem, Event};
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
     // for `call`, `oneshot`, and `ready`
 
-    fn default_content() -> ProgramContent {
-        ProgramContent {
+    fn default_content() -> ProgramRequest {
+        ProgramRequest {
             program_name: "program_name".to_string(),
-            program_long_name: Some("program_long_name".to_string()),
-            retailer_name: Some("retailer_name".to_string()),
-            retailer_long_name: Some("retailer_long_name".to_string()),
-            program_type: None,
-            country: None,
-            principal_subdivision: None,
-            time_zone_offset: None,
             interval_period: None,
             program_descriptions: None,
-            binding_events: None,
-            local_price: None,
             payload_descriptors: None,
+            attributes: None,
             targets: None,
         }
     }
 
     fn program_request(
         method: http::Method,
-        program: ProgramContent,
+        program: ProgramRequest,
         id: &str,
         token: &str,
     ) -> Request<Body> {
@@ -163,7 +152,7 @@ mod test {
     }
 
     async fn state_with_programs(
-        new_programs: Vec<ProgramContent>,
+        new_programs: Vec<ProgramRequest>,
         db: PgPool,
     ) -> (AppState, Vec<Program>) {
         let store = PostgresStorage::new(db).unwrap();
@@ -214,15 +203,15 @@ mod test {
 
     #[sqlx::test(fixtures("users"))]
     async fn delete(db: PgPool) {
-        let program1 = ProgramContent {
+        let program1 = ProgramRequest {
             program_name: "program1".to_string(),
             ..default_content()
         };
-        let program2 = ProgramContent {
+        let program2 = ProgramRequest {
             program_name: "program2".to_string(),
             ..default_content()
         };
-        let program3 = ProgramContent {
+        let program3 = ProgramRequest {
             program_name: "program3".to_string(),
             ..default_content()
         };
@@ -290,11 +279,11 @@ mod test {
 
     #[sqlx::test(fixtures("users"))]
     async fn update_same_name(db: PgPool) {
-        let program1 = ProgramContent {
+        let program1 = ProgramRequest {
             program_name: "program1".to_string(),
             ..default_content()
         };
-        let program2 = ProgramContent {
+        let program2 = ProgramRequest {
             program_name: "program2".to_string(),
             ..default_content()
         };
@@ -323,7 +312,7 @@ mod test {
     async fn help_create_program(
         mut app: &mut Router,
         token: &str,
-        body: &ProgramContent,
+        body: &ProgramRequest,
     ) -> Response<Body> {
         let request = Request::builder()
             .method(http::Method::POST)
@@ -359,32 +348,20 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let programs = [
-            ProgramContent {
+            ProgramRequest {
                 program_name: "".to_string(),
                 ..default_content()
             },
-            ProgramContent {
+            ProgramRequest {
                 program_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
                 ..default_content()
             },
-            ProgramContent {
-                targets: Some(TargetMap(
-                    vec![
-                        TargetEntry {
-                            label: TargetType::Private("".to_string()),
-                            values: vec!["test".to_string()]
-                        }
-                    ])),
+            ProgramRequest {
+                targets: Some(vec![Target::new("test").unwrap()]),
                 ..default_content()
             },
-            ProgramContent {
-                targets: Some(TargetMap(
-                    vec![
-                        TargetEntry {
-                            label: TargetType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
-                            values: vec!["test".to_string()]
-                        }
-                    ])),
+            ProgramRequest {
+                targets: Some(vec![Target::new("test").unwrap()]),
                 ..default_content()
             }];
 
@@ -429,24 +406,18 @@ mod test {
 
     #[sqlx::test(fixtures("users"))]
     async fn retrieve_all_with_filter(db: PgPool) {
-        let program1 = ProgramContent {
+        let program1 = ProgramRequest {
             program_name: "program1".to_string(),
             ..default_content()
         };
-        let program2 = ProgramContent {
+        let program2 = ProgramRequest {
             program_name: "program2".to_string(),
-            targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetType::Group,
-                values: vec!["Group 2".to_string()],
-            }])),
+            targets: Some(vec![Target::new("Group 2").unwrap()]),
             ..default_content()
         };
-        let program3 = ProgramContent {
+        let program3 = ProgramRequest {
             program_name: "program3".to_string(),
-            targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetType::Group,
-                values: vec!["Group 1".to_string()],
-            }])),
+            targets: Some(vec![Target::new("Group 1").unwrap()]),
             ..default_content()
         };
 
@@ -534,7 +505,6 @@ mod test {
 
     mod permissions {
         use super::*;
-        use openleadr_wire::target::{TargetEntry, TargetMap, TargetType};
 
         #[sqlx::test(fixtures("users", "business"))]
         async fn business_can_create_program(db: PgPool) {
@@ -602,11 +572,8 @@ mod test {
             let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
             let mut app = state.clone().into_router();
 
-            let content = ProgramContent {
-                targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetType::VENName,
-                    values: vec!["ven-1-name".to_string()],
-                }])),
+            let content = ProgramRequest {
+                targets: Some(vec![Target::new("ven-1-name").unwrap()]),
                 ..default_content()
             };
 
