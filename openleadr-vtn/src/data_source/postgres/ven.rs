@@ -9,12 +9,10 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    resource::Resource,
     target::Target,
-    ven::{Ven, VenContent, VenId},
+    ven::{BlVenRequest, Ven, VenId},
 };
 use sqlx::PgPool;
-use std::collections::{hash_map::Entry, HashMap};
 use tracing::{error, trace};
 
 #[async_trait]
@@ -42,10 +40,7 @@ struct PostgresVen {
 
 impl PostgresVen {
     #[tracing::instrument]
-    fn try_into_ven_with_resources(
-        self,
-        resources: Option<Vec<Resource>>,
-    ) -> Result<Ven, AppError> {
+    fn try_into_ven_with_resources(self) -> Result<Ven, AppError> {
         let attributes = match self.attributes {
             None => None,
             Some(t) => serde_json::from_value(t)
@@ -62,7 +57,7 @@ impl PostgresVen {
             id: self.id.parse()?,
             created_date_time: self.created_date_time,
             modification_date_time: self.modification_date_time,
-            content: VenContent::new(self.ven_name, attributes, self.targets, resources),
+            content: BlVenRequest::new(self.ven_name, attributes, self.targets),
         })
     }
 }
@@ -71,7 +66,7 @@ impl PostgresVen {
 impl Crud for PgVenStorage {
     type Type = Ven;
     type Id = VenId;
-    type NewType = VenContent;
+    type NewType = BlVenRequest;
     type Error = AppError;
     type Filter = QueryParams;
     type PermissionFilter = VenPermissions;
@@ -107,7 +102,7 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into_ven_with_resources(None)?;
+        .try_into_ven_with_resources()?;
 
         trace!(ven_id = ven.id.as_str(), "created ven");
 
@@ -120,13 +115,6 @@ impl Crud for PgVenStorage {
         permissions: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let ids = permissions.as_value();
-
-        let resources = PgResourceStorage::retrieve_by_ven(&self.db, id).await?;
-        let resources = if resources.is_empty() {
-            None
-        } else {
-            Some(resources)
-        };
 
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
@@ -147,7 +135,7 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into_ven_with_resources(resources)?;
+        .try_into_ven_with_resources()?;
 
         trace!(ven_id = ven.id.as_str(), "retrieved ven");
 
@@ -191,25 +179,9 @@ impl Crud for PgVenStorage {
         let ven_ids: Vec<String> = pg_vens.iter().map(|v| v.id.to_string()).collect();
         let resources = PgResourceStorage::retrieve_by_vens(&self.db, &ven_ids).await?;
 
-        let mut resources_map = resources.into_iter().fold(
-            HashMap::new(),
-            |mut map: HashMap<String, Vec<Resource>>, resource| {
-                match map.entry(resource.ven_id.to_string()) {
-                    Entry::Occupied(mut e) => e.get_mut().push(resource),
-                    Entry::Vacant(e) => {
-                        e.insert(vec![resource]);
-                    }
-                }
-                map
-            },
-        );
-
         let vens = pg_vens
             .into_iter()
-            .map(|ven| {
-                let id = ven.id.to_string();
-                ven.try_into_ven_with_resources(resources_map.remove(&id))
-            })
+            .map(|ven| ven.try_into_ven_with_resources())
             .collect::<Result<Vec<_>, AppError>>()?;
 
         trace!("retrieved {} ven(s)", vens.len());
@@ -223,13 +195,6 @@ impl Crud for PgVenStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let resources = PgResourceStorage::retrieve_by_ven(&self.db, id).await?;
-        let resources = if resources.is_empty() {
-            None
-        } else {
-            Some(resources)
-        };
-
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -254,7 +219,7 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into_ven_with_resources(resources)?;
+        .try_into_ven_with_resources()?;
 
         trace!(ven_id = id.as_str(), "updated ven");
 
@@ -292,7 +257,7 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into_ven_with_resources(None)?;
+        .try_into_ven_with_resources()?;
 
         trace!(ven_id = id.as_str(), "deleted ven");
 
@@ -310,7 +275,7 @@ mod tests {
     };
     use openleadr_wire::{
         target::Target,
-        ven::{Ven, VenContent},
+        ven::{BlVenRequest, Ven},
     };
     use sqlx::PgPool;
     use std::str::FromStr;
@@ -348,7 +313,7 @@ mod tests {
             id: "ven-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: VenContent::new("ven-2-name".to_string(), None, vec![], None),
+            content: BlVenRequest::new("ven-2-name".to_string(), None, vec![], None),
         }
     }
 
