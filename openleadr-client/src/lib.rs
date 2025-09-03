@@ -55,7 +55,6 @@ mod event;
 mod program;
 mod report;
 mod resource;
-mod target;
 mod timeline;
 mod ven;
 
@@ -77,16 +76,13 @@ pub use event::*;
 pub use program::*;
 pub use report::*;
 pub use resource::*;
-pub use target::*;
 pub use timeline::*;
 pub use ven::*;
 
 use crate::error::Result;
-use openleadr_wire::ven::{VenContent, VenId};
-pub(crate) use openleadr_wire::{
-    event::EventContent,
-    program::{ProgramContent, ProgramId},
-    target::TargetType,
+use openleadr_wire::{
+    program::{ProgramId, ProgramRequest},
+    ven::{VenId, VenRequest},
     Program,
 };
 
@@ -414,7 +410,7 @@ pub enum Filter<'a, S: AsRef<str>> {
     ///
     /// It will be encoded to the request as query parameters,
     /// e.g., `/programs?targetType=GROUP&targetValues=Group-1&targetValues=Group-2`.
-    By(TargetType, &'a [S]),
+    By(&'a [S]),
 }
 
 impl<'a> Filter<'a, &'static str> {
@@ -427,11 +423,9 @@ impl<'a> Filter<'a, &'static str> {
 impl<'a, S: AsRef<str>> Filter<'a, S> {
     pub(crate) fn to_query_params(&'a self) -> Vec<(&'a str, &'a str)> {
         let mut query = vec![];
-        if let Filter::By(ref target_label, target_values) = self {
-            query.push(("targetType", target_label.as_str()));
-
+        if let Filter::By(target_values) = self {
             for target_value in *target_values {
-                query.push(("targetValues", target_value.as_ref()));
+                query.push(("targets", target_value.as_ref()));
             }
         }
         query
@@ -500,7 +494,7 @@ impl Client {
     }
 
     /// Create a new program on the VTN.
-    pub async fn create_program(&self, program_content: ProgramContent) -> Result<ProgramClient> {
+    pub async fn create_program(&self, program_content: ProgramRequest) -> Result<ProgramClient> {
         let program = self.client_ref.post("programs", &program_content).await?;
         Ok(ProgramClient::from_program(self.clone(), program))
     }
@@ -610,7 +604,7 @@ impl Client {
     }
 
     /// Create a new VEN entity at the VTN. The content should be created with [`VenContent::new`].
-    pub async fn create_ven(&self, ven: VenContent) -> Result<VenClient> {
+    pub async fn create_ven(&self, ven: VenRequest) -> Result<VenClient> {
         let ven = self.client_ref.post("vens", &ven).await?;
         Ok(VenClient::from_ven(self.client_ref.clone(), ven))
     }

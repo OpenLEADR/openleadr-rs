@@ -16,7 +16,12 @@ async fn crud() {
     let ctx = setup(AuthRole::VenManager).await;
 
     // create new VEN
-    let new = VenContent::new("ven-test".to_string(), None, None, None);
+    let new = openleadr_wire::ven::VenRequest::BlVenRequest::new(
+        "ven-test".to_string(),
+        None,
+        None,
+        None,
+    );
     let ven = ctx.create_ven(new).await.unwrap();
 
     // Create

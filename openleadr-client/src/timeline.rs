@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use tracing::warn;
 
 use openleadr_wire::{
-    event::{EventContent, EventValuesMap, Priority},
+    event::{EventRequest, EventValuesMap, Priority},
     interval::IntervalPeriod,
     Program,
 };
@@ -71,7 +71,7 @@ impl Timeline {
     /// If both are specified, the individual period takes precedence over the one specified in the event.
     /// If for an interval, there is no period present, and none specified in the event,
     /// then this function will return [`None`]
-    pub fn from_events(program: &Program, mut events: Vec<&EventContent>) -> Option<Self> {
+    pub fn from_events(program: &Program, mut events: Vec<&EventRequest>) -> Option<Self> {
         let mut data = Self::default();
 
         events.sort_by_key(|e| e.priority);
@@ -86,45 +86,47 @@ impl Timeline {
 
             let mut current_start = default_period.map(|p| p.start);
 
-            for event_interval in &event.intervals {
-                // use the event interval period when the interval doesn't specify one
-                let (start, duration, randomize_start) =
-                    match event_interval.interval_period.as_ref() {
-                        Some(IntervalPeriod {
-                            start,
-                            duration,
-                            randomize_start,
-                        }) => (start, duration, randomize_start),
-                        None => (
-                            &current_start?,
-                            &default_period?.duration,
-                            &default_period?.randomize_start,
-                        ),
+            if let Some(event_intervals) = &event.intervals {
+                for event_interval in event_intervals {
+                    // use the event interval period when the interval doesn't specify one
+                    let (start, duration, randomize_start) =
+                        match event_interval.interval_period.as_ref() {
+                            Some(IntervalPeriod {
+                                start,
+                                duration,
+                                randomize_start,
+                            }) => (start, duration, randomize_start),
+                            None => (
+                                &current_start?,
+                                &default_period?.duration,
+                                &default_period?.randomize_start,
+                            ),
+                        };
+
+                    let range = match duration {
+                        Some(duration) => *start..*start + duration.to_chrono_at_datetime(*start),
+                        None => *start..DateTime::<Utc>::MAX_UTC,
                     };
 
-                let range = match duration {
-                    Some(duration) => *start..*start + duration.to_chrono_at_datetime(*start),
-                    None => *start..DateTime::<Utc>::MAX_UTC,
-                };
+                    current_start = Some(range.end);
 
-                current_start = Some(range.end);
+                    let interval = InternalInterval {
+                        id: id as u32,
+                        randomize_start: randomize_start
+                            .as_ref()
+                            .map(|d| d.to_chrono_at_datetime(*start)),
+                        value_map: event_interval.payloads.clone(),
+                        priority: event.priority,
+                    };
 
-                let interval = InternalInterval {
-                    id: id as u32,
-                    randomize_start: randomize_start
-                        .as_ref()
-                        .map(|d| d.to_chrono_at_datetime(*start)),
-                    value_map: event_interval.payloads.clone(),
-                    priority: event.priority,
-                };
-
-                for (existing_range, existing) in data.data.overlapping(&range) {
-                    if existing.priority == event.priority {
-                        warn!(?existing_range, ?existing, new_range = ?range, new = ?interval, "Overlapping ranges with equal priority");
+                    for (existing_range, existing) in data.data.overlapping(&range) {
+                        if existing.priority == event.priority {
+                            warn!(?existing_range, ?existing, new_range = ?range, new = ?interval, "Overlapping ranges with equal priority");
+                        }
                     }
-                }
 
-                data.data.insert(range, interval);
+                    data.data.insert(range, interval);
+                }
             }
         }
 
