@@ -8,11 +8,11 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    event::{EventContent, EventId},
-    program::{ProgramContent, ProgramId},
-    report::{ReportContent, ReportId},
-    resource::{Resource, ResourceContent, ResourceId},
-    ven::{Ven, VenContent, VenId},
+    event::{EventId, EventRequest},
+    program::{ProgramId, ProgramRequest},
+    report::{ReportId, ReportRequest},
+    resource::{BlResourceRequest, Resource, ResourceId},
+    ven::{BlVenRequest, Ven, VenId},
     Event, Program, Report,
 };
 #[cfg(feature = "postgres")]
@@ -104,7 +104,7 @@ pub trait ProgramCrud:
     Crud<
     Type = Program,
     Id = ProgramId,
-    NewType = ProgramContent,
+    NewType = ProgramRequest,
     Error = AppError,
     Filter = crate::api::program::QueryParams,
     PermissionFilter = User,
@@ -115,7 +115,7 @@ pub trait ReportCrud:
     Crud<
     Type = Report,
     Id = ReportId,
-    NewType = ReportContent,
+    NewType = ReportRequest,
     Error = AppError,
     Filter = crate::api::report::QueryParams,
     PermissionFilter = User,
@@ -126,7 +126,7 @@ pub trait EventCrud:
     Crud<
     Type = Event,
     Id = EventId,
-    NewType = EventContent,
+    NewType = EventRequest,
     Error = AppError,
     Filter = crate::api::event::QueryParams,
     PermissionFilter = User,
@@ -170,7 +170,7 @@ pub trait VenCrud:
     Crud<
     Type = Ven,
     Id = VenId,
-    NewType = VenContent,
+    NewType = BlVenRequest,
     Error = AppError,
     Filter = crate::api::ven::QueryParams,
     PermissionFilter = VenPermissions,
@@ -182,7 +182,7 @@ pub trait ResourceCrud:
     VenScopedCrud<
     Type = Resource,
     Id = ResourceId,
-    NewType = ResourceContent,
+    NewType = BlResourceRequest,
     Error = AppError,
     Filter = crate::api::resource::QueryParams,
     PermissionFilter = User,
