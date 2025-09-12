@@ -2,15 +2,13 @@
 
 use crate::{
     event::EventPayloadDescriptor, interval::IntervalPeriod, report::ReportPayloadDescriptor,
-    target::TargetMap, Duration, IdentifierError,
+    target::Target, Duration, Identifier, IdentifierError,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
-
-use super::Identifier;
 
 pub type Programs = Vec<Program>;
 
@@ -75,7 +73,7 @@ pub struct ProgramContent {
     /// A list of payloadDescriptors.
     pub payload_descriptors: Option<Vec<PayloadDescriptor>>,
     /// A list of valuesMap objects.
-    pub targets: Option<TargetMap>,
+    pub targets: Option<Vec<Target>>,
 }
 
 impl ProgramContent {

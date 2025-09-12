@@ -4,7 +4,7 @@ use serde_with::skip_serializing_none;
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{target::TargetMap, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
+use crate::{target::Target, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
@@ -36,8 +36,8 @@ pub struct ResourceContent {
     pub resource_name: String,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
-    /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<TargetMap>,
+    /// A list of targets.
+    pub targets: Option<Vec<Target>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]

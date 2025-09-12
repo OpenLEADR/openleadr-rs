@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     program::{ProgramContent, ProgramId},
-    target::TargetEntry,
     Program,
 };
 use sqlx::PgPool;
@@ -263,14 +262,11 @@ impl Crud for PgProgramStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let target: Option<TargetEntry> = filter.targets.clone().into();
-        let target_values = target.as_ref().map(|t| t.values.clone());
-
         Ok(sqlx::query_as!(
             PostgresProgram,
             r#"
-            SELECT p.id AS "id!", 
-                   p.created_date_time AS "created_date_time!", 
+            SELECT p.id AS "id!",
+                   p.created_date_time AS "created_date_time!",
                    p.modification_date_time AS "modification_date_time!",
                    p.program_name AS "program_name!",
                    p.program_long_name,
@@ -291,26 +287,24 @@ impl Crud for PgProgramStorage {
               LEFT JOIN LATERAL (
 
                   SELECT targets.p_id,
-                           (t ->> 'type' = $1) AND
-                           (t -> 'values' ?| $2) AS target_test
+                           (t ?| $1) AS target_test
                     FROM (SELECT program.id                            AS p_id,
-                                 jsonb_array_elements(program.targets) AS t
+                                 program.targets AS t
                           FROM program) AS targets
-                  
+
                   )
                   ON p.id = p_id
-            WHERE ($1 IS NULL OR $2 IS NULL OR target_test)
+            WHERE ($1 IS NULL OR target_test)
               AND (
-                  ($3 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($4)))
+                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
                   OR
-                  ($5)
+                  ($4)
                   )
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $6 LIMIT $7
+            OFFSET $5 LIMIT $6
             "#,
-            target.as_ref().map(|t| t.label.as_str()),
-            target_values.as_deref(),
+            filter.targets.targets.as_deref(),
             user.is_ven(),
             &user.ven_ids_string(),
             user.is_business(),
@@ -475,7 +469,7 @@ mod tests {
         event::{EventPayloadDescriptor, EventType},
         interval::IntervalPeriod,
         program::{PayloadDescriptor, ProgramContent, ProgramDescription},
-        target::{TargetEntry, TargetMap, TargetType},
+        target::Target,
         Program,
     };
     use sqlx::PgPool;
@@ -483,10 +477,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                targets: TargetQueryParams {
-                    target_type: None,
-                    values: None,
-                },
+                targets: TargetQueryParams { targets: None },
                 skip: 0,
                 limit: 50,
             }
@@ -518,16 +509,10 @@ mod tests {
                 payload_descriptors: Some(vec![PayloadDescriptor::EventPayloadDescriptor(
                     EventPayloadDescriptor::new(EventType::ExportPrice),
                 )]),
-                targets: Some(TargetMap(vec![
-                    TargetEntry {
-                        label: TargetType::Group,
-                        values: vec!["group-1".to_string()],
-                    },
-                    TargetEntry {
-                        label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: vec!["private value".to_string()],
-                    },
-                ])),
+                targets: Some(vec![
+                    Target::new("group-1").unwrap(),
+                    Target::new("private-value").unwrap(),
+                ]),
             },
         }
     }
@@ -551,10 +536,10 @@ mod tests {
                 binding_events: None,
                 local_price: None,
                 payload_descriptors: None,
-                targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetType::Group,
-                    values: vec!["group-1".to_string(), "group-2".to_string()],
-                }])),
+                targets: Some(vec![
+                    Target::new("group-1").unwrap(),
+                    Target::new("group-2").unwrap(),
+                ]),
             },
         }
     }
@@ -573,7 +558,6 @@ mod tests {
 
     mod get_all {
         use super::*;
-        use openleadr_wire::target::TargetType;
 
         #[sqlx::test(fixtures("programs"))]
         async fn default_get_all(db: PgPool) {
@@ -639,8 +623,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string()]),
+                            targets: Some(vec!["group-1".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -654,8 +637,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["not-existent".to_string()]),
+                            targets: Some(vec!["not-existent".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -676,8 +658,7 @@ mod tests {
                         // The target type and target value are both in the program, but not in the same target, i.e.,
                         // there exists a target type group with some value and another target type with the value 'private value'
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["private value".to_string()]),
+                            targets: Some(vec!["private-value".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -696,8 +677,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string(), "group-2".to_string()]),
+                            targets: Some(vec!["group-1".to_string(), "group-2".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -711,8 +691,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec![
+                            targets: Some(vec![
                                 "group-1".to_string(),
                                 "group-not-existent".to_string(),
                             ]),
@@ -729,8 +708,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-2".to_string()]),
+                            targets: Some(vec!["group-2".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -744,8 +722,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string()]),
+                            targets: Some(vec!["group-1".to_string()]),
                         },
                         ..Default::default()
                     },

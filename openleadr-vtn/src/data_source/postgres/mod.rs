@@ -14,7 +14,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use dotenvy::dotenv;
-use openleadr_wire::target::{TargetMap, TargetType};
+use openleadr_wire::target::Target;
 use resource::PgResourceStorage;
 use serde::Serialize;
 use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
@@ -115,8 +115,9 @@ fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>
 }
 
 #[tracing::instrument(level = "trace")]
-fn extract_vens(targets: Option<TargetMap>) -> (Option<TargetMap>, Option<Vec<String>>) {
-    if let Some(TargetMap(targets)) = targets {
+fn extract_vens(targets: Option<Vec<Target>>) -> (Option<Vec<Target>>, Option<Vec<String>>) {
+    todo!()
+    /*if let Some(TargetMap(targets)) = targets {
         let (vens, targets): (Vec<_>, Vec<_>) = targets
             .into_iter()
             .partition(|t| t.label == TargetType::VENName);
@@ -137,7 +138,7 @@ fn extract_vens(targets: Option<TargetMap>) -> (Option<TargetMap>, Option<Vec<St
         (targets, vens)
     } else {
         (None, None)
-    }
+    }*/
 }
 
 fn extract_business_id(user: &Claims) -> Result<Option<String>, AppError> {

@@ -5,7 +5,7 @@ use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
 use crate::{
-    resource::Resource, target::TargetMap, values_map::ValuesMap, Identifier, IdentifierError,
+    resource::Resource, target::Target, values_map::ValuesMap, Identifier, IdentifierError,
 };
 
 /// Ven represents a client with the ven role.
@@ -36,8 +36,8 @@ pub struct VenContent {
     pub ven_name: String,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
-    /// A list of valuesMap objects describing target criteria.
-    pub targets: Option<TargetMap>,
+    /// A list of targets.
+    pub targets: Option<Vec<Target>>,
     /// A list of resource objects representing end-devices or systems.
     resources: Option<Vec<Resource>>,
 }
@@ -46,7 +46,7 @@ impl VenContent {
     pub fn new(
         ven_name: String,
         attributes: Option<Vec<ValuesMap>>,
-        targets: Option<TargetMap>,
+        targets: Option<Vec<Target>>,
         resources: Option<Vec<Resource>>,
     ) -> Self {
         Self {

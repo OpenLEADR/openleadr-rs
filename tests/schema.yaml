@@ -117,13 +117,19 @@ components:
               - $ref: '#/components/schemas/reportPayloadDescriptor'
             discriminator:
               propertyName: objectType
-        targets:
-          type: array
-          description: A list of valuesMap objects.
           nullable: true
           default: null
           items:
             $ref: '#/components/schemas/valuesMap'
+          nullable: true
+          default: null
+        targets:
+          type: array
+          description: A list of targets.
+          items:
+            $ref: '#/components/schemas/target'
+          nullable: true
+          default: null
     report:
       type: object
       description: report object.
@@ -238,11 +244,11 @@ components:
           default: null
         targets:
           type: array
-          description: A list of valuesMap objects.
+          description: A list of targets.
+          items:
+            $ref: '#/components/schemas/target'
           nullable: true
           default: null
-          items:
-            $ref: '#/components/schemas/valuesMap'
         reportDescriptors:
           type: array
           description: A list of reportDescriptor objects. Used to request reports from VEN.
@@ -339,11 +345,11 @@ components:
                 default: null
         targets:
           type: array
-          description: A list of valuesMap objects. Used by server to filter callbacks.
+          description: A list of target objects. Used by server to filter notifications.
+          items:
+            $ref: '#/components/schemas/target'
           nullable: true
           default: null
-          items:
-            $ref: '#/components/schemas/valuesMap'
     ven:
       type: object
       description: Ven represents a client with the ven role.
@@ -408,6 +414,13 @@ components:
           description: Used as discriminator, e.g. notification.object
           enum: [ RESOURCE ]
           # VTN provisioned on object creation.
+        targets:
+          type: array
+          description: A list of targets.
+          items:
+            $ref: '#/components/schemas/target'
+          nullable: true
+          default: null
         resourceName:
           type: string
           description: User generated identifier, resource may be configured with identifier out-of-band.
@@ -621,11 +634,11 @@ components:
           default: null
         targets:
           type: array
-          description: A list of valuesMap objects.
+          description: A list of targets.
+          items:
+            $ref: '#/components/schemas/target'
           nullable: true
           default: null
-          items:
-            $ref: '#/components/schemas/valuesMap'
         aggregate:
           type: boolean
           description: |
@@ -696,13 +709,6 @@ components:
           description: the operation on on object that triggered the notification.
           example: POST
           enum: [ GET, POST, PUT, DELETE ]
-        targets:
-          type: array
-          description: A list of valuesMap objects.
-          nullable: true
-          default: null
-          items:
-            $ref: '#/components/schemas/valuesMap'
         object:
           type: object
           description: the object that is the subject of the notification.
@@ -716,6 +722,13 @@ components:
             - $ref: '#/components/schemas/resource'
           discriminator:
             propertyName: objectType
+        targets:
+          type: array
+          description: A list of targets.
+          items:
+            $ref: '#/components/schemas/target'
+          nullable: true
+          default: null
     objectTypes:
       type: string
       description: Types of objects addressable through API.

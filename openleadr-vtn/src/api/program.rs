@@ -119,11 +119,7 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use openleadr_wire::{
-        problem::Problem,
-        target::{TargetEntry, TargetMap, TargetType},
-        Event,
-    };
+    use openleadr_wire::{problem::Problem, target::Target, Event};
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
     // for `call`, `oneshot`, and `ready`
@@ -368,23 +364,11 @@ mod test {
                 ..default_content()
             },
             ProgramContent {
-                targets: Some(TargetMap(
-                    vec![
-                        TargetEntry {
-                            label: TargetType::Private("".to_string()),
-                            values: vec!["test".to_string()]
-                        }
-                    ])),
+                targets: Some(vec![Target::new("test").unwrap()]),
                 ..default_content()
             },
             ProgramContent {
-                targets: Some(TargetMap(
-                    vec![
-                        TargetEntry {
-                            label: TargetType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
-                            values: vec!["test".to_string()]
-                        }
-                    ])),
+                targets: Some(vec![Target::new("test").unwrap()]),
                 ..default_content()
             }];
 
@@ -435,18 +419,12 @@ mod test {
         };
         let program2 = ProgramContent {
             program_name: "program2".to_string(),
-            targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetType::Group,
-                values: vec!["Group 2".to_string()],
-            }])),
+            targets: Some(vec![Target::new("Group 2").unwrap()]),
             ..default_content()
         };
         let program3 = ProgramContent {
             program_name: "program3".to_string(),
-            targets: Some(TargetMap(vec![TargetEntry {
-                label: TargetType::Group,
-                values: vec!["Group 1".to_string()],
-            }])),
+            targets: Some(vec![Target::new("Group 1").unwrap()]),
             ..default_content()
         };
 
@@ -534,7 +512,6 @@ mod test {
 
     mod permissions {
         use super::*;
-        use openleadr_wire::target::{TargetEntry, TargetMap, TargetType};
 
         #[sqlx::test(fixtures("users", "business"))]
         async fn business_can_create_program(db: PgPool) {
@@ -603,10 +580,7 @@ mod test {
             let mut app = state.clone().into_router();
 
             let content = ProgramContent {
-                targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetType::VENName,
-                    values: vec!["ven-1-name".to_string()],
-                }])),
+                targets: Some(vec![Target::new("ven-1-name").unwrap()]),
                 ..default_content()
             };
 
