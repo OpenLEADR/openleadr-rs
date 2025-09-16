@@ -14,12 +14,11 @@ use crate::{
 };
 use async_trait::async_trait;
 use dotenvy::dotenv;
-use openleadr_wire::target::{TargetMap, TargetType};
 use resource::PgResourceStorage;
 use serde::Serialize;
 use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
-use tracing::{error, info, trace};
+use tracing::{error, info};
 
 use super::Migrate;
 
@@ -112,32 +111,6 @@ impl PostgresStorage {
 fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>, AppError> {
     v.map(|v| serde_json::to_value(v).map_err(AppError::SerdeJsonBadRequest))
         .transpose()
-}
-
-#[tracing::instrument(level = "trace")]
-fn extract_vens(targets: Option<TargetMap>) -> (Option<TargetMap>, Option<Vec<String>>) {
-    if let Some(TargetMap(targets)) = targets {
-        let (vens, targets): (Vec<_>, Vec<_>) = targets
-            .into_iter()
-            .partition(|t| t.label == TargetType::VENName);
-
-        let vens = vens
-            .into_iter()
-            .map(|t| t.values[0].clone())
-            .collect::<Vec<_>>();
-
-        let targets = if targets.is_empty() {
-            None
-        } else {
-            Some(TargetMap(targets))
-        };
-        let vens = if vens.is_empty() { None } else { Some(vens) };
-
-        trace!(?targets, ?vens);
-        (targets, vens)
-    } else {
-        (None, None)
-    }
 }
 
 fn extract_business_id(user: &Claims) -> Result<Option<String>, AppError> {

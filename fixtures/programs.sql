@@ -40,20 +40,7 @@ VALUES ('program-1',
             "payloadType": "EXPORT_PRICE"
           }
         ]',
-        '[
-          {
-            "type": "GROUP",
-            "values": [
-              "group-1"
-            ]
-          },
-          {
-            "type": "PRIVATE_LABEL",
-            "values": [
-              "private value"
-            ]
-          }
-        ]'),
+        '["group-1", "private-value"]'),
        ('program-2',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',
@@ -69,15 +56,7 @@ VALUES ('program-1',
         NULL,
         NULL,
         NULL,
-        '[
-          {
-            "type": "GROUP",
-            "values": [
-              "group-1",
-              "group-2"
-            ]
-          }
-        ]'),
+        '["group-1", "group-2"]'),
        ('program-3',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',

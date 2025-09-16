@@ -4,7 +4,7 @@ use crate::{
     event::EventId,
     interval::{Interval, IntervalPeriod},
     program::ProgramId,
-    target::TargetMap,
+    target::Target,
     values_map::Value,
     Identifier, IdentifierError, Unit,
 };
@@ -133,8 +133,8 @@ pub struct ReportDescriptor {
     pub reading_type: ReadingType,
     /// Units of measure.
     pub units: Option<Unit>,
-    /// A list of valuesMap objects.
-    pub targets: Option<TargetMap>,
+    /// A list of targets.
+    pub targets: Option<Vec<Target>>,
     /// True if report should aggregate results from all targeted resources. False if report includes results for each resource.
     #[serde(default = "bool_false")]
     pub aggregate: bool,

@@ -181,7 +181,7 @@ mod test {
         let (status, resources) = test
             .request::<Vec<Resource>>(
                 Method::GET,
-                "/vens/ven-1/resources?targetType=GROUP&targetValues=group-1",
+                "/vens/ven-1/resources?targets=group-1",
                 Body::empty(),
             )
             .await;
@@ -191,7 +191,7 @@ mod test {
         let (status, resources) = test
             .request::<Vec<Resource>>(
                 Method::GET,
-                "/vens/ven-1/resources?targetType=GROUP&targetValues=group-1&targetValues=group-2",
+                "/vens/ven-1/resources?targets=group-1&targets=group-2",
                 Body::empty(),
             )
             .await;

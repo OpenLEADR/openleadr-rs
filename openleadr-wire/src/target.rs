@@ -1,87 +1,26 @@
 //! Types to filter resources
 
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct TargetMap(pub Vec<TargetEntry>);
+use crate::Identifier;
 
-// TODO: Handle strong typing of values
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct TargetEntry {
-    #[serde(rename = "type")]
-    pub label: TargetType,
-    pub values: Vec<String>,
+/// User generated target string.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+pub struct Target(pub(crate) Identifier);
+
+impl Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TargetType {
-    /// A Power Service Location is a utility named specific location in
-    /// geography or the distribution system, usually the point of service to a
-    /// customer site.
-    PowerServiceLocation,
-    /// A Service Area is a utility named geographic region.
-    ServiceArea,
-    /// Targeting a specific group (string).
-    Group,
-    /// Targeting a specific resource (string).
-    ResourceName,
-    /// Targeting a specific VEN (string).
-    #[serde(rename = "VEN_NAME")]
-    VENName,
-    /// Targeting a specific event (string).
-    EventName,
-    /// Targeting a specific program (string).
-    ProgramName,
-    /// An application specific privately defined target.
-    #[serde(untagged)]
-    #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
-    Private(String),
-}
-
-impl TargetType {
+impl Target {
     pub fn as_str(&self) -> &str {
-        match self {
-            TargetType::PowerServiceLocation => "POWER_SERVICE_LOCATION",
-            TargetType::ServiceArea => "SERVICE_AREA",
-            TargetType::Group => "GROUP",
-            TargetType::ResourceName => "RESOURCE_NAME",
-            TargetType::VENName => "VEN_NAME",
-            TargetType::EventName => "EVENT_NAME",
-            TargetType::ProgramName => "PROGRAM_NAME",
-            TargetType::Private(s) => s.as_str(),
-        }
+        self.0.as_str()
     }
-}
 
-impl Display for TargetType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_target_serialization() {
-        assert_eq!(
-            serde_json::to_string(&TargetType::EventName).unwrap(),
-            r#""EVENT_NAME""#
-        );
-        assert_eq!(
-            serde_json::to_string(&TargetType::Private(String::from("something else"))).unwrap(),
-            r#""something else""#
-        );
-        assert_eq!(
-            serde_json::from_str::<TargetType>(r#""VEN_NAME""#).unwrap(),
-            TargetType::VENName
-        );
-        assert_eq!(
-            serde_json::from_str::<TargetType>(r#""something else""#).unwrap(),
-            TargetType::Private(String::from("something else"))
-        );
+    pub fn new(identifier: &str) -> Option<Self> {
+        Some(Self(identifier.parse().ok()?))
     }
 }

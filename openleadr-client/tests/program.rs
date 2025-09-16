@@ -1,9 +1,6 @@
 use axum::http::StatusCode;
 use openleadr_client::{Error, Filter, PaginationOptions};
-use openleadr_wire::{
-    program::ProgramContent,
-    target::{TargetEntry, TargetMap, TargetType},
-};
+use openleadr_wire::{program::ProgramContent, target::Target};
 use sqlx::PgPool;
 
 mod common;
@@ -153,26 +150,20 @@ async fn retrieve_all_with_filter(db: PgPool) {
     };
     let program2 = ProgramContent {
         program_name: "program2".to_string(),
-        targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetType::Group,
-            values: vec!["Group 2".to_string()],
-        }])),
+        targets: Some(vec![Target::new("group-2").unwrap()]),
         ..default_content()
     };
     let program3 = ProgramContent {
         program_name: "program3".to_string(),
-        targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetType::Group,
-            values: vec!["Group 1".to_string()],
-        }])),
+        targets: Some(vec![Target::new("group-1").unwrap()]),
         ..default_content()
     };
     let program4 = ProgramContent {
         program_name: "program4".to_string(),
-        targets: Some(TargetMap(vec![TargetEntry {
-            label: TargetType::Group,
-            values: vec!["Group 1".to_string(), "Group 3".to_string()],
-        }])),
+        targets: Some(vec![
+            Target::new("group-1").unwrap(),
+            Target::new("group-3").unwrap(),
+        ]),
         ..default_content()
     };
 
@@ -200,42 +191,9 @@ async fn retrieve_all_with_filter(db: PgPool) {
         .unwrap();
     assert_eq!(programs.len(), 2);
 
-    // program name
-    let err = client
-        .get_programs(
-            Filter::<&'static str>::By(TargetType::Private("NONSENSE".to_string()), &[]),
-            PaginationOptions { skip: 0, limit: 2 },
-        )
-        .await
-        .unwrap_err();
-    let Error::Problem(problem) = err else {
-        unreachable!()
-    };
-    assert_eq!(
-        problem.status,
-        StatusCode::BAD_REQUEST,
-        "Do return BAD_REQUEST on empty targetValue"
-    );
-
-    let err = client
-        .get_programs(
-            Filter::By(TargetType::Private("NONSENSE".to_string()), &[""]),
-            PaginationOptions { skip: 0, limit: 2 },
-        )
-        .await
-        .unwrap_err();
-    let Error::Problem(problem) = err else {
-        unreachable!()
-    };
-    assert_eq!(
-        problem.status,
-        StatusCode::BAD_REQUEST,
-        "Do return BAD_REQUEST on empty targetValue"
-    );
-
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Private("NONSENSE".to_string()), &["test"]),
+            Filter::By(&["test"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -244,7 +202,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Group 1", "Group 2"]),
+            Filter::By(&["group-1", "group-2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -253,7 +211,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Group 1", "Group 3"]),
+            Filter::By(&["group-1", "group-3"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -262,7 +220,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Group 2", "Group 3"]),
+            Filter::By(&["group-2", "group-3"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -271,7 +229,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Group 3"]),
+            Filter::By(&["group-3"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -280,7 +238,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Group 1"]),
+            Filter::By(&["group-1"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -289,7 +247,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Group 2"]),
+            Filter::By(&["group-2"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await
@@ -298,7 +256,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(TargetType::Group, &["Not existent"]),
+            Filter::By(&["Not existent"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

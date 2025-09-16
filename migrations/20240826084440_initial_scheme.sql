@@ -129,14 +129,6 @@ create unique index resource_ven_id_resource_name_uindex
     on resource (ven_id, resource_name);
 
 
-create table ven_program
-(
-    program_id text not null references program (id) on delete cascade,
-    ven_id     text not null references ven (id) on delete cascade,
-    constraint ven_program_pk primary key (program_id, ven_id)
-);
-
-
 create table user_business
 (
     user_id     text not null references "user" (id) on delete cascade,
