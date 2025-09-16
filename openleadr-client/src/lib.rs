@@ -55,7 +55,6 @@ mod event;
 mod program;
 mod report;
 mod resource;
-mod target;
 mod timeline;
 mod ven;
 
@@ -77,16 +76,14 @@ pub use event::*;
 pub use program::*;
 pub use report::*;
 pub use resource::*;
-pub use target::*;
 pub use timeline::*;
 pub use ven::*;
 
 use crate::error::Result;
-use openleadr_wire::ven::{VenContent, VenId};
-pub(crate) use openleadr_wire::{
+use openleadr_wire::{
     event::EventContent,
     program::{ProgramContent, ProgramId},
-    target::TargetType,
+    ven::{VenContent, VenId},
     Program,
 };
 
@@ -393,14 +390,10 @@ pub struct PaginationOptions {
     pub limit: usize,
 }
 
-/// Filter based on TargetType and TargetValues as specified for various items.
+/// Filter based on Target as specified for various items.
 ///
 /// **Please note:** This does only filter based on what is stored in the `target` field of an item
 /// (e.g., [`ProgramContent::targets`]) and should not get interpreted by the server.
-/// For example, setting the [`TargetType`] to [`ProgramName`](TargetType::ProgramName)
-/// will not filter based on the [`program_name`](ProgramContent::program_name)
-/// value but only consider what is stored in the [`targets`](`ProgramContent::targets`)
-/// of that program.
 ///
 /// Unfortunately, the specification is not very clear about this behavior,
 /// so some servers might interpret it differently.
@@ -410,11 +403,11 @@ pub struct PaginationOptions {
 pub enum Filter<'a, S: AsRef<str>> {
     /// Do not apply any filtering
     None,
-    /// Filter by [`TargetType`] and a list of values.
+    /// Filter by [`Target`] and a list of values.
     ///
     /// It will be encoded to the request as query parameters,
-    /// e.g., `/programs?targetType=GROUP&targetValues=Group-1&targetValues=Group-2`.
-    By(TargetType, &'a [S]),
+    /// e.g., `/programs?targets=group-1&targets=group-2`.
+    By(&'a [S]),
 }
 
 impl<'a> Filter<'a, &'static str> {
@@ -427,11 +420,9 @@ impl<'a> Filter<'a, &'static str> {
 impl<'a, S: AsRef<str>> Filter<'a, S> {
     pub(crate) fn to_query_params(&'a self) -> Vec<(&'a str, &'a str)> {
         let mut query = vec![];
-        if let Filter::By(ref target_label, target_values) = self {
-            query.push(("targetType", target_label.as_str()));
-
+        if let Filter::By(target_values) = self {
             for target_value in *target_values {
-                query.push(("targetValues", target_value.as_ref()));
+                query.push(("targets", target_value.as_ref()));
             }
         }
         query

@@ -91,23 +91,7 @@ impl Crud for PgReportStorage {
         new: Self::NewType,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let permitted_vens = sqlx::query_scalar!(
-            r#"
-            SELECT ven_id AS id FROM ven_program WHERE program_id = $1
-            "#,
-            new.program_id.as_str()
-        )
-        .fetch_all(&self.db)
-        .await?;
-
-        if !permitted_vens.is_empty()
-            && !user
-                .ven_ids()
-                .into_iter()
-                .any(|user_ven| permitted_vens.contains(&user_ven.to_string()))
-        {
-            Err(AppError::NotFound)?
-        }
+        let _ = user; // FIXME implement object privacy
 
         let program_id = sqlx::query_scalar!(
             r#"
@@ -152,27 +136,17 @@ impl Crud for PgReportStorage {
         id: &Self::Id,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_ids = extract_business_ids(user);
+        let _ = user; // FIXME implement object privacy
 
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT r.* 
-            FROM report r 
-                JOIN program p ON p.id = r.program_id 
-                LEFT JOIN ven_program vp ON vp.program_id = r.program_id
-            WHERE r.id = $1 
-              AND (
-                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3))) 
-                  OR 
-                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
-                  )
+            SELECT r.*
+            FROM report r
+                JOIN program p ON p.id = r.program_id
+            WHERE r.id = $1
             "#,
             id.as_str(),
-            user.is_ven(),
-            &user.ven_ids_string(),
-            user.is_business(),
-            business_ids.as_deref()
         )
         .fetch_one(&self.db)
         .await?
@@ -188,7 +162,7 @@ impl Crud for PgReportStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let business_ids = extract_business_ids(user);
+        let _ = user; // FIXME implement object privacy
 
         let reports = sqlx::query_as!(
             PostgresReport,
@@ -196,25 +170,15 @@ impl Crud for PgReportStorage {
             SELECT r.*
             FROM report r
                 JOIN program p ON p.id = r.program_id
-                LEFT JOIN ven_program v ON v.program_id = r.program_id
             WHERE ($1::text IS NULL OR $1 like r.program_id)
               AND ($2::text IS NULL OR $2 like r.event_id)
               AND ($3::text IS NULL OR $3 like r.client_name)
-              AND (
-                  ($4 AND (v.ven_id IS NULL OR v.ven_id = ANY($5))) 
-                  OR 
-                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
-                  )
             ORDER BY r.created_date_time DESC
-            OFFSET $8 LIMIT $9
+            OFFSET $4 LIMIT $5
             "#,
             filter.program_id.clone().map(|x| x.to_string()),
             filter.event_id.clone().map(|x| x.to_string()),
             filter.client_name,
-            user.is_ven(),
-            &user.ven_ids_string(),
-            user.is_business(),
-            business_ids.as_deref(),
             filter.skip,
             filter.limit,
         )
@@ -235,34 +199,25 @@ impl Crud for PgReportStorage {
         new: Self::NewType,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_ids = extract_business_ids(user);
+        let _ = user; // FIXME implement object privacy
+
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
             UPDATE report r
             SET modification_date_time = now(),
-                program_id = $6,
-                event_id = $7,
-                client_name = $8,
-                report_name = $9,
-                payload_descriptors = $10,
-                resources = $11
+                program_id = $2,
+                event_id = $3,
+                client_name = $4,
+                report_name = $5,
+                payload_descriptors = $6,
+                resources = $7
             FROM program p
-                LEFT JOIN ven_program v ON p.id = v.program_id
             WHERE r.id = $1
               AND (p.id = r.program_id)
-              AND (
-                  ($2 AND (v.ven_id IS NULL OR v.ven_id = ANY($3))) 
-                  OR 
-                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
-                  )
             RETURNING r.*
             "#,
             id.as_str(),
-            user.is_ven(),
-            &user.ven_ids_string(),
-            user.is_business(),
-            business_ids.as_deref(),
             new.program_id.as_str(),
             new.event_id.as_str(),
             new.client_name,
@@ -289,10 +244,10 @@ impl Crud for PgReportStorage {
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
-            DELETE FROM report r 
-                   USING program p 
-                   WHERE r.id = $1 
-                     AND r.program_id = p.id 
+            DELETE FROM report r
+                   USING program p
+                   WHERE r.id = $1
+                     AND r.program_id = p.id
                      AND ($2::text[] IS NULL OR p.business_id = ANY($2))
                    RETURNING r.*
             "#,

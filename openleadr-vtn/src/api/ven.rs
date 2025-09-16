@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn get_all_filetred(db: PgPool) {
+    async fn get_all_filtered(db: PgPool) {
         let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
 
         let (status, vens) = test
@@ -141,11 +141,7 @@ mod tests {
         assert_eq!(vens.len(), 1);
 
         let (status, vens) = test
-            .request::<Vec<Ven>>(
-                Method::GET,
-                "/vens?targetType=GROUP&targetValues=group-1",
-                Body::empty(),
-            )
+            .request::<Vec<Ven>>(Method::GET, "/vens?targets=group-1", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);

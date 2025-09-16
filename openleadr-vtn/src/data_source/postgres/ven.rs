@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::Resource,
-    target::TargetEntry,
     ven::{Ven, VenContent, VenId},
 };
 use sqlx::PgPool;
@@ -157,15 +156,12 @@ impl Crud for PgVenStorage {
     ) -> Result<Vec<Self::Type>, Self::Error> {
         let ids = permissions.as_value();
 
-        let target: Option<TargetEntry> = filter.targets.clone().into();
-        let target_values = target.as_ref().map(|t| t.values.clone());
-
         let pg_vens: Vec<PostgresVen> = sqlx::query_as!(
             PostgresVen,
             r#"
             SELECT DISTINCT
-                v.id AS "id!", 
-                v.created_date_time AS "created_date_time!", 
+                v.id AS "id!",
+                v.created_date_time AS "created_date_time!",
                 v.modification_date_time AS "modification_date_time!",
                 v.ven_name AS "ven_name!",
                 v.attributes,
@@ -173,25 +169,24 @@ impl Crud for PgVenStorage {
             FROM ven v
               LEFT JOIN resource r ON r.ven_id = v.id
               LEFT JOIN LATERAL (
-                  
+
+                    -- FIXME simplify
                     SELECT targets.v_id,
-                           (t ->> 'type' = $2) AND
-                           (t -> 'values' ?| $3) AS target_test
+                           (t ?| $2) AS target_test
                     FROM (SELECT ven.id                            AS v_id,
-                                 jsonb_array_elements(ven.targets) AS t
+                                 ven.targets AS t
                           FROM ven) AS targets
-                  
+
                    )
                   ON v.id = v_id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2 IS NULL OR $3 IS NULL OR target_test)
-              AND ($4::text[] IS NULL OR v.id = ANY($4))
+              AND ($2 IS NULL OR target_test)
+              AND ($3::text[] IS NULL OR v.id = ANY($3))
             ORDER BY v.created_date_time DESC
-            OFFSET $5 LIMIT $6
+            OFFSET $4 LIMIT $5
             "#,
             filter.ven_name,
-            target.as_ref().map(|t| t.label.as_str()),
-            target_values.as_deref(),
+            filter.targets.targets.as_deref(),
             ids.as_deref(),
             filter.skip,
             filter.limit,
@@ -308,7 +303,7 @@ mod tests {
         error::AppError,
     };
     use openleadr_wire::{
-        target::{TargetEntry, TargetMap, TargetType},
+        target::Target,
         ven::{Ven, VenContent},
     };
     use sqlx::PgPool;
@@ -317,10 +312,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 ven_name: None,
-                targets: TargetQueryParams {
-                    target_type: None,
-                    values: None,
-                },
+                targets: TargetQueryParams { targets: None },
                 skip: 0,
                 limit: 50,
             }
@@ -335,16 +327,10 @@ mod tests {
             content: VenContent::new(
                 "ven-1-name".to_string(),
                 None,
-                Some(TargetMap(vec![
-                    TargetEntry {
-                        label: TargetType::Group,
-                        values: vec!["group-1".to_string()],
-                    },
-                    TargetEntry {
-                        label: TargetType::Private("PRIVATE_LABEL".into()),
-                        values: vec!["private value".to_string()],
-                    },
-                ])),
+                Some(vec![
+                    Target::new("group-1").unwrap(),
+                    Target::new("private-value").unwrap(),
+                ]),
                 None,
             ),
         }
@@ -363,7 +349,6 @@ mod tests {
         use crate::data_source::postgres::ven::{PgVenStorage, VenPermissions};
 
         use super::*;
-        use openleadr_wire::target::TargetType;
 
         #[sqlx::test(fixtures("users", "vens"))]
         async fn default_get_all(db: PgPool) {
@@ -429,8 +414,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string()]),
+                            targets: Some(vec!["group-1".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -444,8 +428,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["not-existent".to_string()]),
+                            targets: Some(vec!["not-existent".to_string()]),
                         },
                         ..Default::default()
                     },

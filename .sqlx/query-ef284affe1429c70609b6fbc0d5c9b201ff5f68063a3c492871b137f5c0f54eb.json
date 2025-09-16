@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id AS \"id!\", \n                   p.created_date_time AS \"created_date_time!\", \n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n              LEFT JOIN ven_program vp ON p.id = vp.program_id\n              LEFT JOIN ven v ON v.id = vp.ven_id\n              LEFT JOIN LATERAL (\n\n                  SELECT targets.p_id,\n                           (t ->> 'type' = $1) AND\n                           (t -> 'values' ?| $2) AS target_test\n                    FROM (SELECT program.id                            AS p_id,\n                                 jsonb_array_elements(program.targets) AS t\n                          FROM program) AS targets\n                  \n                  )\n                  ON p.id = p_id\n            WHERE ($1 IS NULL OR $2 IS NULL OR target_test)\n              AND (\n                  ($3 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($4)))\n                  OR\n                  ($5)\n                  )\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $6 LIMIT $7\n            ",
+  "query": "\n            SELECT p.id AS \"id!\",\n                   p.created_date_time AS \"created_date_time!\",\n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n              LEFT JOIN LATERAL (\n\n                  SELECT targets.p_id,\n                           (t ?| $1) AS target_test\n                    FROM (SELECT program.id                            AS p_id,\n                                 program.targets AS t\n                          FROM program) AS targets\n\n                  )\n                  ON p.id = p_id\n            WHERE ($1 IS NULL OR target_test)\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
   "describe": {
     "columns": [
       {
@@ -86,11 +86,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
         "TextArray",
-        "Bool",
-        "TextArray",
-        "Bool",
         "Int8",
         "Int8"
       ]
@@ -114,5 +110,5 @@
       true
     ]
   },
-  "hash": "9f3e848e6f9fbef3ee5fc0fb1613acfcc6fbc4cd72d2c85abf4545cc3feb2359"
+  "hash": "ef284affe1429c70609b6fbc0d5c9b201ff5f68063a3c492871b137f5c0f54eb"
 }
