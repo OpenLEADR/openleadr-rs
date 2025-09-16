@@ -216,7 +216,11 @@ mod test {
 
             let status = response.status();
             let body = response.into_body().collect().await.unwrap().to_bytes();
-            let json_body = serde_json::from_slice(&body).unwrap();
+            if status.is_server_error() {
+                panic!("{status}: {}", String::from_utf8_lossy(&body));
+            }
+            let json_body = serde_json::from_slice(&body)
+                .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&body)));
 
             (status, json_body)
         }
