@@ -136,8 +136,6 @@ impl Crud for PgProgramStorage {
     ) -> Result<Self::Type, Self::Error> {
         let business_id = extract_business_id(user)?;
 
-        let mut tx = self.db.begin().await?;
-
         let program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -191,11 +189,10 @@ impl Crud for PgProgramStorage {
             to_json_value(new.targets)?,
             business_id,
         )
-            .fetch_one(&mut *tx)
+            .fetch_one(&self.db)
             .await?
             .try_into()?;
 
-        tx.commit().await?;
         Ok(program)
     }
 
@@ -296,8 +293,6 @@ impl Crud for PgProgramStorage {
     ) -> Result<Self::Type, Self::Error> {
         let _ = user; // FIXME implement object privacy
 
-        let mut tx = self.db.begin().await?;
-
         let program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -349,11 +344,10 @@ impl Crud for PgProgramStorage {
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.targets)?,
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.db)
         .await?
         .try_into()?;
 
-        tx.commit().await?;
         Ok(program)
     }
 
