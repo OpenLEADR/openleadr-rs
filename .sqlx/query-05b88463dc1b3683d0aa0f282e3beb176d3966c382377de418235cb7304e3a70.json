@@ -56,7 +56,7 @@
       {
         "ordinal": 10,
         "name": "targets",
-        "type_info": "Jsonb"
+        "type_info": "TextArray"
       }
     ],
     "parameters": {

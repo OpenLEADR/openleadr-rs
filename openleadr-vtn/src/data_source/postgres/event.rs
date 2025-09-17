@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     event::{EventContent, EventId, Priority},
+    target::Target,
     Event,
 };
 use sqlx::PgPool;
@@ -38,7 +39,7 @@ struct PostgresEvent {
     program_id: String,
     event_name: Option<String>,
     priority: Priority,
-    targets: Option<serde_json::Value>,
+    targets: Option<Vec<String>>,
     report_descriptors: Option<serde_json::Value>,
     payload_descriptors: Option<serde_json::Value>,
     interval_period: Option<serde_json::Value>,
@@ -52,11 +53,20 @@ impl TryFrom<PostgresEvent> for Event {
     fn try_from(value: PostgresEvent) -> Result<Self, Self::Error> {
         let targets = match value.targets {
             None => None,
-            Some(t) => serde_json::from_value(t)
-                .inspect_err(|err| {
-                    error!(?err, "Failed to deserialize JSON from DB to `TargetMap`")
-                })
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            Some(t) => Some(
+                t.into_iter()
+                    .map(|t| {
+                        Target::new(&t)
+                            .inspect_err(|err| {
+                                error!(
+                                    ?err,
+                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
+                                )
+                            })
+                            .map_err(AppError::Identifier)
+                    })
+                    .collect::<Result<Vec<Target>, AppError>>()?,
+            ),
         };
 
         let report_descriptors = match value.report_descriptors {
@@ -155,6 +165,13 @@ impl Crud for PgEventStorage {
     ) -> Result<Self::Type, Self::Error> {
         check_write_permission(new.program_id.as_str(), user, &self.db).await?;
 
+        let targets = new.targets.map(|targets| {
+            targets
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect::<Vec<String>>()
+        });
+
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
@@ -165,7 +182,7 @@ impl Crud for PgEventStorage {
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            to_json_value(new.targets)?,
+            targets.as_deref(),
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
@@ -216,7 +233,7 @@ impl Crud for PgEventStorage {
             FROM event e
               JOIN program p on p.id = e.program_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND ($2::text[] IS NULL OR e.targets ?| $2)
+              AND ($2::text[] IS NULL OR e.targets && $2) -- FIXME use @> for and rather than or filtering
               AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC
@@ -256,6 +273,13 @@ impl Crud for PgEventStorage {
             check_write_permission(&previous_program_id, user, &self.db).await?;
         }
 
+        let targets = new.targets.map(|targets| {
+            targets
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect::<Vec<String>>()
+        });
+
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
@@ -276,7 +300,7 @@ impl Crud for PgEventStorage {
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            to_json_value(new.targets)?,
+            targets.as_deref(),
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,

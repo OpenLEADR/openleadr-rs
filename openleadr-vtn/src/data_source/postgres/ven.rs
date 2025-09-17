@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::Resource,
+    target::Target,
     ven::{Ven, VenContent, VenId},
 };
 use sqlx::PgPool;
@@ -36,7 +37,7 @@ struct PostgresVen {
     modification_date_time: DateTime<Utc>,
     ven_name: String,
     attributes: Option<serde_json::Value>,
-    targets: Option<serde_json::Value>,
+    targets: Option<Vec<String>>,
 }
 
 impl PostgresVen {
@@ -58,11 +59,20 @@ impl PostgresVen {
         };
         let targets = match self.targets {
             None => None,
-            Some(t) => serde_json::from_value(t)
-                .inspect_err(|err| {
-                    error!(?err, "Failed to deserialize JSON from DB to `TargetMap`")
-                })
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            Some(t) => Some(
+                t.into_iter()
+                    .map(|t| {
+                        Target::new(&t)
+                            .inspect_err(|err| {
+                                error!(
+                                    ?err,
+                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
+                                )
+                            })
+                            .map_err(AppError::Identifier)
+                    })
+                    .collect::<Result<Vec<Target>, AppError>>()?,
+            ),
         };
 
         Ok(Ven {
@@ -88,6 +98,13 @@ impl Crud for PgVenStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let targets = new.targets.map(|targets| {
+            targets
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect::<Vec<String>>()
+        });
+
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -104,7 +121,7 @@ impl Crud for PgVenStorage {
             "#,
             new.ven_name,
             to_json_value(new.attributes)?,
-            to_json_value(new.targets)?,
+            targets.as_deref(),
         )
         .fetch_one(&self.db)
         .await?
@@ -169,7 +186,7 @@ impl Crud for PgVenStorage {
             FROM ven v
               LEFT JOIN resource r ON r.ven_id = v.id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2::text[] IS NULL OR v.targets ?| $2)
+              AND ($2::text[] IS NULL OR v.targets && $2)
               AND ($3::text[] IS NULL OR v.id = ANY($3))
             ORDER BY v.created_date_time DESC
             OFFSET $4 LIMIT $5
@@ -225,6 +242,13 @@ impl Crud for PgVenStorage {
             Some(resources)
         };
 
+        let targets = new.targets.map(|targets| {
+            targets
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect::<Vec<String>>()
+        });
+
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -239,7 +263,7 @@ impl Crud for PgVenStorage {
             id.as_str(),
             new.ven_name,
             to_json_value(new.attributes)?,
-            to_json_value(new.targets)?
+            targets.as_deref(),
         )
         .fetch_one(&self.db)
         .await?

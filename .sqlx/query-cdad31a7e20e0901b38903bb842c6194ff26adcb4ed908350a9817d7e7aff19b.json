@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id AS \"id!\",\n                   p.created_date_time AS \"created_date_time!\",\n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n            WHERE ($1::text[] IS NULL OR p.targets ?| $1)\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
+  "query": "\n            SELECT p.id AS \"id!\",\n                   p.created_date_time AS \"created_date_time!\",\n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n            WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
   "describe": {
     "columns": [
       {
@@ -81,7 +81,7 @@
       {
         "ordinal": 15,
         "name": "targets",
-        "type_info": "Jsonb"
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -110,5 +110,5 @@
       true
     ]
   },
-  "hash": "e38d47ee638e45d1ba11b5409a06dbcb67fe74c822610a32a69631c88f56d9c3"
+  "hash": "cdad31a7e20e0901b38903bb842c6194ff26adcb4ed908350a9817d7e7aff19b"
 }

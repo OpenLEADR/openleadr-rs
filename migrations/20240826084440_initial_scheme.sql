@@ -25,7 +25,7 @@ create table program
     binding_events         boolean,
     local_price            boolean,
     payload_descriptors    jsonb,
-    targets                jsonb,
+    targets                text[],
     business_id            text references business (id)
 );
 
@@ -47,7 +47,7 @@ create table event
     payload_descriptors    jsonb,
     interval_period        jsonb,
     intervals              jsonb       not null,
-    targets                jsonb
+    targets                text[]
 );
 
 create index event_event_name_index
@@ -99,7 +99,7 @@ create table ven
     modification_date_time timestamptz not null,
     ven_name               text        not null,
     attributes             jsonb,
-    targets                jsonb
+    targets                text[]
 );
 
 create unique index ven_ven_name_uindex
@@ -121,7 +121,7 @@ create table resource
     resource_name          text        not null,
     ven_id                 text        not null references ven (id), -- TODO is this actually 'NOT NULL'?
     attributes             jsonb,
-    targets                jsonb
+    targets                text[]
 
 );
 
