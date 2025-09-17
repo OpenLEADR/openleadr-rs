@@ -32,11 +32,11 @@ VALUES ('resource-1',
         'resource-4-name',
         'ven-2',
         NULL,
-        NULL),
+        ARRAY[]::text[]),
         ('resource-5',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',
         'resource-5-name',
         'ven-2',
         NULL,
-        NULL);
+        ARRAY[]::text[]);

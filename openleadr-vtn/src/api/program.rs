@@ -139,7 +139,7 @@ mod test {
             binding_events: None,
             local_price: None,
             payload_descriptors: None,
-            targets: None,
+            targets: vec![],
         }
     }
 
@@ -412,12 +412,12 @@ mod test {
         };
         let program2 = ProgramContent {
             program_name: "program2".to_string(),
-            targets: Some(vec![Target::new("group-2").unwrap()]),
+            targets: vec![Target::new("group-2").unwrap()],
             ..default_content()
         };
         let program3 = ProgramContent {
             program_name: "program3".to_string(),
-            targets: Some(vec![Target::new("group-1").unwrap()]),
+            targets: vec![Target::new("group-1").unwrap()],
             ..default_content()
         };
 
@@ -563,7 +563,7 @@ mod test {
             let mut app = state.clone().into_router();
 
             let content = ProgramContent {
-                targets: Some(vec![Target::new("ven-1-name").unwrap()]),
+                targets: vec![Target::new("ven-1-name").unwrap()],
                 ..default_content()
             };
 

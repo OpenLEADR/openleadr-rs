@@ -44,7 +44,9 @@ pub struct EventContent {
     /// Relative priority of event. A lower number is a higher priority.
     pub priority: Priority,
     /// A list of targets.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<Target>,
     /// A list of reportDescriptor objects. Used to request reports from VEN.
     pub report_descriptors: Option<Vec<ReportDescriptor>>,
     /// A list of payloadDescriptor objects.
@@ -62,7 +64,7 @@ impl EventContent {
             program_id,
             event_name: None,
             priority: Priority::UNSPECIFIED,
-            targets: None,
+            targets: vec![],
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,
@@ -79,9 +81,8 @@ impl EventContent {
         Self { priority, ..self }
     }
 
-    pub fn with_targets(mut self, targets: Vec<Target>) -> Self {
-        self.targets = Some(targets);
-        self
+    pub fn with_targets(self, targets: Vec<Target>) -> Self {
+        Self { targets, ..self }
     }
 
     pub fn with_report_descriptors(mut self, report_descriptors: Vec<ReportDescriptor>) -> Self {
@@ -399,7 +400,7 @@ mod tests {
                 program_id: ProgramId("foo".parse().unwrap()),
                 event_name: None,
                 priority: Priority::MIN,
-                targets: None,
+                targets: vec![],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: None,
@@ -418,7 +419,7 @@ mod tests {
                                     "programID": "object-999",
                                     "eventName": "price event 11-18-2022",
                                     "priority": 0,
-                                    "targets": null,
+                                    "targets": [],
                                     "reportDescriptors": null,
                                     "payloadDescriptors": null,
                                     "intervalPeriod": {

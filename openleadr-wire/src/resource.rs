@@ -37,7 +37,9 @@ pub struct ResourceContent {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of targets.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<Target>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]

@@ -20,7 +20,7 @@ fn default_content() -> ProgramContent {
         binding_events: None,
         local_price: None,
         payload_descriptors: None,
-        targets: None,
+        targets: vec![],
     }
 }
 
@@ -150,20 +150,20 @@ async fn retrieve_all_with_filter(db: PgPool) {
     };
     let program2 = ProgramContent {
         program_name: "program2".to_string(),
-        targets: Some(vec![Target::new("group-2").unwrap()]),
+        targets: vec![Target::new("group-2").unwrap()],
         ..default_content()
     };
     let program3 = ProgramContent {
         program_name: "program3".to_string(),
-        targets: Some(vec![Target::new("group-1").unwrap()]),
+        targets: vec![Target::new("group-1").unwrap()],
         ..default_content()
     };
     let program4 = ProgramContent {
         program_name: "program4".to_string(),
-        targets: Some(vec![
+        targets: vec![
             Target::new("group-1").unwrap(),
             Target::new("group-3").unwrap(),
-        ]),
+        ],
         ..default_content()
     };
 

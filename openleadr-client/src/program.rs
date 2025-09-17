@@ -90,7 +90,7 @@ impl ProgramClient {
             program_id: self.id().clone(),
             event_name: None,
             priority: Priority::UNSPECIFIED,
-            targets: None,
+            targets: vec![],
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,

@@ -37,7 +37,9 @@ pub struct VenContent {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of targets.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<Target>,
     /// A list of resource objects representing end-devices or systems.
     resources: Option<Vec<Resource>>,
 }
@@ -46,7 +48,7 @@ impl VenContent {
     pub fn new(
         ven_name: String,
         attributes: Option<Vec<ValuesMap>>,
-        targets: Option<Vec<Target>>,
+        targets: Vec<Target>,
         resources: Option<Vec<Resource>>,
     ) -> Self {
         Self {

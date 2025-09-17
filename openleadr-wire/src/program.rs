@@ -73,7 +73,9 @@ pub struct ProgramContent {
     /// A list of payloadDescriptors.
     pub payload_descriptors: Option<Vec<PayloadDescriptor>>,
     /// A list of valuesMap objects.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<Target>,
 }
 
 impl ProgramContent {
@@ -169,7 +171,7 @@ mod test {
                     "bindingEvents": false,
                     "localPrice": false,
                     "payloadDescriptors": null,
-                    "targets": null
+                    "targets": []
                   }
                 ]"#;
 
@@ -197,7 +199,7 @@ mod test {
                 binding_events: Some(false),
                 local_price: Some(false),
                 payload_descriptors: None,
-                targets: None,
+                targets: vec![],
             },
         }];
 
@@ -224,7 +226,7 @@ mod test {
                 binding_events: None,
                 local_price: None,
                 payload_descriptors: None,
-                targets: None,
+                targets: vec![],
             }
         );
     }

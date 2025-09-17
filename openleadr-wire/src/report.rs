@@ -134,7 +134,9 @@ pub struct ReportDescriptor {
     /// Units of measure.
     pub units: Option<Unit>,
     /// A list of targets.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<Target>,
     /// True if report should aggregate results from all targeted resources. False if report includes results for each resource.
     #[serde(default = "bool_false")]
     pub aggregate: bool,
@@ -162,7 +164,7 @@ impl ReportDescriptor {
             payload_type,
             reading_type: ReadingType::default(),
             units: None,
-            targets: None,
+            targets: vec![],
             aggregate: false,
             start_interval: -1,
             num_intervals: -1,

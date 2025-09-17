@@ -164,7 +164,7 @@ pub async fn setup_program_client(program_name: impl ToString, db: PgPool) -> Pr
         binding_events: None,
         local_price: None,
         payload_descriptors: None,
-        targets: None,
+        targets: vec![],
     };
 
     client.create_program(program_content).await.unwrap()
