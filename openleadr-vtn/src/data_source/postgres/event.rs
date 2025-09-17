@@ -215,18 +215,8 @@ impl Crud for PgEventStorage {
             SELECT e.*
             FROM event e
               JOIN program p on p.id = e.program_id
-              LEFT JOIN LATERAL (
-
-                    SELECT targets.e_id,
-                           (t ?| $2) AS target_test
-                    FROM (SELECT event.id                            AS e_id,
-                                 event.targets AS t
-                          FROM event) AS targets
-
-                  )
-                  ON e.id = e_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND ($2 IS NULL OR target_test)
+              AND ($2::text[] IS NULL OR e.targets ?| $2)
               AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC

@@ -168,19 +168,8 @@ impl Crud for PgVenStorage {
                 v.targets
             FROM ven v
               LEFT JOIN resource r ON r.ven_id = v.id
-              LEFT JOIN LATERAL (
-
-                    -- FIXME simplify
-                    SELECT targets.v_id,
-                           (t ?| $2) AS target_test
-                    FROM (SELECT ven.id                            AS v_id,
-                                 ven.targets AS t
-                          FROM ven) AS targets
-
-                   )
-                  ON v.id = v_id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2 IS NULL OR target_test)
+              AND ($2::text[] IS NULL OR v.targets ?| $2)
               AND ($3::text[] IS NULL OR v.id = ANY($3))
             ORDER BY v.created_date_time DESC
             OFFSET $4 LIMIT $5

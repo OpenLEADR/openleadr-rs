@@ -166,19 +166,9 @@ impl VenScopedCrud for PgResourceStorage {
                 r.attributes,
                 r.targets
             FROM resource r
-              LEFT JOIN LATERAL (
-
-                    SELECT targets.r_id,
-                           (t ?| $3) AS target_test
-                    FROM (SELECT resource.id                            AS r_id,
-                                 resource.targets AS t
-                          FROM resource) AS targets
-
-                   )
-                  ON r.id = r_id
             WHERE r.ven_id = $1
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3 IS NULL OR target_test)
+                AND ($3::text[] IS NULL OR r.targets ?| $3)
             ORDER BY r.created_date_time
             OFFSET $4 LIMIT $5
             "#,

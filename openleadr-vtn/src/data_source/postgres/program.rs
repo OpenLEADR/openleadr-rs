@@ -259,17 +259,7 @@ impl Crud for PgProgramStorage {
                    p.payload_descriptors,
                    p.targets
             FROM program p
-              LEFT JOIN LATERAL (
-
-                  SELECT targets.p_id,
-                           (t ?| $1) AS target_test
-                    FROM (SELECT program.id                            AS p_id,
-                                 program.targets AS t
-                          FROM program) AS targets
-
-                  )
-                  ON p.id = p_id
-            WHERE ($1 IS NULL OR target_test)
+            WHERE ($1::text[] IS NULL OR p.targets ?| $1)
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
             OFFSET $2 LIMIT $3

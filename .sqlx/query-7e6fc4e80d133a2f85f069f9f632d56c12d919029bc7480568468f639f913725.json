@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p on p.id = e.program_id\n              LEFT JOIN LATERAL (\n\n                    SELECT targets.e_id,\n                           (t ?| $2) AS target_test\n                    FROM (SELECT event.id                            AS e_id,\n                                 event.targets AS t\n                          FROM event) AS targets\n\n                  )\n                  ON e.id = e_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2 IS NULL OR target_test)\n              AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
+  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p on p.id = e.program_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2::text[] IS NULL OR e.targets ?| $2)\n              AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
   "describe": {
     "columns": [
       {
@@ -83,5 +83,5 @@
       true
     ]
   },
-  "hash": "84eae472f544e6b6e82e731b71d96a4788e542a44d8342775f50273ec05cf658"
+  "hash": "7e6fc4e80d133a2f85f069f9f632d56c12d919029bc7480568468f639f913725"
 }
