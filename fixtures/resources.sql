@@ -11,48 +11,21 @@ VALUES ('resource-1',
         'resource-1-name',
         'ven-1',
         NULL,
-        '[
-          {
-            "type": "GROUP",
-            "values": [
-              "group-1"
-            ]
-          },
-          {
-            "type": "POWER_SERVICE_LOCATION",
-            "values": [
-              "somewhere in the nowhere"
-            ]
-          }
-        ]'),
+        ARRAY['group-1', 'somewhere-in-the-nowhere']),
        ('resource-2',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',
         'resource-2-name',
         'ven-2',
         NULL,
-        '[
-          {
-            "type": "GROUP",
-            "values": [
-              "group-1"
-            ]
-          }
-        ]'),
+        ARRAY['group-1']),
         ('resource-3',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',
         'resource-3-name',
         'ven-1',
         NULL,
-         '[
-           {
-             "type": "GROUP",
-             "values": [
-               "group-2"
-             ]
-           }
-         ]'),
+        ARRAY['group-2']),
         ('resource-4',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',

@@ -81,7 +81,7 @@
       {
         "ordinal": 15,
         "name": "targets",
-        "type_info": "Jsonb"
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -98,7 +98,7 @@
         "Bool",
         "Bool",
         "Jsonb",
-        "Jsonb",
+        "TextArray",
         "Text"
       ]
     },

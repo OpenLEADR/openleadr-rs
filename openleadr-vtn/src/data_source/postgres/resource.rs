@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     resource::{Resource, ResourceContent, ResourceId},
-    target::TargetEntry,
+    target::Target,
     ven::VenId,
 };
 use sqlx::PgPool;
@@ -35,7 +35,7 @@ pub(crate) struct PostgresResource {
     resource_name: String,
     ven_id: String,
     attributes: Option<serde_json::Value>,
-    targets: Option<serde_json::Value>,
+    targets: Option<Vec<String>>,
 }
 
 impl TryFrom<PostgresResource> for Resource {
@@ -56,11 +56,20 @@ impl TryFrom<PostgresResource> for Resource {
         };
         let targets = match value.targets {
             None => None,
-            Some(t) => serde_json::from_value(t)
-                .inspect_err(|err| {
-                    error!(?err, "Failed to deserialize JSON from DB to `TargetMap`")
-                })
-                .map_err(AppError::SerdeJsonInternalServerError)?,
+            Some(t) => Some(
+                t.into_iter()
+                    .map(|t| {
+                        Target::new(&t)
+                            .inspect_err(|err| {
+                                error!(
+                                    ?err,
+                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
+                                )
+                            })
+                            .map_err(AppError::Identifier)
+                    })
+                    .collect::<Result<Vec<Target>, AppError>>()?,
+            ),
         };
 
         Ok(Self {
@@ -92,6 +101,13 @@ impl VenScopedCrud for PgResourceStorage {
         ven_id: VenId,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let targets = new.targets.map(|targets| {
+            targets
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect::<Vec<String>>()
+        });
+
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -110,7 +126,7 @@ impl VenScopedCrud for PgResourceStorage {
             new.resource_name,
             ven_id.as_str(),
             to_json_value(new.attributes)?,
-            to_json_value(new.targets)?,
+            targets.as_deref(),
         )
         .fetch_one(&self.db)
         .await?
@@ -155,42 +171,27 @@ impl VenScopedCrud for PgResourceStorage {
         filter: &Self::Filter,
         _user: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let target: Option<TargetEntry> = filter.targets.clone().into();
-        let target_values = target.as_ref().map(|t| t.values.clone());
-
         let res = sqlx::query_as!(
             PostgresResource,
             r#"
             SELECT DISTINCT
-                r.id AS "id!", 
-                r.created_date_time AS "created_date_time!", 
+                r.id AS "id!",
+                r.created_date_time AS "created_date_time!",
                 r.modification_date_time AS "modification_date_time!",
                 r.resource_name AS "resource_name!",
                 r.ven_id AS "ven_id!",
                 r.attributes,
                 r.targets
             FROM resource r
-              LEFT JOIN LATERAL ( 
-                  
-                    SELECT targets.r_id,
-                           (t ->> 'type' = $3) AND
-                           (t -> 'values' ?| $4) AS target_test
-                    FROM (SELECT resource.id                            AS r_id,
-                                 jsonb_array_elements(resource.targets) AS t
-                          FROM resource) AS targets
-                  
-                   )
-                  ON r.id = r_id
             WHERE r.ven_id = $1
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3 IS NULL OR $4 IS NULL OR target_test)
+                AND ($3::text[] IS NULL OR r.targets && $3)
             ORDER BY r.created_date_time
-            OFFSET $5 LIMIT $6
+            OFFSET $4 LIMIT $5
             "#,
             ven_id.as_str(),
             filter.resource_name,
-            target.as_ref().map(|t| t.label.as_str()),
-            target_values.as_deref(),
+            filter.targets.targets.as_deref(),
             filter.skip,
             filter.limit,
         )
@@ -216,6 +217,13 @@ impl VenScopedCrud for PgResourceStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let targets = new.targets.map(|targets| {
+            targets
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect::<Vec<String>>()
+        });
+
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -233,7 +241,7 @@ impl VenScopedCrud for PgResourceStorage {
             new.resource_name,
             ven_id.as_str(),
             to_json_value(new.attributes)?,
-            to_json_value(new.targets)?
+            targets.as_deref(),
         )
         .fetch_one(&self.db)
         .await?
@@ -334,10 +342,7 @@ mod test {
         fn default() -> Self {
             Self {
                 resource_name: None,
-                targets: TargetQueryParams {
-                    target_type: None,
-                    values: None,
-                },
+                targets: TargetQueryParams { targets: None },
                 skip: 0,
                 limit: 50,
             }
