@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n              LEFT JOIN ven_program vp ON p.id = vp.program_id\n            WHERE id = $1\n              AND (NOT $2 OR vp.ven_id IS NULL OR vp.ven_id = ANY($3)) -- Filter for VEN ids\n            ",
+  "query": "\n            UPDATE program p\n            SET modification_date_time = now(),\n                program_name = $2,\n                program_long_name = $3,\n                retailer_name = $4,\n                retailer_long_name = $5,\n                program_type = $6,\n                country = $7,\n                principal_subdivision = $8,\n                interval_period = $9,\n                program_descriptions = $10,\n                binding_events = $11,\n                local_price = $12,\n                payload_descriptors = $13,\n                targets = $14\n            WHERE id = $1\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            ",
   "describe": {
     "columns": [
       {
@@ -81,13 +81,24 @@
       {
         "ordinal": 15,
         "name": "targets",
-        "type_info": "Jsonb"
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
         "Bool",
+        "Bool",
+        "Jsonb",
         "TextArray"
       ]
     },
@@ -110,5 +121,5 @@
       true
     ]
   },
-  "hash": "bb8a8aa90eddaea701908f35c7ad9a384e8af03558116c343cc70839d7e94613"
+  "hash": "6cc884e8281b304d9b05628c4db4cdc0ebd40ed945cfe4a06c365ca8df1df0d1"
 }
