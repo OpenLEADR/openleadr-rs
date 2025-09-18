@@ -80,11 +80,15 @@ impl<'de> Deserialize<'de> for Identifier {
     where
         D: Deserializer<'de>,
     {
-        let borrowed_str = <&str as Deserialize>::deserialize(deserializer)?;
+        let s: String = Deserialize::deserialize(deserializer)?;
 
-        borrowed_str.parse::<Identifier>().map_err(|e| {
-            serde::de::Error::invalid_value(Unexpected::Str(borrowed_str), &e.to_string().as_str())
-        })
+        match Self::validate(&s) {
+            Ok(()) => Ok(Identifier(s)),
+            Err(e) => Err(serde::de::Error::invalid_value(
+                Unexpected::Str(&s),
+                &e.to_string().as_str(),
+            )),
+        }
     }
 }
 
@@ -104,6 +108,12 @@ impl std::str::FromStr for Identifier {
     type Err = IdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::validate(s).map(|()| Identifier(s.to_string()))
+    }
+}
+
+impl Identifier {
+    fn validate(s: &str) -> Result<(), IdentifierError> {
         let is_valid_character = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
 
         if !(1..=128).contains(&s.len()) {
@@ -113,12 +123,10 @@ impl std::str::FromStr for Identifier {
         } else if FORBIDDEN_NAMES.contains(&s.to_ascii_lowercase().as_str()) {
             Err(IdentifierError::ForbiddenName(s.to_string()))
         } else {
-            Ok(Identifier(s.to_string()))
+            Ok(())
         }
     }
-}
 
-impl Identifier {
     pub fn as_str(&self) -> &str {
         &self.0
     }

@@ -2,7 +2,7 @@ use crate::common::setup;
 use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
     resource::ResourceContent,
-    target::{TargetEntry, TargetMap, TargetType},
+    target::Target,
     values_map::{Value, ValueType, ValuesMap},
     ven::VenContent,
 };
@@ -80,10 +80,7 @@ async fn crud() {
             value_type: ValueType("PRICE".to_string()),
             values: vec![Value::Number(123.12)],
         }]);
-        let updated_targets = Some(TargetMap(vec![TargetEntry {
-            label: TargetType::Group,
-            values: vec!["group-1".to_string()],
-        }]));
+        let updated_targets = Some(vec![Target::new("group-1").unwrap()]);
 
         get_resource.content_mut().resource_name = updated_name.clone();
         get_resource.content_mut().attributes = updated_attributes.clone();

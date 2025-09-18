@@ -8,10 +8,9 @@ use axum::{
     Form, Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
-use openleadr_wire::target::{TargetEntry, TargetType};
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
-use validator::{Validate, ValidationError};
+use validator::Validate;
 
 pub(crate) mod auth;
 pub(crate) mod event;
@@ -35,21 +34,10 @@ pub(crate) struct ValidatedJson<T>(pub T);
 
 #[derive(Deserialize, Validate, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-#[validate(schema(function = "validate_target_type_value_pair"))]
 pub(crate) struct TargetQueryParams {
-    #[serde(default)]
-    pub(crate) target_type: Option<TargetType>,
     #[serde(default, deserialize_with = "from_str")]
-    #[serde(rename = "targetValues")]
-    pub(crate) values: Option<Vec<String>>,
-}
-
-fn validate_target_type_value_pair(query: &TargetQueryParams) -> Result<(), ValidationError> {
-    if query.target_type.is_some() == query.values.is_some() {
-        Ok(())
-    } else {
-        Err(ValidationError::new("targetType and targetValues query parameter must either both be set or not set at the same time."))
-    }
+    #[serde(rename = "targets")]
+    pub(crate) targets: Option<Vec<String>>,
 }
 
 fn from_str<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
@@ -63,34 +51,31 @@ where
         Array(Vec<String>),
     }
 
-    Ok(
-        <Option<StrOrArray> as serde::Deserialize>::deserialize(deserializer)?.and_then(
-            |str_or_array| match str_or_array {
-                StrOrArray::String(s) => {
-                    if s.is_empty() {
-                        None
-                    } else {
-                        Some(vec![s])
-                    }
-                }
-                StrOrArray::Array(v) => {
-                    if v.is_empty() {
-                        None
-                    } else {
-                        Some(v)
-                    }
-                }
-            },
-        ),
-    )
-}
-
-impl From<TargetQueryParams> for Option<TargetEntry> {
-    fn from(query: TargetQueryParams) -> Self {
-        query
-            .target_type
-            .zip(query.values)
-            .map(|(label, values)| TargetEntry { label, values })
+    let Some(str_or_array) = <Option<StrOrArray> as serde::Deserialize>::deserialize(deserializer)?
+    else {
+        return Ok(None);
+    };
+    match str_or_array {
+        StrOrArray::String(s) => {
+            if s.is_empty() {
+                Err(serde::de::Error::invalid_value(
+                    serde::de::Unexpected::Str(""),
+                    &"Empty targets",
+                ))
+            } else {
+                Ok(Some(vec![s]))
+            }
+        }
+        StrOrArray::Array(v) => {
+            if v.is_empty() {
+                Err(serde::de::Error::invalid_value(
+                    serde::de::Unexpected::Str(""),
+                    &"Empty targets",
+                ))
+            } else {
+                Ok(Some(v))
+            }
+        }
     }
 }
 
@@ -216,7 +201,11 @@ mod test {
 
             let status = response.status();
             let body = response.into_body().collect().await.unwrap().to_bytes();
-            let json_body = serde_json::from_slice(&body).unwrap();
+            if status.is_server_error() {
+                panic!("{status}: {}", String::from_utf8_lossy(&body));
+            }
+            let json_body = serde_json::from_slice(&body)
+                .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&body)));
 
             (status, json_body)
         }
