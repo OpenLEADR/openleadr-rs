@@ -31,7 +31,7 @@
       {
         "ordinal": 5,
         "name": "targets",
-        "type_info": "Jsonb"
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -39,7 +39,7 @@
         "Text",
         "Text",
         "Jsonb",
-        "Jsonb"
+        "TextArray"
       ]
     },
     "nullable": [

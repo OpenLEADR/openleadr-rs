@@ -364,19 +364,6 @@ impl Claims {
             .collect()
     }
 
-    pub fn ven_ids_string(&self) -> Vec<String> {
-        self.roles
-            .iter()
-            .filter_map(|role| {
-                if let AuthRole::VEN(id) = role {
-                    Some(id.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
     pub fn business_ids(&self) -> BusinessIds {
         let mut ids = vec![];
 

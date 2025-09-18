@@ -1,7 +1,7 @@
 //! Types used for the `event/` endpoint
 
 use crate::{
-    interval::IntervalPeriod, program::ProgramId, report::ReportDescriptor, target::TargetMap,
+    interval::IntervalPeriod, program::ProgramId, report::ReportDescriptor, target::Target,
     values_map::Value, Identifier, IdentifierError, Unit,
 };
 use chrono::{DateTime, Utc};
@@ -43,8 +43,8 @@ pub struct EventContent {
     pub event_name: Option<String>,
     /// Relative priority of event. A lower number is a higher priority.
     pub priority: Priority,
-    /// A list of valuesMap objects.
-    pub targets: Option<TargetMap>,
+    /// A list of targets.
+    pub targets: Option<Vec<Target>>,
     /// A list of reportDescriptor objects. Used to request reports from VEN.
     pub report_descriptors: Option<Vec<ReportDescriptor>>,
     /// A list of payloadDescriptor objects.
@@ -79,7 +79,7 @@ impl EventContent {
         Self { priority, ..self }
     }
 
-    pub fn with_targets(mut self, targets: TargetMap) -> Self {
+    pub fn with_targets(mut self, targets: Vec<Target>) -> Self {
         self.targets = Some(targets);
         self
     }
