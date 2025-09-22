@@ -8,7 +8,6 @@ use axum::{
 };
 use axum_extra::extract::QueryRejection;
 use openleadr_wire::{problem::Problem, IdentifierError};
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::error::DatabaseError;
 #[cfg(feature = "sqlx")]
@@ -352,14 +351,5 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let problem = self.into_problem();
         (problem.status, Json(problem)).into_response()
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ProblemUri(String);
-
-impl Default for ProblemUri {
-    fn default() -> Self {
-        Self("about:blank".to_string())
     }
 }
