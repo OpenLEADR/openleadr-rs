@@ -15,7 +15,7 @@ VALUES ('ven-1',
         '2024-07-25 08:31:10.776000 +00:00',
         'ven-2-name',
         NULL,
-        NULL);
+        ARRAY[]::text[]);
 
 INSERT INTO user_ven (ven_id, user_id)
 VALUES ('ven-1', 'user-1');

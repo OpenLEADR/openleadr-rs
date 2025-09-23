@@ -39,7 +39,7 @@ struct PostgresEvent {
     program_id: String,
     event_name: Option<String>,
     priority: Priority,
-    targets: Option<Vec<String>>,
+    targets: Vec<String>,
     report_descriptors: Option<serde_json::Value>,
     payload_descriptors: Option<serde_json::Value>,
     interval_period: Option<serde_json::Value>,
@@ -51,23 +51,20 @@ impl TryFrom<PostgresEvent> for Event {
 
     #[tracing::instrument(name = "TryFrom<PostgresEvent> for Event")]
     fn try_from(value: PostgresEvent) -> Result<Self, Self::Error> {
-        let targets = match value.targets {
-            None => None,
-            Some(t) => Some(
-                t.into_iter()
-                    .map(|t| {
-                        Target::new(&t)
-                            .inspect_err(|err| {
-                                error!(
-                                    ?err,
-                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
-                                )
-                            })
-                            .map_err(AppError::Identifier)
+        let targets = value
+            .targets
+            .into_iter()
+            .map(|t| {
+                Target::new(&t)
+                    .inspect_err(|err| {
+                        error!(
+                            ?err,
+                            "Failed to deserialize text[] from DB to `Vec<Target>`"
+                        )
                     })
-                    .collect::<Result<Vec<Target>, AppError>>()?,
-            ),
-        };
+                    .map_err(AppError::Identifier)
+            })
+            .collect::<Result<Vec<Target>, AppError>>()?;
 
         let report_descriptors = match value.report_descriptors {
             None => None,
@@ -113,7 +110,7 @@ impl TryFrom<PostgresEvent> for Event {
                 program_id: value.program_id.parse()?,
                 event_name: value.event_name,
                 priority: value.priority,
-                targets,
+                targets: Some(targets),
                 report_descriptors,
                 payload_descriptors,
                 interval_period,
@@ -165,12 +162,12 @@ impl Crud for PgEventStorage {
     ) -> Result<Self::Type, Self::Error> {
         check_write_permission(new.program_id.as_str(), user, &self.db).await?;
 
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -182,7 +179,7 @@ impl Crud for PgEventStorage {
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            targets.as_deref(),
+            &targets,
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
@@ -273,12 +270,12 @@ impl Crud for PgEventStorage {
             check_write_permission(&previous_program_id, user, &self.db).await?;
         }
 
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -300,7 +297,7 @@ impl Crud for PgEventStorage {
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            targets.as_deref(),
+            &targets,
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
