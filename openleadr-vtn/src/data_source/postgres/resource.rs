@@ -35,7 +35,7 @@ pub(crate) struct PostgresResource {
     resource_name: String,
     ven_id: String,
     attributes: Option<serde_json::Value>,
-    targets: Option<Vec<String>>,
+    targets: Vec<String>,
 }
 
 impl TryFrom<PostgresResource> for Resource {
@@ -54,23 +54,20 @@ impl TryFrom<PostgresResource> for Resource {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = match value.targets {
-            None => None,
-            Some(t) => Some(
-                t.into_iter()
-                    .map(|t| {
-                        Target::new(&t)
-                            .inspect_err(|err| {
-                                error!(
-                                    ?err,
-                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
-                                )
-                            })
-                            .map_err(AppError::Identifier)
+        let targets = value
+            .targets
+            .into_iter()
+            .map(|t| {
+                Target::new(&t)
+                    .inspect_err(|err| {
+                        error!(
+                            ?err,
+                            "Failed to deserialize text[] from DB to `Vec<Target>`"
+                        )
                     })
-                    .collect::<Result<Vec<Target>, AppError>>()?,
-            ),
-        };
+                    .map_err(AppError::Identifier)
+            })
+            .collect::<Result<Vec<Target>, AppError>>()?;
 
         Ok(Self {
             id: value.id.parse()?,
@@ -80,7 +77,7 @@ impl TryFrom<PostgresResource> for Resource {
             content: ResourceContent {
                 resource_name: value.resource_name,
                 attributes,
-                targets,
+                targets: Some(targets),
             },
         })
     }
@@ -101,12 +98,12 @@ impl VenScopedCrud for PgResourceStorage {
         ven_id: VenId,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
@@ -126,7 +123,7 @@ impl VenScopedCrud for PgResourceStorage {
             new.resource_name,
             ven_id.as_str(),
             to_json_value(new.attributes)?,
-            targets.as_deref(),
+            &targets,
         )
         .fetch_one(&self.db)
         .await?
@@ -217,12 +214,12 @@ impl VenScopedCrud for PgResourceStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
@@ -241,7 +238,7 @@ impl VenScopedCrud for PgResourceStorage {
             new.resource_name,
             ven_id.as_str(),
             to_json_value(new.attributes)?,
-            targets.as_deref(),
+            &targets,
         )
         .fetch_one(&self.db)
         .await?

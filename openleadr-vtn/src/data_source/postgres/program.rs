@@ -47,7 +47,7 @@ struct PostgresProgram {
     binding_events: Option<bool>,
     local_price: Option<bool>,
     payload_descriptors: Option<serde_json::Value>,
-    targets: Option<Vec<String>>,
+    targets: Vec<String>,
 }
 
 impl TryFrom<PostgresProgram> for Program {
@@ -88,23 +88,20 @@ impl TryFrom<PostgresProgram> for Program {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = match value.targets {
-            None => None,
-            Some(t) => Some(
-                t.into_iter()
-                    .map(|t| {
-                        Target::new(&t)
-                            .inspect_err(|err| {
-                                error!(
-                                    ?err,
-                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
-                                )
-                            })
-                            .map_err(AppError::Identifier)
+        let targets = value
+            .targets
+            .into_iter()
+            .map(|t| {
+                Target::new(&t)
+                    .inspect_err(|err| {
+                        error!(
+                            ?err,
+                            "Failed to deserialize text[] from DB to `Vec<Target>`"
+                        )
                     })
-                    .collect::<Result<Vec<Target>, AppError>>()?,
-            ),
-        };
+                    .map_err(AppError::Identifier)
+            })
+            .collect::<Result<Vec<Target>, AppError>>()?;
 
         Ok(Self {
             id: value.id.parse()?,
@@ -124,7 +121,7 @@ impl TryFrom<PostgresProgram> for Program {
                 binding_events: value.binding_events,
                 local_price: value.local_price,
                 payload_descriptors,
-                targets,
+                targets: Some(targets),
             },
         })
     }
@@ -145,12 +142,12 @@ impl Crud for PgProgramStorage {
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let business_id = extract_business_id(user)?;
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         let program: Program = sqlx::query_as!(
             PostgresProgram,
@@ -202,7 +199,7 @@ impl Crud for PgProgramStorage {
             new.binding_events,
             new.local_price,
             to_json_value(new.payload_descriptors)?,
-            targets.as_deref(),
+            &targets,
             business_id,
         )
             .fetch_one(&self.db)
@@ -299,12 +296,12 @@ impl Crud for PgProgramStorage {
     ) -> Result<Self::Type, Self::Error> {
         let _ = user; // FIXME implement object privacy
 
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         let program: Program = sqlx::query_as!(
             PostgresProgram,
@@ -355,7 +352,7 @@ impl Crud for PgProgramStorage {
             new.binding_events,
             new.local_price,
             to_json_value(new.payload_descriptors)?,
-            targets.as_deref(),
+            &targets,
         )
         .fetch_one(&self.db)
         .await?
