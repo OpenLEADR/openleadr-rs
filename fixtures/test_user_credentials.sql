@@ -53,7 +53,7 @@ VALUES ('ven-1',
         now(),
         'ven-1-name',
         null,
-        null);
+        ARRAY[]::text[]);
 
 INSERT INTO user_ven (ven_id, user_id)
 VALUES ('ven-1', 'ven-1-user');

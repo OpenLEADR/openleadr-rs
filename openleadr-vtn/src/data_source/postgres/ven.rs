@@ -37,7 +37,7 @@ struct PostgresVen {
     modification_date_time: DateTime<Utc>,
     ven_name: String,
     attributes: Option<serde_json::Value>,
-    targets: Option<Vec<String>>,
+    targets: Vec<String>,
 }
 
 impl PostgresVen {
@@ -57,29 +57,26 @@ impl PostgresVen {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = match self.targets {
-            None => None,
-            Some(t) => Some(
-                t.into_iter()
-                    .map(|t| {
-                        Target::new(&t)
-                            .inspect_err(|err| {
-                                error!(
-                                    ?err,
-                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
-                                )
-                            })
-                            .map_err(AppError::Identifier)
+        let targets = self
+            .targets
+            .into_iter()
+            .map(|t| {
+                Target::new(&t)
+                    .inspect_err(|err| {
+                        error!(
+                            ?err,
+                            "Failed to deserialize text[] from DB to `Vec<Target>`"
+                        )
                     })
-                    .collect::<Result<Vec<Target>, AppError>>()?,
-            ),
-        };
+                    .map_err(AppError::Identifier)
+            })
+            .collect::<Result<Vec<Target>, AppError>>()?;
 
         Ok(Ven {
             id: self.id.parse()?,
             created_date_time: self.created_date_time,
             modification_date_time: self.modification_date_time,
-            content: VenContent::new(self.ven_name, attributes, targets, resources),
+            content: VenContent::new(self.ven_name, attributes, Some(targets), resources),
         })
     }
 }
@@ -98,12 +95,12 @@ impl Crud for PgVenStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
@@ -121,7 +118,7 @@ impl Crud for PgVenStorage {
             "#,
             new.ven_name,
             to_json_value(new.attributes)?,
-            targets.as_deref(),
+            &targets,
         )
         .fetch_one(&self.db)
         .await?
@@ -242,12 +239,12 @@ impl Crud for PgVenStorage {
             Some(resources)
         };
 
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
+        let targets = new
+            .targets
+            .unwrap_or(vec![])
+            .into_iter()
+            .map(|t| t.as_str().to_owned())
+            .collect::<Vec<String>>();
 
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
@@ -263,7 +260,7 @@ impl Crud for PgVenStorage {
             id.as_str(),
             new.ven_name,
             to_json_value(new.attributes)?,
-            targets.as_deref(),
+            &targets,
         )
         .fetch_one(&self.db)
         .await?
