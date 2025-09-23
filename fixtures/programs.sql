@@ -72,4 +72,4 @@ VALUES ('program-1',
         NULL,
         NULL,
         NULL,
-        NULL);
+        ARRAY[]::text[]);
