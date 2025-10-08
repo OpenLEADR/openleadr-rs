@@ -17,7 +17,8 @@ allow = [
     "ISC",
     "OpenSSL",
     "Zlib",
-    "CDLA-Permissive-2.0"
+    "CDLA-Permissive-2.0",
+    "BSD-2-Clause"
 ]
 
 [[licenses.clarify]]

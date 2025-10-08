@@ -9,9 +9,9 @@ use axum::{
     Json,
 };
 use reqwest::StatusCode;
+use serde::Deserialize;
 #[cfg(test)]
 use serde::Serialize;
-use serde_with::serde_derive::Deserialize;
 use std::sync::Arc;
 use tracing::{info, trace};
 use validator::Validate;
