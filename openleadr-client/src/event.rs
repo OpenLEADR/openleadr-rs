@@ -105,7 +105,7 @@ impl EventClient {
             return Err(Error::InvalidParentObject);
         }
 
-        let report = self.client.post("events", &report_data).await?;
+        let report = self.client.post("reports", &report_data).await?;
         Ok(ReportClient::from_report(self.client.clone(), report))
     }
 
