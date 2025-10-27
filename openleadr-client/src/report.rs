@@ -76,7 +76,7 @@ impl ReportClient {
     }
 
     /// Delete the report from the VTN
-    pub async fn delete(self) -> Result<()> {
+    pub async fn delete(self) -> Result<Report> {
         self.client.delete(&format!("reports/{}", self.id())).await
     }
 }
