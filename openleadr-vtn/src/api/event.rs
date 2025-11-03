@@ -373,7 +373,7 @@ mod test {
 
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
-        for event in vec![event1, event2, event3] {
+        for event in [event1, event2, event3] {
             let (status, _) = test
                 .request::<Event>(
                     Method::POST,
