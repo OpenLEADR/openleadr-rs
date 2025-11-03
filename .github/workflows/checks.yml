@@ -175,24 +175,6 @@ jobs:
       - name: Install bindgen
         run: cargo install --force --locked bindgen-cli
 
-      # Use zig as our C compiler for convenient cross-compilation. We run into rustls having a dependency on `ring`.
-      # This crate uses C and assembly code, and because of its build scripts, `cargo clippy` needs to be able to compile
-      # that code for our target.
-#      - uses: mlugg/setup-zig@v2
-#        with:
-#          version: latest
-#        if: ${{matrix.use_zig}}
-#
-#      - name: Install cargo-zigbuild
-#        uses: taiki-e/install-action@81ee1d48d9194cdcab880cbdc7d36e87d39874cb # v2.62.45
-#        with:
-#          tool: cargo-zigbuild
-#        if: ${{matrix.use_zig}}
-#
-#      - name: Set TARGET_CC for zig
-#        run: echo "TARGET_CC=/home/runner/.cargo/bin/cargo-zigbuild zig cc -- ${{matrix.zig_args}}" >> $GITHUB_ENV
-#        if: ${{matrix.use_zig}}
-
       - name: Install cross-compilation tools
         uses: taiki-e/setup-cross-toolchain-action@84e58a47fc2bcd3821a2aa8c153595bbffb0e10f # v1.32.1
         with:
