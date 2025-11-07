@@ -47,7 +47,7 @@ struct PostgresProgram {
     binding_events: Option<bool>,
     local_price: Option<bool>,
     payload_descriptors: Option<serde_json::Value>,
-    targets: Vec<String>,
+    targets: Vec<Target>,
 }
 
 impl TryFrom<PostgresProgram> for Program {
@@ -88,20 +88,6 @@ impl TryFrom<PostgresProgram> for Program {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = value
-            .targets
-            .into_iter()
-            .map(|t| {
-                Target::new(&t)
-                    .inspect_err(|err| {
-                        error!(
-                            ?err,
-                            "Failed to deserialize text[] from DB to `Vec<Target>`"
-                        )
-                    })
-                    .map_err(AppError::Identifier)
-            })
-            .collect::<Result<Vec<Target>, AppError>>()?;
 
         Ok(Self {
             id: value.id.parse()?,
@@ -121,7 +107,7 @@ impl TryFrom<PostgresProgram> for Program {
                 binding_events: value.binding_events,
                 local_price: value.local_price,
                 payload_descriptors,
-                targets: Some(targets),
+                targets: value.targets,
             },
         })
     }
@@ -142,12 +128,11 @@ impl Crud for PgProgramStorage {
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let business_id = extract_business_id(user)?;
-        let targets = new
-            .targets
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|t| t.as_str().to_owned())
-            .collect::<Vec<String>>();
+        // let targets = new
+        //     .targets
+        //     .into_iter()
+        //     .map(|t| t.as_str().to_owned())
+        //     .collect::<Vec<String>>();
 
         let program: Program = sqlx::query_as!(
             PostgresProgram,
@@ -185,7 +170,7 @@ impl Crud for PgProgramStorage {
                       binding_events,
                       local_price,
                       payload_descriptors,
-                      targets
+                      targets as  "targets:Vec<Target>"
             "#,
             new.program_name,
             new.program_long_name,
@@ -199,7 +184,7 @@ impl Crud for PgProgramStorage {
             new.binding_events,
             new.local_price,
             to_json_value(new.payload_descriptors)?,
-            &targets,
+            new.targets.as_slice() as &[Target],
             business_id,
         )
             .fetch_one(&self.db)
@@ -234,7 +219,7 @@ impl Crud for PgProgramStorage {
                    p.binding_events,
                    p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as  "targets:Vec<Target>"
             FROM program p
             WHERE id = $1
             "#,
@@ -270,7 +255,7 @@ impl Crud for PgProgramStorage {
                    p.binding_events,
                    p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as  "targets:Vec<Target>"
             FROM program p
             WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering
             GROUP BY p.id, p.created_date_time
@@ -295,13 +280,6 @@ impl Crud for PgProgramStorage {
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let _ = user; // FIXME implement object privacy
-
-        let targets = new
-            .targets
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|t| t.as_str().to_owned())
-            .collect::<Vec<String>>();
 
         let program: Program = sqlx::query_as!(
             PostgresProgram,
@@ -337,7 +315,7 @@ impl Crud for PgProgramStorage {
                    p.binding_events,
                    p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
             new.program_name,
@@ -352,7 +330,7 @@ impl Crud for PgProgramStorage {
             new.binding_events,
             new.local_price,
             to_json_value(new.payload_descriptors)?,
-            &targets,
+            new.targets.as_slice() as &[Target],
         )
         .fetch_one(&self.db)
         .await?
@@ -389,7 +367,7 @@ impl Crud for PgProgramStorage {
                    p.binding_events,
                    p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as  "targets:Vec<Target>"
             "#,
             id.as_str(),
             business_id,
@@ -417,6 +395,7 @@ mod tests {
         Program,
     };
     use sqlx::PgPool;
+    use std::str::FromStr;
 
     impl Default for QueryParams {
         fn default() -> Self {
@@ -453,10 +432,10 @@ mod tests {
                 payload_descriptors: Some(vec![PayloadDescriptor::EventPayloadDescriptor(
                     EventPayloadDescriptor::new(EventType::ExportPrice),
                 )]),
-                targets: Some(vec![
-                    Target::new("group-1").unwrap(),
-                    Target::new("private-value").unwrap(),
-                ]),
+                targets: vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("private-value").unwrap(),
+                ],
             },
         }
     }
@@ -480,10 +459,10 @@ mod tests {
                 binding_events: None,
                 local_price: None,
                 payload_descriptors: None,
-                targets: Some(vec![
-                    Target::new("group-1").unwrap(),
-                    Target::new("group-2").unwrap(),
-                ]),
+                targets: vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("group-2").unwrap(),
+                ],
             },
         }
     }
@@ -493,7 +472,7 @@ mod tests {
             id: "program-3".parse().unwrap(),
             content: ProgramContent {
                 program_name: "program-3".to_string(),
-                targets: None,
+                targets: vec![],
                 ..program_2().content
             },
             ..program_2()

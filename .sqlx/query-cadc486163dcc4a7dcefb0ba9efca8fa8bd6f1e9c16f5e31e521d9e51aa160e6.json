@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals\n            FROM event e\n              JOIN program p on p.id = e.program_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2::text[] IS NULL OR e.targets && $2) -- FIXME use @> for and rather than or filtering\n              AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "report_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "intervals",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Bool",
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "cadc486163dcc4a7dcefb0ba9efca8fa8bd6f1e9c16f5e31e521d9e51aa160e6"
+}

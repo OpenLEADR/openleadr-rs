@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM resource r\n            WHERE r.id = $1 AND r.ven_id = $2\n            RETURNING r.*\n            ",
+  "query": "\n            INSERT INTO ven (\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets\n            )\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -20,33 +20,28 @@
       },
       {
         "ordinal": 3,
-        "name": "resource_name",
+        "name": "ven_name",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "ven_id",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 5,
         "name": "attributes",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 6,
-        "name": "targets",
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "Jsonb",
+        "TextArray"
       ]
     },
     "nullable": [
-      false,
       false,
       false,
       false,
@@ -55,5 +50,5 @@
       false
     ]
   },
-  "hash": "1ac68dc9329acb4c0f0c60cf27cfc0778132ae4f00bb4ee8a45e3c871cddafc3"
+  "hash": "a117da199a33113381db5d950ebf5a01718b7c9f72b700629b8035099ecfaeb2"
 }
