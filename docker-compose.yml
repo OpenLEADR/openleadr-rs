@@ -17,7 +17,7 @@ services:
       - db
 
   db:
-    image: ghcr.io/tweedegolf/postgres:16
+    image: ghcr.io/tweedegolf/postgres:18
     environment:
       POSTGRES_USER: $PG_USER
       POSTGRES_DB: $PG_DB
@@ -32,7 +32,7 @@ services:
     ports:
       - ${PG_PORT}:5432
     volumes:
-      - database-data:/var/lib/postgresql/data/
+      - database-data:/var/lib/postgresql/
 
 volumes:
   database-data:
