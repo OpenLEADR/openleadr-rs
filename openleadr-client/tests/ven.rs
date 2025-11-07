@@ -7,6 +7,7 @@ use openleadr_wire::{
     ven::VenContent,
 };
 use serial_test::serial;
+use std::str::FromStr;
 
 mod common;
 
@@ -24,7 +25,7 @@ async fn crud() {
     }
 
     // Create
-    let ven = VenContent::new("test-ven".to_string(), None, None, None);
+    let ven = VenContent::new("test-ven".to_string(), None, vec![], None);
     let create_ven = ctx.create_ven(ven.clone()).await.unwrap();
     assert_eq!(create_ven.content().ven_name, "test-ven");
 
@@ -58,7 +59,7 @@ async fn crud() {
             value_type: ValueType("PRICE".to_string()),
             values: vec![Value::Number(123.12)],
         }]);
-        let updated_targets = Some(vec![Target::new("group-1").unwrap()]);
+        let updated_targets = vec![Target::from_str("group-1").unwrap()];
 
         get_ven.content_mut().ven_name = updated_name.clone();
         get_ven.content_mut().attributes = updated_attributes.clone();

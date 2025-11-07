@@ -7,7 +7,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use iso_currency::Currency;
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -33,6 +33,7 @@ pub struct Event {
 }
 
 #[skip_serializing_none]
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "EVENT")]
 pub struct EventContent {
@@ -44,7 +45,9 @@ pub struct EventContent {
     /// Relative priority of event. A lower number is a higher priority.
     pub priority: Priority,
     /// A list of targets.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub targets: Vec<Target>,
     /// A list of reportDescriptor objects. Used to request reports from VEN.
     pub report_descriptors: Option<Vec<ReportDescriptor>>,
     /// A list of payloadDescriptor objects.
@@ -62,7 +65,7 @@ impl EventContent {
             program_id,
             event_name: None,
             priority: Priority::UNSPECIFIED,
-            targets: None,
+            targets: vec![],
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,
@@ -80,7 +83,7 @@ impl EventContent {
     }
 
     pub fn with_targets(mut self, targets: Vec<Target>) -> Self {
-        self.targets = Some(targets);
+        self.targets = targets;
         self
     }
 
@@ -399,7 +402,7 @@ mod tests {
                 program_id: ProgramId("foo".parse().unwrap()),
                 event_name: None,
                 priority: Priority::MIN,
-                targets: None,
+                targets: vec![],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: None,

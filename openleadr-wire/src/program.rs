@@ -6,7 +6,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
@@ -39,6 +39,7 @@ pub struct Program {
 }
 
 #[skip_serializing_none]
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "PROGRAM")]
 pub struct ProgramContent {
@@ -72,8 +73,10 @@ pub struct ProgramContent {
     pub local_price: Option<bool>,
     /// A list of payloadDescriptors.
     pub payload_descriptors: Option<Vec<PayloadDescriptor>>,
-    /// A list of valuesMap objects.
-    pub targets: Option<Vec<Target>>,
+    /// A list of targets.
+    #[serde(default)]
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub targets: Vec<Target>,
 }
 
 impl ProgramContent {
@@ -197,7 +200,7 @@ mod test {
                 binding_events: Some(false),
                 local_price: Some(false),
                 payload_descriptors: None,
-                targets: None,
+                targets: vec![],
             },
         }];
 
@@ -224,7 +227,7 @@ mod test {
                 binding_events: None,
                 local_price: None,
                 payload_descriptors: None,
-                targets: None,
+                targets: vec![],
             }
         );
     }
