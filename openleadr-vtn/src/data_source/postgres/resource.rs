@@ -35,7 +35,7 @@ pub(crate) struct PostgresResource {
     resource_name: String,
     ven_id: String,
     attributes: Option<serde_json::Value>,
-    targets: Vec<String>,
+    targets: Vec<Target>,
 }
 
 impl TryFrom<PostgresResource> for Resource {
@@ -54,20 +54,6 @@ impl TryFrom<PostgresResource> for Resource {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = value
-            .targets
-            .into_iter()
-            .map(|t| {
-                Target::new(&t)
-                    .inspect_err(|err| {
-                        error!(
-                            ?err,
-                            "Failed to deserialize text[] from DB to `Vec<Target>`"
-                        )
-                    })
-                    .map_err(AppError::Identifier)
-            })
-            .collect::<Result<Vec<Target>, AppError>>()?;
 
         Ok(Self {
             id: value.id.parse()?,
@@ -77,7 +63,7 @@ impl TryFrom<PostgresResource> for Resource {
             content: ResourceContent {
                 resource_name: value.resource_name,
                 attributes,
-                targets: Some(targets),
+                targets: value.targets,
             },
         })
     }
@@ -98,13 +84,6 @@ impl VenScopedCrud for PgResourceStorage {
         ven_id: VenId,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let targets = new
-            .targets
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|t| t.as_str().to_owned())
-            .collect::<Vec<String>>();
-
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -118,12 +97,19 @@ impl VenScopedCrud for PgResourceStorage {
                 targets
             )
             VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                resource_name,
+                ven_id,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             new.resource_name,
             ven_id.as_str(),
             to_json_value(new.attributes)?,
-            &targets,
+            new.targets.as_slice() as &[Target]
         )
         .fetch_one(&self.db)
         .await?
@@ -148,7 +134,7 @@ impl VenScopedCrud for PgResourceStorage {
                 resource_name,
                 ven_id,
                 attributes,
-                targets
+                targets as "targets:Vec<Target>"
             FROM resource
             WHERE id = $1 AND ven_id = $2
             "#,
@@ -178,7 +164,7 @@ impl VenScopedCrud for PgResourceStorage {
                 r.resource_name AS "resource_name!",
                 r.ven_id AS "ven_id!",
                 r.attributes,
-                r.targets
+                r.targets as "targets:Vec<Target>"
             FROM resource r
             WHERE r.ven_id = $1
                 AND ($2::text IS NULL OR r.resource_name = $2)
@@ -214,13 +200,6 @@ impl VenScopedCrud for PgResourceStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let targets = new
-            .targets
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|t| t.as_str().to_owned())
-            .collect::<Vec<String>>();
-
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -231,14 +210,21 @@ impl VenScopedCrud for PgResourceStorage {
                 attributes = $5,
                 targets = $6
             WHERE id = $1 AND ven_id = $2
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                resource_name,
+                ven_id,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
             ven_id.as_str(),
             new.resource_name,
             ven_id.as_str(),
             to_json_value(new.attributes)?,
-            &targets,
+            new.targets.as_slice() as &[Target],
         )
         .fetch_one(&self.db)
         .await?
@@ -258,7 +244,14 @@ impl VenScopedCrud for PgResourceStorage {
             r#"
             DELETE FROM resource r
             WHERE r.id = $1 AND r.ven_id = $2
-            RETURNING r.*
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                resource_name,
+                ven_id,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
             ven_id.as_str(),
@@ -284,7 +277,7 @@ impl PgResourceStorage {
                 resource_name,
                 ven_id,
                 attributes,
-                targets
+                targets as "targets:Vec<Target>"
             FROM resource
             WHERE ven_id = $1
             "#,
@@ -311,7 +304,7 @@ impl PgResourceStorage {
                 resource_name,
                 ven_id,
                 attributes,
-                targets
+                targets as "targets:Vec<Target>"
             FROM resource
             WHERE ven_id = ANY($1)
             "#,

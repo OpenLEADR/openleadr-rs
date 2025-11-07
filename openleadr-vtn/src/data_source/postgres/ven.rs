@@ -37,7 +37,7 @@ struct PostgresVen {
     modification_date_time: DateTime<Utc>,
     ven_name: String,
     attributes: Option<serde_json::Value>,
-    targets: Vec<String>,
+    targets: Vec<Target>,
 }
 
 impl PostgresVen {
@@ -57,26 +57,12 @@ impl PostgresVen {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = self
-            .targets
-            .into_iter()
-            .map(|t| {
-                Target::new(&t)
-                    .inspect_err(|err| {
-                        error!(
-                            ?err,
-                            "Failed to deserialize text[] from DB to `Vec<Target>`"
-                        )
-                    })
-                    .map_err(AppError::Identifier)
-            })
-            .collect::<Result<Vec<Target>, AppError>>()?;
 
         Ok(Ven {
             id: self.id.parse()?,
             created_date_time: self.created_date_time,
             modification_date_time: self.modification_date_time,
-            content: VenContent::new(self.ven_name, attributes, Some(targets), resources),
+            content: VenContent::new(self.ven_name, attributes, self.targets, resources),
         })
     }
 }
@@ -95,13 +81,6 @@ impl Crud for PgVenStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let targets = new
-            .targets
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|t| t.as_str().to_owned())
-            .collect::<Vec<String>>();
-
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -114,11 +93,17 @@ impl Crud for PgVenStorage {
                 targets
             )
             VALUES (gen_random_uuid(), now(), now(), $1, $2, $3)
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                ven_name,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             new.ven_name,
             to_json_value(new.attributes)?,
-            &targets,
+            new.targets.as_slice() as &[Target],
         )
         .fetch_one(&self.db)
         .await?
@@ -146,7 +131,13 @@ impl Crud for PgVenStorage {
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
-            SELECT *
+            SELECT
+                id,
+                created_date_time,
+                modification_date_time,
+                ven_name,
+                attributes,
+                targets as "targets:Vec<Target>"
             FROM ven
             WHERE id = $1
             AND ($2::text[] IS NULL OR id = ANY($2))
@@ -179,7 +170,7 @@ impl Crud for PgVenStorage {
                 v.modification_date_time AS "modification_date_time!",
                 v.ven_name AS "ven_name!",
                 v.attributes,
-                v.targets
+                v.targets as "targets:Vec<Target>"
             FROM ven v
               LEFT JOIN resource r ON r.ven_id = v.id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
@@ -239,13 +230,6 @@ impl Crud for PgVenStorage {
             Some(resources)
         };
 
-        let targets = new
-            .targets
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|t| t.as_str().to_owned())
-            .collect::<Vec<String>>();
-
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -255,12 +239,18 @@ impl Crud for PgVenStorage {
                 attributes = $3,
                 targets = $4
             WHERE id = $1
-            RETURNING *
+            RETURNING
+                id,
+                modification_date_time,
+                created_date_time,
+                ven_name,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
             new.ven_name,
             to_json_value(new.attributes)?,
-            &targets,
+            new.targets.as_slice() as &[Target],
         )
         .fetch_one(&self.db)
         .await?
@@ -290,7 +280,13 @@ impl Crud for PgVenStorage {
             r#"
             DELETE FROM ven
             WHERE id = $1
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                ven_name,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
         )
@@ -317,6 +313,7 @@ mod tests {
         ven::{Ven, VenContent},
     };
     use sqlx::PgPool;
+    use std::str::FromStr;
 
     impl Default for QueryParams {
         fn default() -> Self {
@@ -337,10 +334,10 @@ mod tests {
             content: VenContent::new(
                 "ven-1-name".to_string(),
                 None,
-                Some(vec![
-                    Target::new("group-1").unwrap(),
-                    Target::new("private-value").unwrap(),
-                ]),
+                vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("private-value").unwrap(),
+                ],
                 None,
             ),
         }
@@ -351,7 +348,7 @@ mod tests {
             id: "ven-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: VenContent::new("ven-2-name".to_string(), None, None, None),
+            content: VenContent::new("ven-2-name".to_string(), None, vec![], None),
         }
     }
 

@@ -106,6 +106,7 @@ fn get_50() -> i64 {
 #[cfg(feature = "live-db-test")]
 mod test {
     use crate::{data_source::PostgresStorage, state::AppState};
+    use std::str::FromStr;
 
     use super::*;
     use crate::api::test::*;
@@ -145,7 +146,7 @@ mod test {
                 }],
             }],
             payload_descriptors: None,
-            targets: None,
+            targets: vec![],
         }
     }
 
@@ -346,19 +347,19 @@ mod test {
         let event1 = EventContent {
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event1".to_string()),
-            targets: Some(vec![Target::new("private-1").unwrap()]),
+            targets: vec![Target::from_str("private-1").unwrap()],
             ..default_event_content()
         };
         let event2 = EventContent {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event2".to_string()),
-            targets: Some(vec![Target::new("group-2").unwrap()]),
+            targets: vec![Target::from_str("group-2").unwrap()],
             ..default_event_content()
         };
         let event3 = EventContent {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event3".to_string()),
-            targets: Some(vec![Target::new("group-1").unwrap()]),
+            targets: vec![Target::from_str("group-1").unwrap()],
             ..default_event_content()
         };
 
