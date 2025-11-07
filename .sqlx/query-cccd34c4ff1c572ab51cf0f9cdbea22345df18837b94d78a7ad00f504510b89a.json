@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM event WHERE id = $1 RETURNING *\n            ",
+  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_name,\n                ven_id,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            FROM resource\n            WHERE ven_id = ANY($1)\n            ",
   "describe": {
     "columns": [
       {
@@ -20,48 +20,28 @@
       },
       {
         "ordinal": 3,
-        "name": "program_id",
+        "name": "resource_name",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "event_name",
+        "name": "ven_id",
         "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "priority",
-        "type_info": "Int8"
+        "name": "attributes",
+        "type_info": "Jsonb"
       },
       {
         "ordinal": 6,
-        "name": "report_descriptors",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 7,
-        "name": "payload_descriptors",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 8,
-        "name": "interval_period",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 9,
-        "name": "intervals",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 10,
-        "name": "targets",
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -69,14 +49,10 @@
       false,
       false,
       false,
-      true,
-      true,
-      true,
-      true,
-      true,
       false,
+      true,
       false
     ]
   },
-  "hash": "dc7b332e581b7806416ab745b4a30077c4abb5dcdfeee19f02d22fa7250579c3"
+  "hash": "cccd34c4ff1c572ab51cf0f9cdbea22345df18837b94d78a7ad00f504510b89a"
 }

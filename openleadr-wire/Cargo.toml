@@ -20,6 +20,8 @@ thiserror.workspace = true
 http.workspace = true
 validator.workspace = true
 iso_currency.workspace = true
+derive_more.workspace = true
+sqlx.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p ON e.program_id = p.id\n            WHERE e.id = $1\n            ",
+  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals\n            FROM event e\n                     JOIN program p ON e.program_id = p.id\n            WHERE e.id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -35,28 +35,28 @@
       },
       {
         "ordinal": 6,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
         "name": "report_descriptors",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "payload_descriptors",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "interval_period",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "intervals",
         "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 10,
-        "name": "targets",
-        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -71,12 +71,12 @@
       false,
       true,
       true,
-      true,
-      true,
-      true,
       false,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "05b88463dc1b3683d0aa0f282e3beb176d3966c382377de418235cb7304e3a70"
+  "hash": "88d481ee0a43ac4554f1e80ae585b605f5350c7059bd600c74b3f74bbfa18b1e"
 }
