@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p on p.id = e.program_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2::text[] IS NULL OR e.targets && $2) -- FIXME use @> for and rather than or filtering\n              AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
+  "query": "\n            INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                program_id,\n                event_name,\n                priority,\n                targets as \"targets:Vec<Target>\",\n                report_descriptors,\n                payload_descriptors,\n                interval_period,\n                intervals\n            ",
   "describe": {
     "columns": [
       {
@@ -35,38 +35,40 @@
       },
       {
         "ordinal": 6,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
         "name": "report_descriptors",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "payload_descriptors",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "interval_period",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "intervals",
         "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 10,
-        "name": "targets",
-        "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "TextArray",
-        "Bool",
-        "TextArray",
+        "Text",
         "Int8",
-        "Int8"
+        "TextArray",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -76,12 +78,12 @@
       false,
       true,
       true,
-      true,
-      true,
-      true,
       false,
-      true
+      true,
+      true,
+      true,
+      false
     ]
   },
-  "hash": "34338592bed348f227d746e58a8a5df7eb827fac7605fafb329c79587bde231a"
+  "hash": "73d551b67ecb128564c4a24a7ef700587f51f910d35e17775c9d8e34f2468b26"
 }

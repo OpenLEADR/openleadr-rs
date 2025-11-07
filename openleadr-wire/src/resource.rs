@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
@@ -28,6 +28,7 @@ pub struct Resource {
 }
 
 #[skip_serializing_none]
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "RESOURCE")]
 pub struct ResourceContent {
@@ -37,7 +38,9 @@ pub struct ResourceContent {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
     /// A list of targets.
-    pub targets: Option<Vec<Target>>,
+    #[serde(default)]
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub targets: Vec<Target>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]

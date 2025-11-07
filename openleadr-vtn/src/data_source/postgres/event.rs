@@ -39,7 +39,7 @@ struct PostgresEvent {
     program_id: String,
     event_name: Option<String>,
     priority: Priority,
-    targets: Option<Vec<String>>,
+    targets: Vec<Target>,
     report_descriptors: Option<serde_json::Value>,
     payload_descriptors: Option<serde_json::Value>,
     interval_period: Option<serde_json::Value>,
@@ -51,24 +51,6 @@ impl TryFrom<PostgresEvent> for Event {
 
     #[tracing::instrument(name = "TryFrom<PostgresEvent> for Event")]
     fn try_from(value: PostgresEvent) -> Result<Self, Self::Error> {
-        let targets = match value.targets {
-            None => None,
-            Some(t) => Some(
-                t.into_iter()
-                    .map(|t| {
-                        Target::new(&t)
-                            .inspect_err(|err| {
-                                error!(
-                                    ?err,
-                                    "Failed to deserialize text[] from DB to `Vec<Target>`"
-                                )
-                            })
-                            .map_err(AppError::Identifier)
-                    })
-                    .collect::<Result<Vec<Target>, AppError>>()?,
-            ),
-        };
-
         let report_descriptors = match value.report_descriptors {
             None => None,
             Some(t) => serde_json::from_value(t)
@@ -113,7 +95,7 @@ impl TryFrom<PostgresEvent> for Event {
                 program_id: value.program_id.parse()?,
                 event_name: value.event_name,
                 priority: value.priority,
-                targets,
+                targets: value.targets,
                 report_descriptors,
                 payload_descriptors,
                 interval_period,
@@ -165,24 +147,28 @@ impl Crud for PgEventStorage {
     ) -> Result<Self::Type, Self::Error> {
         check_write_permission(new.program_id.as_str(), user, &self.db).await?;
 
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
-
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
             INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals)
             VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                program_id,
+                event_name,
+                priority,
+                targets as "targets:Vec<Target>",
+                report_descriptors,
+                payload_descriptors,
+                interval_period,
+                intervals
             "#,
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            targets.as_deref(),
+            new.targets.as_slice() as &[Target],
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
@@ -204,9 +190,19 @@ impl Crud for PgEventStorage {
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            SELECT e.*
+            SELECT e.id,
+                   e.created_date_time,
+                   e.modification_date_time,
+                   e.program_id,
+                   e.event_name,
+                   e.priority,
+                   e.targets as "targets:Vec<Target>",
+                   e.report_descriptors,
+                   e.payload_descriptors,
+                   e.interval_period,
+                   e.intervals
             FROM event e
-              JOIN program p ON e.program_id = p.id
+                     JOIN program p ON e.program_id = p.id
             WHERE e.id = $1
             "#,
             id.as_str(),
@@ -229,7 +225,17 @@ impl Crud for PgEventStorage {
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            SELECT e.*
+            SELECT e.id,
+                   e.created_date_time,
+                   e.modification_date_time,
+                   e.program_id,
+                   e.event_name,
+                   e.priority,
+                   e.targets as "targets:Vec<Target>",
+                   e.report_descriptors,
+                   e.payload_descriptors,
+                   e.interval_period,
+                   e.intervals
             FROM event e
               JOIN program p on p.id = e.program_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
@@ -273,13 +279,6 @@ impl Crud for PgEventStorage {
             check_write_permission(&previous_program_id, user, &self.db).await?;
         }
 
-        let targets = new.targets.map(|targets| {
-            targets
-                .into_iter()
-                .map(|t| t.as_str().to_owned())
-                .collect::<Vec<String>>()
-        });
-
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
@@ -294,13 +293,24 @@ impl Crud for PgEventStorage {
                 interval_period = $8,
                 intervals = $9
             WHERE id = $1
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                program_id,
+                event_name,
+                priority,
+                targets as "targets:Vec<Target>",
+                report_descriptors,
+                payload_descriptors,
+                interval_period,
+                intervals
             "#,
             id.as_str(),
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            targets.as_deref(),
+            new.targets.as_slice() as &[Target],
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
@@ -328,7 +338,21 @@ impl Crud for PgEventStorage {
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            DELETE FROM event WHERE id = $1 RETURNING *
+            DELETE
+            FROM event
+            WHERE id = $1
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                program_id,
+                event_name,
+                priority,
+                targets as "targets:Vec<Target>",
+                report_descriptors,
+                payload_descriptors,
+                interval_period,
+                intervals
             "#,
             id.as_str()
         )
@@ -342,6 +366,7 @@ impl Crud for PgEventStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use sqlx::PgPool;
+    use std::str::FromStr;
 
     use crate::{
         api::{event::QueryParams, TargetQueryParams},
@@ -378,10 +403,10 @@ mod tests {
                 program_id: "program-1".parse().unwrap(),
                 event_name: Some("event-1-name".to_string()),
                 priority: Some(4).into(),
-                targets: Some(vec![
-                    Target::new("group-1").unwrap(),
-                    Target::new("private-value").unwrap(),
-                ]),
+                targets: vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("private-value").unwrap(),
+                ],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: Some(IntervalPeriod {
@@ -414,7 +439,7 @@ mod tests {
                 program_id: "program-2".parse().unwrap(),
                 event_name: Some("event-2-name".to_string()),
                 priority: None.into(),
-                targets: Some(vec![Target::new("target-1").unwrap()]),
+                targets: vec![Target::from_str("target-1").unwrap()],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: None,

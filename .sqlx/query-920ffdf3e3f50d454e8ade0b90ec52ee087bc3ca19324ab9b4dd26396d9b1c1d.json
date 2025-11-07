@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM program p\n                   WHERE id = $1\n                     AND ($2::text IS NULL OR business_id = $2)\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            ",
+  "query": "\n            INSERT INTO program (id,\n                                 created_date_time,\n                                 modification_date_time,\n                                 program_name,\n                                 program_long_name,\n                                 retailer_name,\n                                 retailer_long_name,\n                                 program_type,\n                                 country,\n                                 principal_subdivision,\n                                 interval_period,\n                                 program_descriptions,\n                                 binding_events,\n                                 local_price,\n                                 payload_descriptors,\n                                 targets,\n                                 business_id)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)\n            RETURNING id,\n                      created_date_time,\n                      modification_date_time,\n                      program_name,\n                      program_long_name,\n                      retailer_name,\n                      retailer_long_name,\n                      program_type,\n                      country,\n                      principal_subdivision,\n                      interval_period,\n                      program_descriptions,\n                      binding_events,\n                      local_price,\n                      payload_descriptors,\n                      targets as  \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -80,13 +80,25 @@
       },
       {
         "ordinal": 15,
-        "name": "targets",
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Bool",
+        "Jsonb",
+        "TextArray",
         "Text"
       ]
     },
@@ -106,8 +118,8 @@
       true,
       true,
       true,
-      true
+      false
     ]
   },
-  "hash": "1e4dd74f603ad34fe7a3dd7bbc90fd506264502e76632dfd7c156708e4f2ded6"
+  "hash": "920ffdf3e3f50d454e8ade0b90ec52ee087bc3ca19324ab9b4dd26396d9b1c1d"
 }

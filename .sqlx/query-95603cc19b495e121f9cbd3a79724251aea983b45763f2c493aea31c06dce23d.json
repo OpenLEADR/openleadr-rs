@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT *\n            FROM ven\n            WHERE id = $1\n            AND ($2::text[] IS NULL OR id = ANY($2))\n            ",
+  "query": "\n            UPDATE ven\n            SET modification_date_time = now(),\n                ven_name = $2,\n                attributes = $3,\n                targets = $4\n            WHERE id = $1\n            RETURNING\n                id,\n                modification_date_time,\n                created_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -10,12 +10,12 @@
       },
       {
         "ordinal": 1,
-        "name": "created_date_time",
+        "name": "modification_date_time",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 2,
-        "name": "modification_date_time",
+        "name": "created_date_time",
         "type_info": "Timestamptz"
       },
       {
@@ -30,13 +30,15 @@
       },
       {
         "ordinal": 5,
-        "name": "targets",
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Text",
+        "Jsonb",
         "TextArray"
       ]
     },
@@ -46,8 +48,8 @@
       false,
       false,
       true,
-      true
+      false
     ]
   },
-  "hash": "b2c02b607abacdae18ceeaafeb9daa339a54a686f9d7e256fbe5a0cde2f90628"
+  "hash": "95603cc19b495e121f9cbd3a79724251aea983b45763f2c493aea31c06dce23d"
 }

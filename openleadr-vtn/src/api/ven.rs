@@ -234,8 +234,8 @@ mod tests {
         let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
         let vens = [
-            VenContent::new("".to_string(), None, None, None),
-            VenContent::new("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, None, None),
+            VenContent::new("".to_string(), None, vec![], None),
+            VenContent::new("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, vec![], None),
         ];
 
         for ven in &vens {

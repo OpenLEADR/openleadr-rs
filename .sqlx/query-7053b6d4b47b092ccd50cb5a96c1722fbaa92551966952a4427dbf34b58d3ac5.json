@@ -1,26 +1,26 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id AS \"id!\",\n                   p.created_date_time AS \"created_date_time!\",\n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n            WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
+  "query": "\n            UPDATE program p\n            SET modification_date_time = now(),\n                program_name = $2,\n                program_long_name = $3,\n                retailer_name = $4,\n                retailer_long_name = $5,\n                program_type = $6,\n                country = $7,\n                principal_subdivision = $8,\n                interval_period = $9,\n                program_descriptions = $10,\n                binding_events = $11,\n                local_price = $12,\n                payload_descriptors = $13,\n                targets = $14\n            WHERE id = $1\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets as \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!",
+        "name": "id",
         "type_info": "Text"
       },
       {
         "ordinal": 1,
-        "name": "created_date_time!",
+        "name": "created_date_time",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 2,
-        "name": "modification_date_time!",
+        "name": "modification_date_time",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 3,
-        "name": "program_name!",
+        "name": "program_name",
         "type_info": "Text"
       },
       {
@@ -80,15 +80,26 @@
       },
       {
         "ordinal": 15,
-        "name": "targets",
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
-        "TextArray",
-        "Int8",
-        "Int8"
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Bool",
+        "Jsonb",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -107,8 +118,8 @@
       true,
       true,
       true,
-      true
+      false
     ]
   },
-  "hash": "cdad31a7e20e0901b38903bb842c6194ff26adcb4ed908350a9817d7e7aff19b"
+  "hash": "7053b6d4b47b092ccd50cb5a96c1722fbaa92551966952a4427dbf34b58d3ac5"
 }

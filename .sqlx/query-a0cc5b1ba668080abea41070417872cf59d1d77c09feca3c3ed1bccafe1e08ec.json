@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets\n            FROM program p\n            WHERE id = $1\n            ",
+  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.program_long_name,\n                   p.retailer_name,\n                   p.retailer_long_name,\n                   p.program_type,\n                   p.country,\n                   p.principal_subdivision,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.binding_events,\n                   p.local_price,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\"\n            FROM program p\n            WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -80,7 +80,7 @@
       },
       {
         "ordinal": 15,
-        "name": "targets",
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
@@ -105,8 +105,8 @@
       true,
       true,
       true,
-      true
+      false
     ]
   },
-  "hash": "5e9cfa2f585f3866bee35cdd5b82a19469d86c1f3c14674ea46477283a7b400f"
+  "hash": "a0cc5b1ba668080abea41070417872cf59d1d77c09feca3c3ed1bccafe1e08ec"
 }

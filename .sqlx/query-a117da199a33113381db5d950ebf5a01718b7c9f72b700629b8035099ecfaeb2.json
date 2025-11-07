@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_name,\n                ven_id,\n                attributes,\n                targets\n            FROM resource\n            WHERE ven_id = ANY($1)\n            ",
+  "query": "\n            INSERT INTO ven (\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets\n            )\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -20,27 +20,24 @@
       },
       {
         "ordinal": 3,
-        "name": "resource_name",
+        "name": "ven_name",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "ven_id",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 5,
         "name": "attributes",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 6,
-        "name": "targets",
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Jsonb",
         "TextArray"
       ]
     },
@@ -49,10 +46,9 @@
       false,
       false,
       false,
-      false,
       true,
-      true
+      false
     ]
   },
-  "hash": "6b352614cd8312ec08e45499f8c1c5d0765cc96cafeefa6ff5fe5bd1967a2d23"
+  "hash": "a117da199a33113381db5d950ebf5a01718b7c9f72b700629b8035099ecfaeb2"
 }

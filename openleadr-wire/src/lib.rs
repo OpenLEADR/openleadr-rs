@@ -4,12 +4,11 @@
 //! Most types are originally generated from the OpenAPI specification of OpenADR
 //! and manually modified to be more idiomatic.
 
-use std::fmt::Display;
-
 pub use event::Event;
 pub use program::Program;
 pub use report::Report;
 use serde::{de::Unexpected, Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt::Display;
 pub use ven::Ven;
 
 pub mod event;
@@ -72,7 +71,8 @@ where
 }
 
 /// A string that matches `/^[a-zA-Z0-9_-]*$/` with length in 1..=128
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
+#[sqlx(transparent)]
 pub struct Identifier(#[serde(deserialize_with = "identifier")] String);
 
 impl<'de> Deserialize<'de> for Identifier {

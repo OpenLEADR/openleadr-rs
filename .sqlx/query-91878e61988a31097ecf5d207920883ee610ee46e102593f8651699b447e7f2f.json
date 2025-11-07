@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO ven (\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets\n            )\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3)\n            RETURNING *\n            ",
+  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            FROM ven\n            WHERE id = $1\n            AND ($2::text[] IS NULL OR id = ANY($2))\n            ",
   "describe": {
     "columns": [
       {
@@ -30,14 +30,13 @@
       },
       {
         "ordinal": 5,
-        "name": "targets",
+        "name": "targets:Vec<Target>",
         "type_info": "TextArray"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Jsonb",
         "TextArray"
       ]
     },
@@ -47,8 +46,8 @@
       false,
       false,
       true,
-      true
+      false
     ]
   },
-  "hash": "348aab83a718675aba2850418fe15960712c575ba20d6ede6841714386d9064e"
+  "hash": "91878e61988a31097ecf5d207920883ee610ee46e102593f8651699b447e7f2f"
 }

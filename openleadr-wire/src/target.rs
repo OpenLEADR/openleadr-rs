@@ -1,12 +1,13 @@
 //! Types to filter resources
 
+use crate::Identifier;
+use derive_more::FromStr;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-use crate::{Identifier, IdentifierError};
-
 /// User generated target string.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, FromStr, sqlx::Type)]
+#[sqlx(transparent)]
 pub struct Target(pub(crate) Identifier);
 
 impl Display for Target {
@@ -18,9 +19,5 @@ impl Display for Target {
 impl Target {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
-    }
-
-    pub fn new(identifier: &str) -> Result<Self, IdentifierError> {
-        identifier.parse().map(Target)
     }
 }

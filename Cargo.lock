@@ -522,6 +522,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1536,7 +1556,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_with",
  "serial_test",
  "sqlx",
  "thiserror",
@@ -1545,7 +1564,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "url",
  "uuid",
  "validator",
 ]
@@ -1555,6 +1573,7 @@ name = "openleadr-wire"
 version = "0.1.1"
 dependencies = [
  "chrono",
+ "derive_more",
  "http",
  "iso8601-duration",
  "iso_currency",
@@ -1562,6 +1581,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "sqlx",
  "thiserror",
  "validator",
 ]
