@@ -14,6 +14,11 @@ The [OpenADR alliance](https://www.openadr.org/) is responsible for the standard
 which can be [downloaded](https://www.openadr.org/specification) free of charge.
 
 This implementation is still work-in-progress.
+In particular, **we started implementing the OpenADR 3.1 specification** in the [`openadr3_1` branch](https://github.com/OpenLEADR/openleadr-rs/tree/openadr3_1).
+Once the changes are complete, we will merge them into the `main` branch and will discontinue support for OpenADR 3.0.
+Please note that the changes of 3.1 compared to 3.0 are not backwards compatible. 
+At the moment, we don't plan to offer upgrade instructions from OpenADR 3.0 to 3.1 as we don't expect a need for that.
+Feel free to reach out if this assumption seems wrong.
 
 Thanks to our sponsors [ElaadNL](https://elaad.nl/en/) and [Tweede golf](https://tweedegolf.nl/en)
 for making this work possible.
