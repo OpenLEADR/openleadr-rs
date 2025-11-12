@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use crate::{
     error::{Error, Result},
-    ClientRef, ReportClient,
+    ClientKind, ClientRef, ReportClient,
 };
-use openleadr_wire::event::EventRequest;
-use openleadr_wire::report::ReportRequest;
-use openleadr_wire::{Event, Report};
+use openleadr_wire::{event::EventRequest, report::ReportRequest, Event, Report};
 
 /// Client to manage the data of a specific event and the reports contained in that event
 ///
 /// Can be created by a [`ProgramClient`](crate::ProgramClient)
 /// ```no_run
-/// # use openleadr_client::{Client, Filter};
+/// # use openleadr_client::{BusinessLogic, Client, Filter};
 /// # use openleadr_wire::event::Priority;
-/// let client = Client::with_url("https://your-vtn.com".try_into().unwrap(), None);
+/// let client = Client::<BusinessLogic>::with_url("https://your-vtn.com".try_into().unwrap(), None);
 /// # tokio_test::block_on(async {
 /// let program = client.get_program_by_id(&"program-1".parse().unwrap()).await.unwrap();
 ///
@@ -28,13 +26,13 @@ use openleadr_wire::{Event, Report};
 /// # })
 /// ```
 #[derive(Debug, Clone)]
-pub struct EventClient {
-    client: Arc<ClientRef>,
+pub struct EventClient<K> {
+    client: Arc<ClientRef<K>>,
     data: Event,
 }
 
-impl EventClient {
-    pub(super) fn from_event(client: Arc<ClientRef>, event: Event) -> Self {
+impl<K: ClientKind> EventClient<K> {
+    pub(super) fn from_event(client: Arc<ClientRef<K>>, event: Event) -> Self {
         Self {
             client,
             data: event,
@@ -97,7 +95,7 @@ impl EventClient {
     /// Create a new report on the VTN.
     /// The content should be created with [`EventClient::new_report`]
     /// to automatically insert the correct program ID and event ID
-    pub async fn create_report(&self, report_data: ReportRequest) -> Result<ReportClient> {
+    pub async fn create_report(&self, report_data: ReportRequest) -> Result<ReportClient<K>> {
         if &report_data.event_id != self.id() {
             return Err(Error::InvalidParentObject);
         }
@@ -111,7 +109,7 @@ impl EventClient {
         client_name: Option<&str>,
         skip: usize,
         limit: usize,
-    ) -> Result<Vec<ReportClient>> {
+    ) -> Result<Vec<ReportClient<K>>> {
         let skip_str = skip.to_string();
         let limit_str = limit.to_string();
 
@@ -134,7 +132,7 @@ impl EventClient {
     }
 
     /// Get all reports from the VTN, possibly filtered by `client_name`, trying to paginate whenever possible
-    pub async fn get_report_list(&self, client_name: Option<&str>) -> Result<Vec<ReportClient>> {
+    pub async fn get_report_list(&self, client_name: Option<&str>) -> Result<Vec<ReportClient<K>>> {
         self.client
             .iterate_pages(|skip, limit| self.get_reports_req(client_name, skip, limit))
             .await

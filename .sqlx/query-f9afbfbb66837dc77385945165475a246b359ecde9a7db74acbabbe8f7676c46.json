@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE\n            FROM event\n            WHERE id = $1\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                program_id,\n                event_name,\n                priority,\n                targets as \"targets:Vec<Target>\",\n                report_descriptors,\n                payload_descriptors,\n                interval_period,\n                intervals\n            ",
+  "query": "\n            DELETE\n            FROM event\n            WHERE id = $1\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                program_id,\n                event_name,\n                priority,\n                targets as \"targets:Vec<Target>\",\n                report_descriptors,\n                payload_descriptors,\n                interval_period,\n                intervals,\n                duration\n            ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "intervals",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "duration",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -75,8 +80,9 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "59a6829bdf221fd4021011fea6ce252bd89db7014b18a0ce19eeab727895dd83"
+  "hash": "f9afbfbb66837dc77385945165475a246b359ecde9a7db74acbabbe8f7676c46"
 }

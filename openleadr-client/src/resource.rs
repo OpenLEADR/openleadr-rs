@@ -1,9 +1,6 @@
-use crate::{ClientRef, Result};
+use crate::{ClientKind, ClientRef, Result};
 use chrono::{DateTime, Utc};
-use openleadr_wire::{
-    resource::{BlResourceRequest, Resource, ResourceId},
-    ven::VenId,
-};
+use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
 use std::sync::Arc;
 
 /// A client
@@ -12,17 +9,15 @@ use std::sync::Arc;
 ///
 /// To retrieve or create a resource, refer to the [`VenClient`](crate::VenClient).
 #[derive(Debug, Clone)]
-pub struct ResourceClient {
-    client: Arc<ClientRef>,
-    ven_id: VenId,
+pub struct ResourceClient<K> {
+    client: Arc<ClientRef<K>>,
     data: Resource,
 }
 
-impl ResourceClient {
-    pub(super) fn from_resource(client: Arc<ClientRef>, ven_id: VenId, resource: Resource) -> Self {
+impl<K: ClientKind> ResourceClient<K> {
+    pub(super) fn from_resource(client: Arc<ClientRef<K>>, resource: Resource) -> Self {
         Self {
             client,
-            ven_id,
             data: resource,
         }
     }
@@ -60,8 +55,8 @@ impl ResourceClient {
         self.data = self
             .client
             .put(
-                &format!("vens/{}/resources/{}", self.ven_id, self.id()),
-                &self.data.content,
+                &format!("resources/{}", self.id()),
+                &ResourceRequest::BlResourceRequest(self.data.content.clone()),
             )
             .await?;
         Ok(())
@@ -70,7 +65,7 @@ impl ResourceClient {
     /// Delete the resource from the VTN
     pub async fn delete(self) -> Result<Resource> {
         self.client
-            .delete(&format!("vens/{}/resources/{}", self.ven_id, self.id()))
+            .delete(&format!("resources/{}", self.id()))
             .await
     }
 }

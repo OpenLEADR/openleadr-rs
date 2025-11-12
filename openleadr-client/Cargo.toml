@@ -34,7 +34,6 @@ async-trait.workspace = true
 tokio = { workspace = true, features = ["full", "test-util"] }
 openleadr-vtn.workspace = true
 tokio-test.workspace = true
-mime.workspace = true
 sqlx.workspace = true
 serial_test.workspace = true
 dotenvy.workspace = true

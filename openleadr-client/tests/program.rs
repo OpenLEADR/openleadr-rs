@@ -1,33 +1,25 @@
 use axum::http::StatusCode;
-use openleadr_client::{Error, Filter, PaginationOptions};
-use openleadr_wire::{program::ProgramContent, target::Target};
+use openleadr_client::{Error, Filter, PaginationOptions, VirtualEndNode};
+use openleadr_wire::{program::ProgramRequest, target::Target};
 use sqlx::PgPool;
 use std::str::FromStr;
 
 mod common;
 
-fn default_content() -> ProgramContent {
-    ProgramContent {
+fn default_content() -> ProgramRequest {
+    ProgramRequest {
         program_name: "program_name".to_string(),
-        program_long_name: Some("program_long_name".to_string()),
-        retailer_name: Some("retailer_name".to_string()),
-        retailer_long_name: Some("retailer_long_name".to_string()),
-        program_type: None,
-        country: None,
-        principal_subdivision: None,
-        time_zone_offset: None,
         interval_period: None,
         program_descriptions: None,
-        binding_events: None,
-        local_price: None,
         payload_descriptors: None,
+        attributes: None,
         targets: vec![],
     }
 }
 
 #[sqlx::test(fixtures("users"))]
 async fn get(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<VirtualEndNode>(db).await;
     let program_client = client.create_program(default_content()).await.unwrap();
 
     assert_eq!(program_client.content(), &default_content());
@@ -35,17 +27,17 @@ async fn get(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn delete(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<VirtualEndNode>(db).await;
 
-    let program1 = ProgramContent {
+    let program1 = ProgramRequest {
         program_name: "program1".to_string(),
         ..default_content()
     };
-    let program2 = ProgramContent {
+    let program2 = ProgramRequest {
         program_name: "program2".to_string(),
         ..default_content()
     };
-    let program3 = ProgramContent {
+    let program3 = ProgramRequest {
         program_name: "program3".to_string(),
         ..default_content()
     };
@@ -67,9 +59,9 @@ async fn delete(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn update(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<VirtualEndNode>(db).await;
 
-    let program1 = ProgramContent {
+    let program1 = ProgramRequest {
         program_name: "program1".to_string(),
         ..default_content()
     };
@@ -77,9 +69,8 @@ async fn update(db: PgPool) {
     let mut program = client.create_program(program1).await.unwrap();
     let creation_date_time = program.modification_date_time();
 
-    let program2 = ProgramContent {
+    let program2 = ProgramRequest {
         program_name: "program1".to_string(),
-        country: Some("NO".to_string()),
         ..default_content()
     };
 
@@ -92,14 +83,14 @@ async fn update(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn update_same_name(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<VirtualEndNode>(db).await;
 
-    let program1 = ProgramContent {
+    let program1 = ProgramRequest {
         program_name: "program1".to_string(),
         ..default_content()
     };
 
-    let program2 = ProgramContent {
+    let program2 = ProgramRequest {
         program_name: "program2".to_string(),
         ..default_content()
     };
@@ -108,9 +99,8 @@ async fn update_same_name(db: PgPool) {
     let mut program2 = client.create_program(program2).await.unwrap();
     let creation_date_time = program2.modification_date_time();
 
-    let content = ProgramContent {
+    let content = ProgramRequest {
         program_name: "program1".to_string(),
-        country: Some("NO".to_string()),
         ..default_content()
     };
 
@@ -126,9 +116,9 @@ async fn update_same_name(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn create_same_name(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<VirtualEndNode>(db).await;
 
-    let program1 = ProgramContent {
+    let program1 = ProgramRequest {
         program_name: "program1".to_string(),
         ..default_content()
     };
@@ -143,23 +133,23 @@ async fn create_same_name(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn retrieve_all_with_filter(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<VirtualEndNode>(db).await;
 
-    let program1 = ProgramContent {
+    let program1 = ProgramRequest {
         program_name: "program1".to_string(),
         ..default_content()
     };
-    let program2 = ProgramContent {
+    let program2 = ProgramRequest {
         program_name: "program2".to_string(),
         targets: vec![Target::from_str("group-2").unwrap()],
         ..default_content()
     };
-    let program3 = ProgramContent {
+    let program3 = ProgramRequest {
         program_name: "program3".to_string(),
         targets: vec![Target::from_str("group-1").unwrap()],
         ..default_content()
     };
-    let program4 = ProgramContent {
+    let program4 = ProgramRequest {
         program_name: "program4".to_string(),
         targets: vec![
             Target::from_str("group-1").unwrap(),

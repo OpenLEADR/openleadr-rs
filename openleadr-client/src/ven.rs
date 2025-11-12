@@ -1,22 +1,79 @@
-use crate::{resource::ResourceClient, ClientRef, Error, Result};
-use chrono::{DateTime, Utc};
-use openleadr_wire::ven::BlVenRequest;
-use openleadr_wire::{
-    resource::{Resource, ResourceId, ResourceRequest},
-    ven::VenId,
-    Ven,
+use crate::{
+    resource::ResourceClient, BusinessLogic, ClientKind, ClientRef, Error, Result, VirtualEndNode,
 };
-use std::sync::Arc;
+use chrono::{DateTime, Utc};
+use openleadr_wire::{
+    resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest, VenResourceRequest},
+    target::Target,
+    values_map::ValuesMap,
+    ven::{BlVenRequest, VenId, VenRequest},
+    ClientId, Ven,
+};
+use std::{fmt::Display, sync::Arc};
 
 /// A client for interacting with the data in a specific VEN and the resources contained in the VEN.
 #[derive(Debug, Clone)]
-pub struct VenClient {
-    client: Arc<ClientRef>,
+pub struct VenClient<K> {
+    client: Arc<ClientRef<K>>,
     data: Ven,
 }
 
-impl VenClient {
-    pub(super) fn from_ven(client: Arc<ClientRef>, data: Ven) -> Self {
+impl VenClient<BusinessLogic> {
+    /// Create a resource as a child of this VEN
+    pub async fn create_resource<S: Display>(
+        &self,
+        name: S,
+        attributes: Option<Vec<ValuesMap>>,
+        client_id: ClientId,
+        targets: Vec<Target>,
+    ) -> Result<ResourceClient<BusinessLogic>> {
+        let resource = self
+            .client
+            .post(
+                "resources",
+                &ResourceRequest::BlResourceRequest(BlResourceRequest {
+                    client_id,
+                    targets,
+                    resource_name: name.to_string(),
+                    ven_id: self.data.id.clone(),
+                    attributes,
+                }),
+            )
+            .await?;
+        Ok(ResourceClient::from_resource(
+            Arc::clone(&self.client),
+            resource,
+        ))
+    }
+}
+
+impl VenClient<VirtualEndNode> {
+    /// Create a resource as a child of this VEN
+    pub async fn create_resource<S: Display>(
+        &self,
+        name: S,
+        attributes: Option<Vec<ValuesMap>>,
+    ) -> Result<ResourceClient<VirtualEndNode>> {
+        let resource = self
+            .client
+            .post(
+                "resources",
+                &ResourceRequest::VenResourceRequest(VenResourceRequest {
+                    resource_name: name.to_string(),
+                    ven_id: self.data.id.clone(),
+                    attributes,
+                }),
+            )
+            .await?;
+        Ok(ResourceClient::from_resource(
+            Arc::clone(&self.client),
+            resource,
+        ))
+    }
+}
+
+impl<K: ClientKind> VenClient<K> {
+    pub(super) fn from_ven(client: Arc<ClientRef<K>>, data: Ven) -> Self {
         Self { client, data }
     }
 
@@ -52,7 +109,10 @@ impl VenClient {
     pub async fn update(&mut self) -> Result<()> {
         self.data = self
             .client
-            .put(&format!("vens/{}", self.id()), &self.data.content)
+            .put(
+                &format!("vens/{}", self.id()),
+                &VenRequest::BlVenRequest(self.data.content.clone()),
+            )
             .await?;
         Ok(())
     }
@@ -65,25 +125,12 @@ impl VenClient {
         self.client.delete(&format!("vens/{}", self.id())).await
     }
 
-    /// Create a resource as a child of this VEN
-    pub async fn create_resource(&self, resource: ResourceRequest) -> Result<ResourceClient> {
-        let resource = self
-            .client
-            .post(&format!("vens/{}/resources", self.id()), &resource)
-            .await?;
-        Ok(ResourceClient::from_resource(
-            Arc::clone(&self.client),
-            self.id().clone(),
-            resource,
-        ))
-    }
-
     async fn get_resources_req(
         &self,
         resource_name: Option<&str>,
         skip: usize,
         limit: usize,
-    ) -> Result<Vec<ResourceClient>> {
+    ) -> Result<Vec<ResourceClient<K>>> {
         let skip_str = skip.to_string();
         let limit_str = limit.to_string();
 
@@ -93,15 +140,10 @@ impl VenClient {
             query.push(("resourceName", resource_name));
         }
 
-        let resources: Vec<Resource> = self
-            .client
-            .get(&format!("/vens/{}/resources", self.id()), &query)
-            .await?;
+        let resources: Vec<Resource> = self.client.get("/resources", &query).await?;
         Ok(resources
             .into_iter()
-            .map(|resource| {
-                ResourceClient::from_resource(Arc::clone(&self.client), self.id().clone(), resource)
-            })
+            .map(|resource| ResourceClient::from_resource(Arc::clone(&self.client), resource))
             .collect())
     }
 
@@ -111,40 +153,32 @@ impl VenClient {
     pub async fn get_all_resources(
         &self,
         resource_name: Option<&str>,
-    ) -> Result<Vec<ResourceClient>> {
+    ) -> Result<Vec<ResourceClient<K>>> {
         self.client
             .iterate_pages(|skip, limit| self.get_resources_req(resource_name, skip, limit))
             .await
     }
 
     /// Get a resource by its ID
-    pub async fn get_resource_by_id(&self, id: &ResourceId) -> Result<ResourceClient> {
-        let resource = self
-            .client
-            .get(&format!("vens/{}/resources/{}", self.id(), id), &[])
-            .await?;
+    pub async fn get_resource_by_id(&self, id: &ResourceId) -> Result<ResourceClient<K>> {
+        let resource = self.client.get(&format!("resources/{}", id), &[]).await?;
         Ok(ResourceClient::from_resource(
             Arc::clone(&self.client),
-            self.id().clone(),
             resource,
         ))
     }
 
     /// Get VEN by name from VTN.
     /// According to the spec, a [`resource_name`](ResourceContent::resource_name) must be unique per VEN.
-    pub async fn get_resource_by_name(&self, name: &str) -> Result<ResourceClient> {
+    pub async fn get_resource_by_name(&self, name: &str) -> Result<ResourceClient<K>> {
         let mut resources: Vec<Resource> = self
             .client
-            .get(
-                &format!("vens/{}/resources", self.id()),
-                &[("resourceName", name)],
-            )
+            .get("resources", &[("resourceName", name)])
             .await?;
         match resources[..] {
             [] => Err(Error::ObjectNotFound),
             [_] => Ok(ResourceClient::from_resource(
                 Arc::clone(&self.client),
-                self.id().clone(),
                 resources.remove(0),
             )),
             [..] => Err(Error::DuplicateObject),
