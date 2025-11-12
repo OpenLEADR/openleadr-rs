@@ -1,6 +1,7 @@
 use crate::{
     error::{Error, Result},
-    Client, EventClient, Filter, PaginationOptions, ProgramId, ProgramRequest, Timeline,
+    Client, ClientKind, EventClient, Filter, PaginationOptions, ProgramId, ProgramRequest,
+    Timeline,
 };
 use openleadr_wire::{
     event::{EventInterval, EventRequest, Priority},
@@ -10,13 +11,13 @@ use openleadr_wire::{
 /// A client for interacting with the data in a specific program and the events
 /// contained in the program.
 #[derive(Debug, Clone)]
-pub struct ProgramClient {
-    client: Client,
+pub struct ProgramClient<K> {
+    client: Client<K>,
     data: Program,
 }
 
-impl ProgramClient {
-    pub(super) fn from_program(client: Client, program: Program) -> Self {
+impl<K: ClientKind> ProgramClient<K> {
+    pub(super) fn from_program(client: Client<K>, program: Program) -> Self {
         Self {
             client,
             data: program,
@@ -72,7 +73,7 @@ impl ProgramClient {
     /// Create a new event on the VTN.
     /// The content should be created with [`ProgramClient::new_event`]
     /// to automatically insert the correct program ID
-    pub async fn create_event(&self, event_data: EventRequest) -> Result<EventClient> {
+    pub async fn create_event(&self, event_data: EventRequest) -> Result<EventClient<K>> {
         if &event_data.program_id != self.id() {
             return Err(Error::InvalidParentObject);
         }
@@ -106,7 +107,7 @@ impl ProgramClient {
         &self,
         filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
-    ) -> Result<Vec<EventClient>> {
+    ) -> Result<Vec<EventClient<K>>> {
         self.client
             .get_events(Some(self.id()), filter, pagination)
             .await
@@ -116,7 +117,7 @@ impl ProgramClient {
     pub async fn get_event_list(
         &self,
         filter: Filter<'_, impl AsRef<str> + Clone>,
-    ) -> Result<Vec<EventClient>> {
+    ) -> Result<Vec<EventClient<K>>> {
         self.client.get_event_list(Some(self.id()), filter).await
     }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM resource r\n            WHERE r.id = $1 AND r.ven_id = $2\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_name,\n                ven_id,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
+  "query": "\n            UPDATE resource\n            SET modification_date_time = now(),\n                resource_name = $2,\n                attributes = $3,\n                targets = $4\n            WHERE id = $1\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_name,\n                ven_id,\n                attributes,\n                targets as \"targets:Vec<Target>\",\n                client_id\n            ",
   "describe": {
     "columns": [
       {
@@ -37,12 +37,19 @@
         "ordinal": 6,
         "name": "targets:Vec<Target>",
         "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "Text",
+        "Jsonb",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -52,8 +59,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "323633f85b0e08517863708611ef77c0ad824f2529f39cc0dfc999721e3d0b59"
+  "hash": "9aaa45993d8c86db52b31f425f03bb1d9ff3088735bb65cd9ff474f32ab4b0f7"
 }

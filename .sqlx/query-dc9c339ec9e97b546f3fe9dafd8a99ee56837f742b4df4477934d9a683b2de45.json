@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals\n            FROM event e\n                     JOIN program p ON e.program_id = p.id\n            WHERE e.id = $1\n            ",
+  "query": "\n            INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals, duration)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                program_id,\n                event_name,\n                priority,\n                targets as \"targets:Vec<Target>\",\n                report_descriptors,\n                payload_descriptors,\n                interval_period,\n                intervals,\n                duration\n            ",
   "describe": {
     "columns": [
       {
@@ -57,10 +57,23 @@
         "ordinal": 10,
         "name": "intervals",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "duration",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "TextArray",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
         "Text"
       ]
     },
@@ -75,8 +88,9 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "88d481ee0a43ac4554f1e80ae585b605f5350c7059bd600c74b3f74bbfa18b1e"
+  "hash": "dc9c339ec9e97b546f3fe9dafd8a99ee56837f742b4df4477934d9a683b2de45"
 }

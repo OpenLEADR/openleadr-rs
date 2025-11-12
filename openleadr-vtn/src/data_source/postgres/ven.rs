@@ -1,16 +1,13 @@
 use crate::{
     api::ven::QueryParams,
-    data_source::{
-        postgres::{resource::PgResourceStorage, to_json_value},
-        Crud, VenCrud, VenPermissions,
-    },
+    data_source::{postgres::to_json_value, Crud, VenCrud, VenPermissions},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     target::Target,
-    ven::{BlVenRequest, Ven, VenId},
+    ven::{BlVenRequest, Ven, VenId, VenRequest},
 };
 use sqlx::PgPool;
 use tracing::{error, trace};
@@ -36,12 +33,15 @@ struct PostgresVen {
     ven_name: String,
     attributes: Option<serde_json::Value>,
     targets: Vec<Target>,
+    client_id: String,
 }
 
-impl PostgresVen {
-    #[tracing::instrument]
-    fn try_into_ven_with_resources(self) -> Result<Ven, AppError> {
-        let attributes = match self.attributes {
+impl TryFrom<PostgresVen> for Ven {
+    type Error = AppError;
+
+    #[tracing::instrument(name = "TryFrom<PostgresVen> for Ven")]
+    fn try_from(pg: PostgresVen) -> Result<Self, Self::Error> {
+        let attributes = match pg.attributes {
             None => None,
             Some(t) => serde_json::from_value(t)
                 .inspect_err(|err| {
@@ -54,10 +54,10 @@ impl PostgresVen {
         };
 
         Ok(Ven {
-            id: self.id.parse()?,
-            created_date_time: self.created_date_time,
-            modification_date_time: self.modification_date_time,
-            content: BlVenRequest::new(self.ven_name, attributes, self.targets),
+            id: pg.id.parse()?,
+            created_date_time: pg.created_date_time,
+            modification_date_time: pg.modification_date_time,
+            content: BlVenRequest::new(pg.client_id.parse()?, pg.ven_name, attributes, pg.targets),
         })
     }
 }
@@ -66,7 +66,7 @@ impl PostgresVen {
 impl Crud for PgVenStorage {
     type Type = Ven;
     type Id = VenId;
-    type NewType = BlVenRequest;
+    type NewType = VenRequest;
     type Error = AppError;
     type Filter = QueryParams;
     type PermissionFilter = VenPermissions;
@@ -85,24 +85,30 @@ impl Crud for PgVenStorage {
                 modification_date_time,
                 ven_name,
                 attributes,
-                targets
+                targets,
+                client_id
             )
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
             RETURNING
                 id,
                 created_date_time,
                 modification_date_time,
                 ven_name,
                 attributes,
-                targets as "targets:Vec<Target>"
+                targets as "targets:Vec<Target>",
+                client_id
             "#,
-            new.ven_name,
-            to_json_value(new.attributes)?,
-            new.targets.as_slice() as &[Target],
+            new.ven_name(),
+            to_json_value(new.attributes())?,
+            new.targets() as &[Target],
+            // FIXME object privacy
+            new.client_id()
+                .map(|id| id.as_str())
+                .unwrap_or("FIXME-object-privacy")
         )
         .fetch_one(&self.db)
         .await?
-        .try_into_ven_with_resources()?;
+        .try_into()?;
 
         trace!(ven_id = ven.id.as_str(), "created ven");
 
@@ -125,7 +131,8 @@ impl Crud for PgVenStorage {
                 modification_date_time,
                 ven_name,
                 attributes,
-                targets as "targets:Vec<Target>"
+                targets as "targets:Vec<Target>",
+                client_id
             FROM ven
             WHERE id = $1
             AND ($2::text[] IS NULL OR id = ANY($2))
@@ -135,7 +142,7 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into_ven_with_resources()?;
+        .try_into()?;
 
         trace!(ven_id = ven.id.as_str(), "retrieved ven");
 
@@ -149,7 +156,7 @@ impl Crud for PgVenStorage {
     ) -> Result<Vec<Self::Type>, Self::Error> {
         let ids = permissions.as_value();
 
-        let pg_vens: Vec<PostgresVen> = sqlx::query_as!(
+        let vens = sqlx::query_as!(
             PostgresVen,
             r#"
             SELECT DISTINCT
@@ -158,7 +165,8 @@ impl Crud for PgVenStorage {
                 v.modification_date_time AS "modification_date_time!",
                 v.ven_name AS "ven_name!",
                 v.attributes,
-                v.targets as "targets:Vec<Target>"
+                v.targets as "targets:Vec<Target>",
+                v.client_id
             FROM ven v
               LEFT JOIN resource r ON r.ven_id = v.id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
@@ -174,15 +182,10 @@ impl Crud for PgVenStorage {
             filter.limit,
         )
         .fetch_all(&self.db)
-        .await?;
-
-        let ven_ids: Vec<String> = pg_vens.iter().map(|v| v.id.to_string()).collect();
-        let resources = PgResourceStorage::retrieve_by_vens(&self.db, &ven_ids).await?;
-
-        let vens = pg_vens
-            .into_iter()
-            .map(|ven| ven.try_into_ven_with_resources())
-            .collect::<Result<Vec<_>, AppError>>()?;
+        .await?
+        .into_iter()
+        .map(|ven| ven.try_into())
+        .collect::<Result<Vec<_>, AppError>>()?;
 
         trace!("retrieved {} ven(s)", vens.len());
 
@@ -195,6 +198,28 @@ impl Crud for PgVenStorage {
         new: Self::NewType,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let mut tx = self.db.begin().await?;
+
+        let old = sqlx::query!(
+            r#"
+            SELECT client_id FROM ven WHERE id = $1
+            "#,
+            id.as_str()
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if let Some(new_client_id) = new.client_id() {
+            if old.client_id != new_client_id.as_str() {
+                let error = "Tried to update `client_id` of VEN. \
+                This is not allowed in the current version of openLEADR as the specification is not quite \
+                clear about if that should be allowed. If you disagree with that interpretation, please open \
+                an issue on GitHub.";
+                error!(ven_id = id.as_str(), "{}", error);
+                return Err(Self::Error::BadRequest(error));
+            }
+        }
+
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -210,17 +235,19 @@ impl Crud for PgVenStorage {
                 created_date_time,
                 ven_name,
                 attributes,
-                targets as "targets:Vec<Target>"
+                targets as "targets:Vec<Target>",
+                client_id
             "#,
             id.as_str(),
-            new.ven_name,
-            to_json_value(new.attributes)?,
-            new.targets.as_slice() as &[Target],
+            new.ven_name(),
+            to_json_value(new.attributes())?,
+            new.targets() as &[Target],
         )
-        .fetch_one(&self.db)
+        .fetch_one(&mut *tx)
         .await?
-        .try_into_ven_with_resources()?;
+        .try_into()?;
 
+        tx.commit().await?;
         trace!(ven_id = id.as_str(), "updated ven");
 
         Ok(ven)
@@ -231,10 +258,18 @@ impl Crud for PgVenStorage {
         id: &Self::Id,
         _user: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        if !PgResourceStorage::retrieve_by_ven(&self.db, id)
-            .await?
-            .is_empty()
-        {
+        let mut tx = self.db.begin().await?;
+
+        let resource_id = sqlx::query_scalar!(
+            r#"
+            SELECT id FROM resource WHERE ven_id = $1 LIMIT 1
+            "#,
+            id.as_str()
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if resource_id.is_some() {
             Err(AppError::Forbidden(
                 "Cannot delete VEN with associated resources",
             ))?
@@ -251,13 +286,16 @@ impl Crud for PgVenStorage {
                 modification_date_time,
                 ven_name,
                 attributes,
-                targets as "targets:Vec<Target>"
+                targets as "targets:Vec<Target>",
+                client_id
             "#,
             id.as_str(),
         )
-        .fetch_one(&self.db)
+        .fetch_one(&mut *tx)
         .await?
-        .try_into_ven_with_resources()?;
+        .try_into()?;
+
+        tx.commit().await?;
 
         trace!(ven_id = id.as_str(), "deleted ven");
 
@@ -296,15 +334,15 @@ mod tests {
             id: "ven-1".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: VenContent::new(
-                "ven-1-name".to_string(),
-                None,
-                vec![
+            content: BlVenRequest {
+                client_id: "ven-1-client-id".parse().unwrap(),
+                targets: vec![
                     Target::from_str("group-1").unwrap(),
                     Target::from_str("private-value").unwrap(),
                 ],
-                None,
-            ),
+                ven_name: "ven-1-name".to_string(),
+                attributes: None,
+            },
         }
     }
 
@@ -313,7 +351,12 @@ mod tests {
             id: "ven-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: BlVenRequest::new("ven-2-name".to_string(), None, vec![], None),
+            content: BlVenRequest::new(
+                "ven-2-client-id".parse().unwrap(),
+                "ven-2-name".to_string(),
+                None,
+                vec![],
+            ),
         }
     }
 
@@ -472,13 +515,17 @@ mod tests {
 
         use super::*;
         use chrono::{Duration, Utc};
+        use openleadr_wire::ven::VenRequest;
 
         #[sqlx::test]
         async fn add(db: PgPool) {
             let repo: PgVenStorage = db.into();
 
             let ven = repo
-                .create(ven_1().content, &VenPermissions::AllAllowed)
+                .create(
+                    VenRequest::BlVenRequest(ven_1().content),
+                    &VenPermissions::AllAllowed,
+                )
                 .await
                 .unwrap();
             assert!(ven.created_date_time < Utc::now() + Duration::minutes(10));
@@ -492,7 +539,10 @@ mod tests {
             let repo: PgVenStorage = db.into();
 
             let ven = repo
-                .create(ven_1().content, &VenPermissions::AllAllowed)
+                .create(
+                    VenRequest::BlVenRequest(ven_1().content),
+                    &VenPermissions::AllAllowed,
+                )
                 .await;
             assert!(matches!(ven, Err(AppError::Conflict(_, _))));
         }
@@ -503,6 +553,7 @@ mod tests {
 
         use super::*;
         use chrono::{DateTime, Duration, Utc};
+        use openleadr_wire::ven::VenRequest;
 
         #[sqlx::test(fixtures("users", "vens"))]
         async fn updates_modify_time(db: PgPool) {
@@ -510,7 +561,7 @@ mod tests {
             let ven = repo
                 .update(
                     &"ven-1".parse().unwrap(),
-                    ven_1().content,
+                    VenRequest::BlVenRequest(ven_1().content),
                     &VenPermissions::AllAllowed,
                 )
                 .await
@@ -531,12 +582,13 @@ mod tests {
         async fn update(db: PgPool) {
             let repo: PgVenStorage = db.into();
             let mut updated = ven_2().content;
+            updated.client_id = ven_1().content.client_id;
             updated.ven_name = "updated_name".parse().unwrap();
 
             let ven = repo
                 .update(
                     &"ven-1".parse().unwrap(),
-                    updated.clone(),
+                    VenRequest::BlVenRequest(updated.clone()),
                     &VenPermissions::AllAllowed,
                 )
                 .await

@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
+use openleadr_wire::resource::{Resource, ResourceId, ResourceRequest};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
@@ -35,27 +35,26 @@ fn has_write_permission(User(claims): &User, ven_id: &VenId) -> Result<(), AppEr
 
 pub async fn get_all(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    Path(ven_id): Path<VenId>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
     user: User,
 ) -> AppResponse<Vec<Resource>> {
-    has_write_permission(&user, &ven_id)?;
+    // FIXME object privacy
+    // has_write_permission(&user, &ven_id)?;
     trace!(?query_params);
 
-    let resources = resource_source
-        .retrieve_all(ven_id, &query_params, &user)
-        .await?;
+    let resources = resource_source.retrieve_all(&query_params, &user).await?;
 
     Ok(Json(resources))
 }
 
 pub async fn get(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    Path((ven_id, id)): Path<(VenId, ResourceId)>,
+    Path(id): Path<ResourceId>,
     user: User,
 ) -> AppResponse<Resource> {
-    has_write_permission(&user, &ven_id)?;
-    let ven = resource_source.retrieve(&id, ven_id, &user).await?;
+    // FIXME object privacy
+    // has_write_permission(&user, &ven_id)?;
+    let ven = resource_source.retrieve(&id, &user).await?;
 
     Ok(Json(ven))
 }
@@ -63,23 +62,24 @@ pub async fn get(
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     user: User,
-    Path(ven_id): Path<VenId>,
-    ValidatedJson(new_resource): ValidatedJson<BlResourceRequest>,
+    ValidatedJson(new_resource): ValidatedJson<ResourceRequest>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
-    has_write_permission(&user, &ven_id)?;
-    let ven = resource_source.create(new_resource, ven_id, &user).await?;
+    // FIXME object privacy
+    // has_write_permission(&user, &ven_id)?;
+    let ven = resource_source.create(new_resource, &user).await?;
 
     Ok((StatusCode::CREATED, Json(ven)))
 }
 
 pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    Path((ven_id, id)): Path<(VenId, ResourceId)>,
+    Path(id): Path<ResourceId>,
     user: User,
-    ValidatedJson(content): ValidatedJson<BlResourceRequest>,
+    ValidatedJson(content): ValidatedJson<ResourceRequest>,
 ) -> AppResponse<Resource> {
-    has_write_permission(&user, &ven_id)?;
-    let resource = resource_source.update(&id, ven_id, content, &user).await?;
+    // FIXME object privacy
+    // has_write_permission(&user, &ven_id)?;
+    let resource = resource_source.update(&id, content, &user).await?;
 
     info!(%resource.id, resource.resource_name=resource.content.resource_name, "resource updated");
 
@@ -88,11 +88,12 @@ pub async fn edit(
 
 pub async fn delete(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    Path((ven_id, id)): Path<(VenId, ResourceId)>,
+    Path(id): Path<ResourceId>,
     user: User,
 ) -> AppResponse<Resource> {
-    has_write_permission(&user, &ven_id)?;
-    let resource = resource_source.delete(&id, ven_id, &user).await?;
+    // FIXME object privacy
+    // has_write_permission(&user, &ven_id)?;
+    let resource = resource_source.delete(&id, &user).await?;
     info!(%id, "deleted resource");
     Ok(Json(resource))
 }
@@ -102,6 +103,8 @@ pub async fn delete(
 pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) resource_name: Option<String>,
+    #[serde(rename = "venID")]
+    pub(crate) ven_id: Option<VenId>,
     #[serde(flatten)]
     #[validate(nested)]
     pub(crate) targets: TargetQueryParams,
@@ -121,8 +124,10 @@ fn get_50() -> i64 {
 mod test {
     use crate::{api::test::ApiTest, jwt::AuthRole};
     use axum::body::Body;
-    use openleadr_wire::resource::VenResourceRequest;
-    use openleadr_wire::{problem::Problem, resource::Resource};
+    use openleadr_wire::{
+        problem::Problem,
+        resource::{Resource, ResourceRequest, VenResourceRequest},
+    };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
@@ -131,14 +136,14 @@ mod test {
         let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
 
         let (status, resources) = test
-            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources", Body::empty())
+            .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
             .await;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resources.len(), 2);
 
         let (status, resources) = test
-            .request::<Vec<Resource>>(Method::GET, "/vens/ven-2/resources", Body::empty())
+            .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-2", Body::empty())
             .await;
 
         assert_eq!(status, StatusCode::OK);
@@ -148,14 +153,14 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
 
         let (status, resources) = test
-            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources", Body::empty())
+            .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
             .await;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resources.len(), 2);
 
         let (status, _) = test
-            .request::<serde_json::Value>(Method::GET, "/vens/ven-2/resources", Body::empty())
+            .request::<serde_json::Value>(Method::GET, "/resources?venID=ven-2", Body::empty())
             .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
@@ -165,13 +170,19 @@ mod test {
         let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
 
         let (status, resources) = test
-            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources?skip=1", Body::empty())
+            .request::<Vec<Resource>>(Method::GET, "/resources?skip=1", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resources.len(), 1);
 
         let (status, resources) = test
-            .request::<Vec<Resource>>(Method::GET, "/vens/ven-1/resources?limit=1", Body::empty())
+            .request::<Vec<Resource>>(Method::GET, "/resources?limit=1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resources.len(), 1);
+
+        let (status, resources) = test
+            .request::<Vec<Resource>>(Method::GET, "/resources?targets=group-1", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resources.len(), 1);
@@ -179,17 +190,7 @@ mod test {
         let (status, resources) = test
             .request::<Vec<Resource>>(
                 Method::GET,
-                "/vens/ven-1/resources?targets=group-1",
-                Body::empty(),
-            )
-            .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(resources.len(), 1);
-
-        let (status, resources) = test
-            .request::<Vec<Resource>>(
-                Method::GET,
-                "/vens/ven-1/resources?targets=group-1&targets=group-2",
+                "/resources?targets=group-1&targets=group-2",
                 Body::empty(),
             )
             .await;
@@ -204,7 +205,7 @@ mod test {
         let (status, resource) = test
             .request::<Resource>(
                 Method::GET,
-                "/vens/ven-1/resources/resource-1",
+                "/resources/resource-1?venID=ven-1",
                 Body::empty(),
             )
             .await;
@@ -217,7 +218,7 @@ mod test {
         let (status, resource) = test
             .request::<Resource>(
                 Method::GET,
-                "/vens/ven-1/resources/resource-1",
+                "/resources/resource-1?venID=ven-1",
                 Body::empty(),
             )
             .await;
@@ -227,7 +228,7 @@ mod test {
         let (status, _) = test
             .request::<Problem>(
                 Method::GET,
-                "/vens/ven-1/resources/resource-2",
+                "/resources/resource-2?venID=ven-1",
                 Body::empty(),
             )
             .await;
@@ -236,7 +237,7 @@ mod test {
         let (status, _) = test
             .request::<Problem>(
                 Method::GET,
-                "/vens/ven-2/resources/resource-2",
+                "/resources/resource-2?venID=ven-2",
                 Body::empty(),
             )
             .await;
@@ -250,8 +251,8 @@ mod test {
         let (status, resource) = test
             .request::<Resource>(
                 Method::POST,
-                "/vens/ven-1/resources",
-                Body::from(r#"{"resourceName":"new-resource"}"#),
+                "/resources",
+                Body::from(r#"{"resourceName":"new-resource", "venID": "ven-1", "objectType": "VEN_RESOURCE_REQUEST"}"#),
             )
             .await;
         assert_eq!(status, StatusCode::CREATED);
@@ -262,8 +263,8 @@ mod test {
         let (status, resource) = test
             .request::<Resource>(
                 Method::PUT,
-                &format!("/vens/ven-1/resources/{resource_id}"),
-                Body::from(r#"{"resourceName":"updated-resource"}"#),
+                &format!("/resources/{resource_id}"),
+                Body::from(r#"{"resourceName":"updated-resource", "venID": "ven-1", "objectType": "VEN_RESOURCE_REQUEST"}"#),
             )
             .await;
         assert_eq!(status, StatusCode::OK);
@@ -272,7 +273,7 @@ mod test {
         let (status, resource) = test
             .request::<Resource>(
                 Method::GET,
-                &format!("/vens/ven-1/resources/{resource_id}"),
+                &format!("/resources/{resource_id}"),
                 Body::empty(),
             )
             .await;
@@ -282,7 +283,7 @@ mod test {
         let (status, _) = test
             .request::<Resource>(
                 Method::DELETE,
-                &format!("/vens/ven-1/resources/{resource_id}"),
+                &format!("/resources/{resource_id}"),
                 Body::empty(),
             )
             .await;
@@ -291,7 +292,7 @@ mod test {
         let (status, _) = test
             .request::<Problem>(
                 Method::GET,
-                &format!("/vens/ven-1/resources/{resource_id}"),
+                &format!("/resources/{resource_id}"),
                 Body::empty(),
             )
             .await;
@@ -303,24 +304,26 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let resources = [
-            VenResourceRequest {
+            ResourceRequest::VenResourceRequest(VenResourceRequest {
                 resource_name: "".to_string(),
+                ven_id: "ven-1".parse().unwrap(),
                 attributes: None,
-            },
-            VenResourceRequest {
-                resource_name: "This is more than 128 characters long and should be\
-            rejected This is more than \
-            128 characters long and should be rejected asdfasd"
+            }),
+            ResourceRequest::VenResourceRequest(VenResourceRequest {
+                resource_name: "This is more than 128 characters long and should be \
+                                rejected This is more than \
+                                128 characters long and should be rejected asdfasd"
                     .to_string(),
+                ven_id: "ven-1".parse().unwrap(),
                 attributes: None,
-            },
+            }),
         ];
 
         for resource in &resources {
             let (status, error) = test
                 .request::<Problem>(
                     Method::POST,
-                    "/vens/ven-1/resources",
+                    "/resources",
                     Body::from(serde_json::to_vec(&resource).unwrap()),
                 )
                 .await;

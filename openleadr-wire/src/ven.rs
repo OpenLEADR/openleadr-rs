@@ -27,7 +27,7 @@ pub struct Ven {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", untagged)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "objectType")]
 pub enum VenRequest {
     BlVenRequest(BlVenRequest),
     VenVenRequest(VenVenRequest),
@@ -42,14 +42,43 @@ impl Validate for VenRequest {
     }
 }
 
+impl VenRequest {
+    pub fn client_id(&self) -> Option<&ClientId> {
+        match self {
+            VenRequest::BlVenRequest(r) => Some(&r.client_id),
+            VenRequest::VenVenRequest(_) => None,
+        }
+    }
+
+    pub fn ven_name(&self) -> &str {
+        match self {
+            VenRequest::BlVenRequest(r) => &r.ven_name,
+            VenRequest::VenVenRequest(r) => &r.ven_name,
+        }
+    }
+
+    pub fn attributes(&self) -> Option<&[ValuesMap]> {
+        match self {
+            VenRequest::BlVenRequest(r) => r.attributes.as_deref(),
+            VenRequest::VenVenRequest(r) => r.attributes.as_deref(),
+        }
+    }
+
+    pub fn targets(&self) -> &[Target] {
+        match self {
+            VenRequest::BlVenRequest(r) => &r.targets,
+            VenRequest::VenVenRequest(_) => {
+                // FIXME object privacy
+                &[]
+            }
+        }
+    }
+}
+
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(
-    rename_all = "camelCase",
-    tag = "objectType",
-    rename = "BL_VEN_REQUEST"
-)]
+#[serde(rename_all = "camelCase")]
 pub struct BlVenRequest {
     #[serde(rename = "clientID")]
     pub client_id: ClientId,
@@ -66,11 +95,7 @@ pub struct BlVenRequest {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(
-    rename_all = "camelCase",
-    tag = "objectType",
-    rename = "VEN_VEN_REQUEST"
-)]
+#[serde(rename_all = "camelCase")]
 pub struct VenVenRequest {
     /// User generated identifier, may be VEN identifier provisioned during program enrollment.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
@@ -96,6 +121,7 @@ impl BlVenRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord)]
+#[serde(transparent)]
 pub struct VenId(pub(crate) Identifier);
 
 impl Display for VenId {
