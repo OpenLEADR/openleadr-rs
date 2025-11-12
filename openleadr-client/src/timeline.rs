@@ -254,7 +254,7 @@ mod test {
     use super::*;
     use openleadr_wire::{
         event::EventInterval,
-        program::{ProgramContent, ProgramId},
+        program::{ProgramId, ProgramRequest},
         values_map::Value,
     };
 
@@ -262,11 +262,9 @@ mod test {
         ProgramId::new("test-program-id").unwrap()
     }
 
-    fn test_event_content(range: Range<u32>, value: i64) -> EventContent {
-        EventContent::new(
-            test_program_id(),
-            vec![event_interval_with_value(range, value)],
-        )
+    fn test_event_content(range: Range<u32>, value: i64) -> EventRequest {
+        EventRequest::new(test_program_id())
+            .with_intervals(vec![event_interval_with_value(range, value)])
     }
 
     fn test_program(name: &str) -> Program {
@@ -274,7 +272,7 @@ mod test {
             id: test_program_id(),
             created_date_time: Default::default(),
             modification_date_time: Default::default(),
-            content: ProgramContent::new(name),
+            content: ProgramRequest::new(name),
         }
     }
 
@@ -423,7 +421,7 @@ mod test {
             ),
         ];
 
-        let mut event = EventContent::new(program.id.clone(), event_intervals);
+        let mut event = EventRequest::new(program.id.clone()).with_intervals(event_intervals);
 
         event.interval_period = Some(IntervalPeriod {
             start: DateTime::UNIX_EPOCH,
@@ -457,23 +455,20 @@ mod test {
         let event2 = {
             let range = 0..15;
             let value = 43;
-            EventContent::new(
-                test_program_id(),
-                vec![EventInterval {
-                    id: range.start as _,
-                    interval_period: Some(IntervalPeriod {
-                        start: DateTime::UNIX_EPOCH + Duration::hours(range.start.into()),
-                        duration: Some(openleadr_wire::Duration::hours(
-                            (range.end - range.start) as _,
-                        )),
-                        randomize_start: Some(openleadr_wire::Duration::hours(5.0)),
-                    }),
-                    payloads: vec![EventValuesMap {
-                        value_type: openleadr_wire::event::EventType::Price,
-                        values: vec![Value::Integer(value)],
-                    }],
+            EventRequest::new(test_program_id()).with_intervals(vec![EventInterval {
+                id: range.start as _,
+                interval_period: Some(IntervalPeriod {
+                    start: DateTime::UNIX_EPOCH + Duration::hours(range.start.into()),
+                    duration: Some(openleadr_wire::Duration::hours(
+                        (range.end - range.start) as _,
+                    )),
+                    randomize_start: Some(openleadr_wire::Duration::hours(5.0)),
+                }),
+                payloads: vec![EventValuesMap {
+                    value_type: openleadr_wire::event::EventType::Price,
+                    values: vec![Value::Integer(value)],
                 }],
-            )
+            }])
         };
 
         let tl = Timeline::from_events(&test_program("p"), vec![&event1, &event2]).unwrap();

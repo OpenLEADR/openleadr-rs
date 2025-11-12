@@ -11,8 +11,8 @@ use openleadr_wire::{
     event::{EventId, EventRequest},
     program::{ProgramId, ProgramRequest},
     report::{ReportId, ReportRequest},
-    resource::{BlResourceRequest, Resource, ResourceId},
-    ven::{BlVenRequest, Ven, VenId},
+    resource::{Resource, ResourceId, ResourceRequest},
+    ven::{Ven, VenId, VenRequest},
     Event, Program, Report,
 };
 #[cfg(feature = "postgres")]
@@ -54,48 +54,6 @@ pub trait Crud: Send + Sync + 'static {
     async fn delete(
         &self,
         id: &Self::Id,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-}
-
-#[async_trait]
-pub trait VenScopedCrud: Send + Sync + 'static {
-    type Type;
-    type Id;
-    type NewType;
-    type Error;
-    type Filter;
-    type PermissionFilter;
-
-    async fn create(
-        &self,
-        new: Self::NewType,
-        ven_id: VenId,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-    async fn retrieve(
-        &self,
-        id: &Self::Id,
-        ven_id: VenId,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-    async fn retrieve_all(
-        &self,
-        ven_id: VenId,
-        filter: &Self::Filter,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Vec<Self::Type>, Self::Error>;
-    async fn update(
-        &self,
-        id: &Self::Id,
-        ven_id: VenId,
-        new: Self::NewType,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-    async fn delete(
-        &self,
-        id: &Self::Id,
-        ven_id: VenId,
         permission_filter: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error>;
 }
@@ -170,7 +128,7 @@ pub trait VenCrud:
     Crud<
     Type = Ven,
     Id = VenId,
-    NewType = BlVenRequest,
+    NewType = VenRequest,
     Error = AppError,
     Filter = crate::api::ven::QueryParams,
     PermissionFilter = VenPermissions,
@@ -179,10 +137,10 @@ pub trait VenCrud:
 }
 
 pub trait ResourceCrud:
-    VenScopedCrud<
+    Crud<
     Type = Resource,
     Id = ResourceId,
-    NewType = BlResourceRequest,
+    NewType = ResourceRequest,
     Error = AppError,
     Filter = crate::api::resource::QueryParams,
     PermissionFilter = User,
