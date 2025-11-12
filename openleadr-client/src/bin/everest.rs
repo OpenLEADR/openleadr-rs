@@ -4,7 +4,7 @@ use openleadr_wire::{
     values_map::Value,
 };
 
-use openleadr_client::{Filter, ProgramClient, Timeline};
+use openleadr_client::{ClientKind, Filter, ProgramClient, Timeline, VirtualEndNode};
 use std::{error::Error, time::Duration};
 use tokio::{
     select,
@@ -43,7 +43,11 @@ impl Clock for ChronoClock {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let client = openleadr_client::Client::with_url("http://localhost:3000/".try_into()?, None);
+    // TODO could Everest eventually ever function as BusinessLogic
+    let client = openleadr_client::Client::<VirtualEndNode>::with_url(
+        "http://localhost:3000/".try_into()?,
+        None,
+    );
     let program = client
         .get_program_by_id(&"program-1".parse().unwrap())
         .await?;
@@ -65,8 +69,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn poll_timeline(
-    program: ProgramClient,
+async fn poll_timeline<K: ClientKind>(
+    program: ProgramClient<K>,
     poll_interval: Duration,
     sender: Sender<Timeline>,
 ) -> Result<(), openleadr_client::Error> {
@@ -194,9 +198,9 @@ impl LimitsRes {
 mod test {
     use super::*;
     use openleadr_wire::{
-        event::{EventContent, EventInterval},
+        event::{EventInterval, EventRequest},
         interval::IntervalPeriod,
-        program::{ProgramContent, ProgramId},
+        program::{ProgramId, ProgramRequest},
         Program,
     };
     use std::sync::{
@@ -308,9 +312,10 @@ mod test {
             id: "test-program-id".parse().unwrap(),
             created_date_time: Default::default(),
             modification_date_time: Default::default(),
-            content: ProgramContent::new("Limits for Arthur Dent"),
+            content: ProgramRequest::new("Limits for Arthur Dent"),
         };
-        let event = EventContent::new(ProgramId::new("test-program-id").unwrap(), intervals);
+        let event =
+            EventRequest::new(ProgramId::new("test-program-id").unwrap()).with_intervals(intervals);
         let events = vec![&event];
 
         Timeline::from_events(&program, events).unwrap()

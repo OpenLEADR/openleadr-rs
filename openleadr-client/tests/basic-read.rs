@@ -1,15 +1,15 @@
-use openleadr_client::Filter;
-use openleadr_wire::program::ProgramContent;
+use openleadr_client::{Client, Filter, VirtualEndNode};
+use openleadr_wire::program::ProgramRequest;
 use sqlx::PgPool;
 
 mod common;
 
 #[sqlx::test(fixtures("users"))]
 async fn basic_create_read(db: PgPool) -> Result<(), openleadr_client::Error> {
-    let client = common::setup_client(db).await;
+    let client: Client<VirtualEndNode> = common::setup_client(db).await;
 
     client
-        .create_program(ProgramContent::new("test-prog"))
+        .create_program(ProgramRequest::new("test-prog"))
         .await?;
 
     let programs = client.get_program_list(Filter::none()).await?;

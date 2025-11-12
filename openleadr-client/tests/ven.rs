@@ -1,10 +1,10 @@
-use crate::common::setup;
-use openleadr_client::Filter;
+use crate::common::{setup, TestContext};
+use openleadr_client::{Filter, VirtualEndNode};
 use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
     target::Target,
     values_map::{Value, ValueType, ValuesMap},
-    ven::VenContent,
+    ven::VenVenRequest,
 };
 use serial_test::serial;
 use std::str::FromStr;
@@ -14,7 +14,7 @@ mod common;
 #[tokio::test]
 #[serial]
 async fn crud() {
-    let ctx = setup(AuthRole::VenManager).await;
+    let ctx: TestContext<VirtualEndNode> = setup(AuthRole::VenManager).await;
 
     // cleanup potentially clashing VEN
     {
@@ -25,7 +25,10 @@ async fn crud() {
     }
 
     // Create
-    let ven = VenContent::new("test-ven".to_string(), None, vec![], None);
+    let ven = VenVenRequest {
+        ven_name: "test-ven".to_string(),
+        attributes: None,
+    };
     let create_ven = ctx.create_ven(ven.clone()).await.unwrap();
     assert_eq!(create_ven.content().ven_name, "test-ven");
 

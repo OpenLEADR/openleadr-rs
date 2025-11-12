@@ -1481,7 +1481,6 @@ dependencies = [
  "chrono",
  "dotenvy",
  "http-body-util",
- "mime",
  "openleadr-vtn",
  "openleadr-wire",
  "rangemap",

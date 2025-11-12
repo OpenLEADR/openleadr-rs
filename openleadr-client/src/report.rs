@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use openleadr_wire::{report::ReportRequest, Report};
 
-use crate::{error::Result, ClientRef};
+use crate::{error::Result, ClientKind, ClientRef};
 
 /// Client to manage the data of a specific report
 ///
 /// Can be created by a [`EventClient`](crate::EventClient)
 /// ```no_run
-/// # use openleadr_client::{Client, Filter};
+/// # use openleadr_client::{Client, Filter, BusinessLogic};
 /// # use openleadr_wire::event::Priority;
-/// let client = Client::with_url("https://your-vtn.com".try_into().unwrap(), None);
+/// let client = Client::<BusinessLogic>::with_url("https://your-vtn.com".try_into().unwrap(), None);
 /// # tokio_test::block_on(async {
 /// let event = client.get_event_by_id(&"event-1".parse().unwrap()).await.unwrap();
 ///
@@ -24,13 +24,13 @@ use crate::{error::Result, ClientRef};
 /// # })
 /// ```
 #[derive(Debug, Clone)]
-pub struct ReportClient {
-    client: Arc<ClientRef>,
+pub struct ReportClient<K> {
+    client: Arc<ClientRef<K>>,
     data: Report,
 }
 
-impl ReportClient {
-    pub(super) fn from_report(client: Arc<ClientRef>, report: Report) -> Self {
+impl<K: ClientKind> ReportClient<K> {
+    pub(super) fn from_report(client: Arc<ClientRef<K>>, report: Report) -> Self {
         Self {
             client,
             data: report,
