@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::ven::{Ven, VenContent, VenId};
+use openleadr_wire::ven::{Ven, VenId, VenRequest};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
@@ -49,7 +49,7 @@ pub async fn get(
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
     VenManagerUser(user): VenManagerUser,
-    ValidatedJson(new_ven): ValidatedJson<VenContent>,
+    ValidatedJson(new_ven): ValidatedJson<VenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
     let ven = ven_source.create(new_ven, &user.try_into()?).await?;
 
@@ -62,7 +62,7 @@ pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
     Path(id): Path<VenId>,
     VenManagerUser(user): VenManagerUser,
-    ValidatedJson(content): ValidatedJson<VenContent>,
+    ValidatedJson(content): ValidatedJson<VenRequest>,
 ) -> AppResponse<Ven> {
     let ven = ven_source.update(&id, content, &user.try_into()?).await?;
 
@@ -105,7 +105,11 @@ fn get_50() -> i64 {
 mod tests {
     use crate::{api::test::ApiTest, jwt::AuthRole};
     use axum::{body::Body, http::StatusCode};
-    use openleadr_wire::{problem::Problem, ven::VenContent, Ven};
+    use openleadr_wire::{
+        problem::Problem,
+        ven::{BlVenRequest, VenRequest, VenVenRequest},
+        Ven,
+    };
     use reqwest::Method;
     use sqlx::PgPool;
 
@@ -125,7 +129,7 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn get_all_filetred(db: PgPool) {
+    async fn get_all_filtered(db: PgPool) {
         let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
 
         let (status, vens) = test
@@ -141,11 +145,7 @@ mod tests {
         assert_eq!(vens.len(), 1);
 
         let (status, vens) = test
-            .request::<Vec<Ven>>(
-                Method::GET,
-                "/vens?targetType=GROUP&targetValues=group-1",
-                Body::empty(),
-            )
+            .request::<Vec<Ven>>(Method::GET, "/vens?targets=group-1", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vens.len(), 1);
@@ -189,7 +189,7 @@ mod tests {
     async fn add_edit_delete_ven(db: PgPool) {
         let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
-        let new_ven = r#"{"venName":"new-ven"}"#;
+        let new_ven = r#"{"venName":"new-ven", "objectType": "VEN_VEN_REQUEST"}"#;
         let (status, ven) = test
             .request::<Ven>(Method::POST, "/vens", Body::from(new_ven))
             .await;
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.id.as_str(), ven_id);
 
-        let new_ven = r#"{"venName":"new-ven-2"}"#;
+        let new_ven = r#"{"venName":"new-ven-2", "objectType": "VEN_VEN_REQUEST"}"#;
         let (status, ven) = test
             .request::<Ven>(Method::PUT, &format!("/vens/{ven_id}"), Body::from(new_ven))
             .await;
@@ -238,9 +238,11 @@ mod tests {
         let test = ApiTest::new(db, vec![AuthRole::VenManager]).await;
 
         let vens = [
-            VenContent::new("".to_string(), None, None, None),
-            VenContent::new("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, None, None),
-        ];
+            VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "".to_string(), None, vec![])),
+            VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, vec![])),
+            VenRequest::VenVenRequest(VenVenRequest{attributes: None, ven_name: "".to_string()}),
+            VenRequest::VenVenRequest(VenVenRequest{attributes: None, ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()}),
+                                     ];
 
         for ven in &vens {
             let (status, error) = test
