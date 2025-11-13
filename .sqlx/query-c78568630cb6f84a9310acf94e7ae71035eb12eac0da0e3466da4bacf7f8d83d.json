@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE event\n            SET modification_date_time = now(),\n                program_id = $2,\n                event_name = $3,\n                priority = $4,\n                targets = $5,\n                report_descriptors = $6,\n                payload_descriptors = $7,\n                interval_period = $8,\n                intervals = $9\n            WHERE id = $1\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                program_id,\n                event_name,\n                priority,\n                targets as \"targets:Vec<Target>\",\n                report_descriptors,\n                payload_descriptors,\n                interval_period,\n                intervals\n            ",
+  "query": "\n            UPDATE event\n            SET modification_date_time = now(),\n                program_id = $2,\n                event_name = $3,\n                priority = $4,\n                targets = $5,\n                report_descriptors = $6,\n                payload_descriptors = $7,\n                interval_period = $8,\n                intervals = $9,\n                duration = $10\n            WHERE id = $1\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                program_id,\n                event_name,\n                priority,\n                targets as \"targets:Vec<Target>\",\n                report_descriptors,\n                payload_descriptors,\n                interval_period,\n                intervals,\n                duration\n            ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "intervals",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "duration",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -69,7 +74,8 @@
         "Jsonb",
         "Jsonb",
         "Jsonb",
-        "Jsonb"
+        "Jsonb",
+        "Text"
       ]
     },
     "nullable": [
@@ -83,8 +89,9 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "e73baeae5b61b041939f74d45c318c14ef4befbd55bc191e62ed1bc14da77c2d"
+  "hash": "c78568630cb6f84a9310acf94e7ae71035eb12eac0da0e3466da4bacf7f8d83d"
 }

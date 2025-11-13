@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT r.*\n            FROM report r\n                JOIN program p ON p.id = r.program_id\n            WHERE r.id = $1\n            ",
+  "query": "\n            DELETE FROM ven\n            WHERE id = $1\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\",\n                client_id\n            ",
   "describe": {
     "columns": [
       {
@@ -20,33 +20,23 @@
       },
       {
         "ordinal": 3,
-        "name": "program_id",
+        "name": "ven_name",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "event_id",
-        "type_info": "Text"
+        "name": "attributes",
+        "type_info": "Jsonb"
       },
       {
         "ordinal": 5,
-        "name": "client_name",
-        "type_info": "Text"
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 6,
-        "name": "report_name",
+        "name": "client_id",
         "type_info": "Text"
-      },
-      {
-        "ordinal": 7,
-        "name": "payload_descriptors",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 8,
-        "name": "resources",
-        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -59,12 +49,10 @@
       false,
       false,
       false,
-      false,
-      false,
       true,
-      true,
+      false,
       false
     ]
   },
-  "hash": "843ec458ec59c7d6c9ab4b88ea14a767ec692102e9ca15e1885473b59a74d391"
+  "hash": "ac9422b0f4237286b0ba822385cfff1f861eaeaae20b43a4dfb4ffd66d5c18db"
 }

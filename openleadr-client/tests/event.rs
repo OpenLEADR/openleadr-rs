@@ -1,8 +1,8 @@
 use axum::http::StatusCode;
-use openleadr_client::{Error, Filter, PaginationOptions};
+use openleadr_client::{BusinessLogic, Error, Filter, PaginationOptions};
 use openleadr_wire::{
-    event::{EventContent, EventInterval, EventType, EventValuesMap, Priority},
-    program::{ProgramContent, ProgramId},
+    event::{EventInterval, EventRequest, EventType, EventValuesMap, Priority},
+    program::{ProgramId, ProgramRequest},
     target::Target,
     values_map::Value,
 };
@@ -11,21 +11,22 @@ use std::str::FromStr;
 
 mod common;
 
-fn default_content(program_id: &ProgramId) -> EventContent {
-    EventContent {
+fn default_content(program_id: &ProgramId) -> EventRequest {
+    EventRequest {
         program_id: program_id.clone(),
         event_name: Some("event_name".to_string()),
+        duration: None,
         priority: Priority::MAX,
         report_descriptors: None,
         interval_period: None,
-        intervals: vec![EventInterval {
+        intervals: Some(vec![EventInterval {
             id: 0,
             interval_period: None,
             payloads: vec![EventValuesMap {
                 value_type: EventType::Price,
                 values: vec![Value::Number(123.4)],
             }],
-        }],
+        }]),
         payload_descriptors: None,
         targets: vec![],
     }
@@ -33,7 +34,7 @@ fn default_content(program_id: &ProgramId) -> EventContent {
 
 #[sqlx::test(fixtures("users"))]
 async fn get(db: PgPool) {
-    let client = common::setup_program_client("program", db).await;
+    let client = common::setup_program_client::<BusinessLogic>("program", db).await;
     let event_content = default_content(client.id());
     let event_client = client.create_event(event_content.clone()).await.unwrap();
 
@@ -42,17 +43,17 @@ async fn get(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn delete(db: PgPool) {
-    let client = common::setup_program_client("program", db).await;
+    let client = common::setup_program_client::<BusinessLogic>("program", db).await;
 
-    let event1 = EventContent {
+    let event1 = EventRequest {
         event_name: Some("event1".to_string()),
         ..default_content(client.id())
     };
-    let event2 = EventContent {
+    let event2 = EventRequest {
         event_name: Some("event2".to_string()),
         ..default_content(client.id())
     };
-    let event3 = EventContent {
+    let event3 = EventRequest {
         event_name: Some("event3".to_string()),
         ..default_content(client.id())
     };
@@ -82,9 +83,9 @@ async fn delete(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn update(db: PgPool) {
-    let client = common::setup_program_client("program", db).await;
+    let client = common::setup_program_client::<BusinessLogic>("program", db).await;
 
-    let event1 = EventContent {
+    let event1 = EventRequest {
         event_name: Some("event1".to_string()),
         ..default_content(client.id())
     };
@@ -92,7 +93,7 @@ async fn update(db: PgPool) {
     let mut event = client.create_event(event1).await.unwrap();
     let creation_date_time = event.modification_date_time();
 
-    let event2 = EventContent {
+    let event2 = EventRequest {
         event_name: Some("event1".to_string()),
         priority: Priority::MIN,
         ..default_content(client.id())
@@ -107,14 +108,14 @@ async fn update(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn update_same_name(db: PgPool) {
-    let client = common::setup_program_client("program", db).await;
+    let client = common::setup_program_client::<BusinessLogic>("program", db).await;
 
-    let event1 = EventContent {
+    let event1 = EventRequest {
         event_name: Some("event1".to_string()),
         ..default_content(client.id())
     };
 
-    let event2 = EventContent {
+    let event2 = EventRequest {
         event_name: Some("event2".to_string()),
         ..default_content(client.id())
     };
@@ -123,7 +124,7 @@ async fn update_same_name(db: PgPool) {
     let mut event2 = client.create_event(event2).await.unwrap();
     let creation_date_time = event2.modification_date_time();
 
-    let content = EventContent {
+    let content = EventRequest {
         event_name: Some("event1".to_string()),
         priority: Priority::MIN,
         ..default_content(client.id())
@@ -138,9 +139,9 @@ async fn update_same_name(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn create_same_name(db: PgPool) {
-    let client = common::setup_program_client("program", db).await;
+    let client = common::setup_program_client::<BusinessLogic>("program", db).await;
 
-    let event1 = EventContent {
+    let event1 = EventRequest {
         event_name: Some("event1".to_string()),
         ..default_content(client.id())
     };
@@ -152,26 +153,26 @@ async fn create_same_name(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn retrieve_all_with_filter(db: PgPool) {
-    let client = common::setup_program_client("program1", db).await;
+    let client = common::setup_program_client::<BusinessLogic>("program1", db).await;
 
-    let event1 = EventContent {
+    let event1 = EventRequest {
         program_id: client.id().clone(),
         event_name: Some("event1".to_string()),
         ..default_content(client.id())
     };
-    let event2 = EventContent {
+    let event2 = EventRequest {
         program_id: client.id().clone(),
         event_name: Some("event2".to_string()),
         targets: vec![Target::from_str("group-2").unwrap()],
         ..default_content(client.id())
     };
-    let event3 = EventContent {
+    let event3 = EventRequest {
         program_id: client.id().clone(),
         event_name: Some("event3".to_string()),
         targets: vec![Target::from_str("group-1").unwrap()],
         ..default_content(client.id())
     };
-    let event4 = EventContent {
+    let event4 = EventRequest {
         program_id: client.id().clone(),
         event_name: Some("event4".to_string()),
         targets: vec![
@@ -294,23 +295,23 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn get_program_events(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<BusinessLogic>(db).await;
 
     let program1 = client
-        .create_program(ProgramContent::new("program1"))
+        .create_program(ProgramRequest::new("program1"))
         .await
         .unwrap();
     let program2 = client
-        .create_program(ProgramContent::new("program2"))
+        .create_program(ProgramRequest::new("program2"))
         .await
         .unwrap();
 
-    let event1 = EventContent {
+    let event1 = EventRequest {
         event_name: Some("event".to_string()),
         priority: Priority::MAX,
         ..default_content(program1.id())
     };
-    let event2 = EventContent {
+    let event2 = EventRequest {
         event_name: Some("event".to_string()),
         priority: Priority::MIN,
         ..default_content(program2.id())
@@ -331,7 +332,7 @@ async fn get_program_events(db: PgPool) {
 
 #[sqlx::test(fixtures("users"))]
 async fn filter_constraint_violation(db: PgPool) {
-    let client = common::setup_client(db).await;
+    let client = common::setup_client::<BusinessLogic>(db).await;
 
     let err = client
         .get_events(

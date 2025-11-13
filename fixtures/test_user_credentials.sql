@@ -47,13 +47,14 @@ VALUES ('business-1');
 INSERT INTO user_business (user_id, business_id)
 VALUES ('business-1-user', 'business-1');
 
-INSERT INTO ven (id, created_date_time, modification_date_time, ven_name, attributes, targets)
+INSERT INTO ven (id, created_date_time, modification_date_time, ven_name, attributes, targets, client_id)
 VALUES ('ven-1',
         now(),
         now(),
         'ven-1-name',
         null,
-        ARRAY[]::text[]);
+        ARRAY[]::text[],
+        'ven-1-client-id');
 
 INSERT INTO user_ven (ven_id, user_id)
 VALUES ('ven-1', 'ven-1-user');

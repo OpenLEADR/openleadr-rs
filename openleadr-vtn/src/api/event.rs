@@ -10,7 +10,7 @@ use tracing::{info, trace};
 use validator::Validate;
 
 use openleadr_wire::{
-    event::{EventContent, EventId},
+    event::{EventId, EventRequest},
     program::ProgramId,
     Event,
 };
@@ -49,7 +49,7 @@ pub async fn get(
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
     BusinessUser(user): BusinessUser,
-    ValidatedJson(new_event): ValidatedJson<EventContent>,
+    ValidatedJson(new_event): ValidatedJson<EventRequest>,
 ) -> Result<(StatusCode, Json<Event>), AppError> {
     let event = event_source.create(new_event, &User(user)).await?;
 
@@ -62,7 +62,7 @@ pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
     Path(id): Path<EventId>,
     BusinessUser(user): BusinessUser,
-    ValidatedJson(content): ValidatedJson<EventContent>,
+    ValidatedJson(content): ValidatedJson<EventRequest>,
 ) -> AppResponse<Event> {
     let event = event_source.update(&id, content, &User(user)).await?;
 
@@ -130,21 +130,22 @@ mod test {
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
 
-    fn default_event_content() -> EventContent {
-        EventContent {
+    fn default_event_content() -> EventRequest {
+        EventRequest {
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event_name".to_string()),
+            duration: None,
             priority: Priority::MAX,
             report_descriptors: None,
             interval_period: None,
-            intervals: vec![EventInterval {
+            intervals: Some(vec![EventInterval {
                 id: 0,
                 interval_period: None,
                 payloads: vec![EventValuesMap {
                     value_type: EventType::Price,
                     values: vec![Value::Number(123.4)],
                 }],
-            }],
+            }]),
             payload_descriptors: None,
             targets: vec![],
         }
@@ -161,7 +162,7 @@ mod test {
     }
 
     async fn state_with_events(
-        new_events: Vec<EventContent>,
+        new_events: Vec<EventRequest>,
         db: PgPool,
     ) -> (AppState, Vec<Event>) {
         let store = PostgresStorage::new(db).unwrap();
@@ -213,17 +214,17 @@ mod test {
 
     #[sqlx::test(fixtures("programs"))]
     async fn delete(db: PgPool) {
-        let event1 = EventContent {
+        let event1 = EventRequest {
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event1".to_string()),
             ..default_event_content()
         };
-        let event2 = EventContent {
+        let event2 = EventRequest {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event2".to_string()),
             ..default_event_content()
         };
-        let event3 = EventContent {
+        let event3 = EventRequest {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event3".to_string()),
             ..default_event_content()
@@ -287,7 +288,7 @@ mod test {
 
     async fn help_create_event(
         mut app: &mut Router,
-        content: &EventContent,
+        content: &EventRequest,
         token: &str,
     ) -> Response<Body> {
         let request = Request::builder()
@@ -344,19 +345,19 @@ mod test {
 
     #[sqlx::test(fixtures("programs"))]
     async fn retrieve_all_with_filter(db: PgPool) {
-        let event1 = EventContent {
+        let event1 = EventRequest {
             program_id: ProgramId::new("program-1").unwrap(),
             event_name: Some("event1".to_string()),
             targets: vec![Target::from_str("private-1").unwrap()],
             ..default_event_content()
         };
-        let event2 = EventContent {
+        let event2 = EventRequest {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event2".to_string()),
             targets: vec![Target::from_str("group-2").unwrap()],
             ..default_event_content()
         };
-        let event3 = EventContent {
+        let event3 = EventRequest {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event3".to_string()),
             targets: vec![Target::from_str("group-1").unwrap()],
@@ -453,15 +454,15 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let events = [
-            EventContent {
+            EventRequest {
                 event_name: Some("".to_string()),
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 event_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 payload_descriptors: Some(vec![
                     EventPayloadDescriptor{
                         payload_type: EventType::Private("".to_string()),
@@ -471,7 +472,7 @@ mod test {
                 ]),
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 payload_descriptors: Some(vec![
                     EventPayloadDescriptor{
                         payload_type: EventType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
@@ -505,27 +506,27 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
 
         let events = vec![
-            EventContent {
+            EventRequest {
                 priority: Priority::MAX,
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 priority: Priority::MIN,
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 priority: Priority::new(32),
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 priority: Priority::new(33),
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 priority: Priority::UNSPECIFIED,
                 ..default_event_content()
             },
-            EventContent {
+            EventRequest {
                 priority: Priority::new(33),
                 ..default_event_content()
             },
@@ -563,7 +564,7 @@ mod test {
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let content = EventContent {
+            let content = EventRequest {
                 program_id: "program-3".parse().unwrap(),
                 ..default_event_content()
             };

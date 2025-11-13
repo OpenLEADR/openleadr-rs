@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use axum::body::Body;
 use http_body_util::BodyExt;
-use openleadr_client::{Client, ClientCredentials, HttpClient, ProgramClient};
+use openleadr_client::{Client, ClientCredentials, ClientKind, HttpClient, ProgramClient};
 use openleadr_vtn::{data_source::PostgresStorage, jwt::AuthRole, state::AppState};
-use openleadr_wire::program::ProgramContent;
+use openleadr_wire::program::ProgramRequest;
 use reqwest::{Method, RequestBuilder, Response};
 use sqlx::PgPool;
 use std::{env::VarError, ops::Deref, sync::Arc};
@@ -34,7 +34,7 @@ impl MockClientRef {
         }
     }
 
-    pub fn into_client(self, auth: Option<ClientCredentials>) -> Client {
+    pub fn into_client<K: ClientKind>(self, auth: Option<ClientCredentials>) -> Client<K> {
         Client::with_http_client(
             "https://example.com/".parse().unwrap(),
             "https://example.com/auth/token".parse().unwrap(),
@@ -70,19 +70,19 @@ impl HttpClient for MockClientRef {
     }
 }
 
-pub struct TestContext {
-    pub client: Client,
+pub struct TestContext<K> {
+    pub client: Client<K>,
 }
 
-impl Deref for TestContext {
-    type Target = Client;
+impl<K> Deref for TestContext<K> {
+    type Target = Client<K>;
     fn deref(&self) -> &Self::Target {
         &self.client
     }
 }
 
 #[allow(unused)]
-pub async fn setup(auth_role: AuthRole) -> TestContext {
+pub async fn setup<K: ClientKind>(auth_role: AuthRole) -> TestContext<K> {
     dotenvy::dotenv().unwrap();
     match std::env::var("OPENLEADR_RS_VTN_URL") {
         Ok(url) => match url.parse() {
@@ -102,7 +102,7 @@ pub async fn setup(auth_role: AuthRole) -> TestContext {
     }
 }
 
-async fn local_vtn_test_client(db: PgPool, auth_role: AuthRole) -> TestContext {
+async fn local_vtn_test_client<K: ClientKind>(db: PgPool, auth_role: AuthRole) -> TestContext<K> {
     let cred = default_credentials(auth_role);
     let storage = PostgresStorage::new(db).unwrap();
 
@@ -113,7 +113,7 @@ async fn local_vtn_test_client(db: PgPool, auth_role: AuthRole) -> TestContext {
 }
 
 // FIXME make this function independent of the storage backend
-pub async fn setup_mock_client(db: PgPool) -> Client {
+pub async fn setup_mock_client<K: ClientKind>(db: PgPool) -> Client<K> {
     // let auth_info = AuthInfo::bl_admin();
     let client_credentials = ClientCredentials::new("admin".to_string(), "admin".to_string());
 
@@ -125,7 +125,7 @@ pub async fn setup_mock_client(db: PgPool) -> Client {
     MockClientRef::new(app_state.into_router()).into_client(Some(client_credentials))
 }
 
-pub fn setup_url_client(url: Url) -> Client {
+pub fn setup_url_client<K: ClientKind>(url: Url) -> Client<K> {
     Client::with_url(
         url,
         Some(ClientCredentials::new(
@@ -135,7 +135,7 @@ pub fn setup_url_client(url: Url) -> Client {
     )
 }
 
-pub async fn setup_client(db: PgPool) -> Client {
+pub async fn setup_client<K: ClientKind>(db: PgPool) -> Client<K> {
     match std::env::var("OPENADR_VTN_URL") {
         Ok(url) => match url.parse() {
             Ok(url) => setup_url_client(url),
@@ -147,23 +147,18 @@ pub async fn setup_client(db: PgPool) -> Client {
 }
 
 #[allow(unused)]
-pub async fn setup_program_client(program_name: impl ToString, db: PgPool) -> ProgramClient {
+pub async fn setup_program_client<K: ClientKind>(
+    program_name: impl ToString,
+    db: PgPool,
+) -> ProgramClient<K> {
     let client = setup_client(db).await;
 
-    let program_content = ProgramContent {
+    let program_content = ProgramRequest {
         program_name: program_name.to_string(),
-        program_long_name: Some("program_long_name".to_string()),
-        retailer_name: Some("retailer_name".to_string()),
-        retailer_long_name: Some("retailer_long_name".to_string()),
-        program_type: None,
-        country: None,
-        principal_subdivision: None,
-        time_zone_offset: None,
         interval_period: None,
         program_descriptions: None,
-        binding_events: None,
-        local_price: None,
         payload_descriptors: None,
+        attributes: None,
         targets: vec![],
     };
 

@@ -8,11 +8,11 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    event::{EventContent, EventId},
-    program::{ProgramContent, ProgramId},
-    report::{ReportContent, ReportId},
-    resource::{Resource, ResourceContent, ResourceId},
-    ven::{Ven, VenContent, VenId},
+    event::{EventId, EventRequest},
+    program::{ProgramId, ProgramRequest},
+    report::{ReportId, ReportRequest},
+    resource::{Resource, ResourceId, ResourceRequest},
+    ven::{Ven, VenId, VenRequest},
     Event, Program, Report,
 };
 #[cfg(feature = "postgres")]
@@ -58,53 +58,11 @@ pub trait Crud: Send + Sync + 'static {
     ) -> Result<Self::Type, Self::Error>;
 }
 
-#[async_trait]
-pub trait VenScopedCrud: Send + Sync + 'static {
-    type Type;
-    type Id;
-    type NewType;
-    type Error;
-    type Filter;
-    type PermissionFilter;
-
-    async fn create(
-        &self,
-        new: Self::NewType,
-        ven_id: VenId,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-    async fn retrieve(
-        &self,
-        id: &Self::Id,
-        ven_id: VenId,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-    async fn retrieve_all(
-        &self,
-        ven_id: VenId,
-        filter: &Self::Filter,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Vec<Self::Type>, Self::Error>;
-    async fn update(
-        &self,
-        id: &Self::Id,
-        ven_id: VenId,
-        new: Self::NewType,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-    async fn delete(
-        &self,
-        id: &Self::Id,
-        ven_id: VenId,
-        permission_filter: &Self::PermissionFilter,
-    ) -> Result<Self::Type, Self::Error>;
-}
-
 pub trait ProgramCrud:
     Crud<
     Type = Program,
     Id = ProgramId,
-    NewType = ProgramContent,
+    NewType = ProgramRequest,
     Error = AppError,
     Filter = crate::api::program::QueryParams,
     PermissionFilter = User,
@@ -115,7 +73,7 @@ pub trait ReportCrud:
     Crud<
     Type = Report,
     Id = ReportId,
-    NewType = ReportContent,
+    NewType = ReportRequest,
     Error = AppError,
     Filter = crate::api::report::QueryParams,
     PermissionFilter = User,
@@ -126,7 +84,7 @@ pub trait EventCrud:
     Crud<
     Type = Event,
     Id = EventId,
-    NewType = EventContent,
+    NewType = EventRequest,
     Error = AppError,
     Filter = crate::api::event::QueryParams,
     PermissionFilter = User,
@@ -170,7 +128,7 @@ pub trait VenCrud:
     Crud<
     Type = Ven,
     Id = VenId,
-    NewType = VenContent,
+    NewType = VenRequest,
     Error = AppError,
     Filter = crate::api::ven::QueryParams,
     PermissionFilter = VenPermissions,
@@ -179,10 +137,10 @@ pub trait VenCrud:
 }
 
 pub trait ResourceCrud:
-    VenScopedCrud<
+    Crud<
     Type = Resource,
     Id = ResourceId,
-    NewType = ResourceContent,
+    NewType = ResourceRequest,
     Error = AppError,
     Filter = crate::api::resource::QueryParams,
     PermissionFilter = User,

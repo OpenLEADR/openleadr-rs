@@ -10,11 +10,11 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    event::{EventContent, EventId, Priority},
+    event::{EventId, EventRequest, Priority},
     target::Target,
     Event,
 };
-use sqlx::PgPool;
+use sqlx::{error::BoxDynError, PgPool};
 use std::str::FromStr;
 use tracing::error;
 
@@ -38,6 +38,7 @@ struct PostgresEvent {
     modification_date_time: DateTime<Utc>,
     program_id: String,
     event_name: Option<String>,
+    duration: Option<String>,
     priority: Priority,
     targets: Vec<Target>,
     report_descriptors: Option<serde_json::Value>,
@@ -91,9 +92,18 @@ impl TryFrom<PostgresEvent> for Event {
             id: EventId::from_str(&value.id)?,
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
-            content: EventContent {
+            content: EventRequest {
                 program_id: value.program_id.parse()?,
                 event_name: value.event_name,
+                duration: value
+                    .duration
+                    .map(|d| FromStr::from_str(&d))
+                    .transpose()
+                    .map_err(|err| {
+                        AppError::Sql(sqlx::Error::Decode(BoxDynError::from(format!(
+                            "Failed to decode ISO8601 formatted duration stored in DB: {err:?}"
+                        ))))
+                    })?,
                 priority: value.priority,
                 targets: value.targets,
                 report_descriptors,
@@ -135,7 +145,7 @@ async fn check_write_permission(
 impl Crud for PgEventStorage {
     type Type = Event;
     type Id = EventId;
-    type NewType = EventContent;
+    type NewType = EventRequest;
     type Error = AppError;
     type Filter = QueryParams;
     type PermissionFilter = User;
@@ -150,8 +160,8 @@ impl Crud for PgEventStorage {
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals)
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals, duration)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING
                 id,
                 created_date_time,
@@ -163,7 +173,8 @@ impl Crud for PgEventStorage {
                 report_descriptors,
                 payload_descriptors,
                 interval_period,
-                intervals
+                intervals,
+                duration
             "#,
             new.program_id.as_str(),
             new.event_name,
@@ -173,6 +184,7 @@ impl Crud for PgEventStorage {
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
             serde_json::to_value(&new.intervals).map_err(AppError::SerdeJsonBadRequest)?,
+            new.duration.map(|d| d.to_string()),
         )
             .fetch_one(&self.db)
             .await?
@@ -200,7 +212,8 @@ impl Crud for PgEventStorage {
                    e.report_descriptors,
                    e.payload_descriptors,
                    e.interval_period,
-                   e.intervals
+                   e.intervals,
+                   e.duration
             FROM event e
                      JOIN program p ON e.program_id = p.id
             WHERE e.id = $1
@@ -235,7 +248,8 @@ impl Crud for PgEventStorage {
                    e.report_descriptors,
                    e.payload_descriptors,
                    e.interval_period,
-                   e.intervals
+                   e.intervals,
+                   e.duration
             FROM event e
               JOIN program p on p.id = e.program_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
@@ -252,11 +266,11 @@ impl Crud for PgEventStorage {
             filter.skip,
             filter.limit
         )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()?)
+            .fetch_all(&self.db)
+            .await?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?)
     }
 
     async fn update(
@@ -291,7 +305,8 @@ impl Crud for PgEventStorage {
                 report_descriptors = $6,
                 payload_descriptors = $7,
                 interval_period = $8,
-                intervals = $9
+                intervals = $9,
+                duration = $10
             WHERE id = $1
             RETURNING
                 id,
@@ -304,7 +319,8 @@ impl Crud for PgEventStorage {
                 report_descriptors,
                 payload_descriptors,
                 interval_period,
-                intervals
+                intervals,
+                duration
             "#,
             id.as_str(),
             new.program_id.as_str(),
@@ -315,6 +331,7 @@ impl Crud for PgEventStorage {
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
             serde_json::to_value(&new.intervals).map_err(AppError::SerdeJsonBadRequest)?,
+            new.duration.map(|d| d.to_string())
         )
         .fetch_one(&self.db)
         .await?
@@ -352,7 +369,8 @@ impl Crud for PgEventStorage {
                 report_descriptors,
                 payload_descriptors,
                 interval_period,
-                intervals
+                intervals,
+                duration
             "#,
             id.as_str()
         )
@@ -376,7 +394,7 @@ mod tests {
     };
     use chrono::{DateTime, Duration, Utc};
     use openleadr_wire::{
-        event::{EventContent, EventInterval, EventType, EventValuesMap},
+        event::{EventInterval, EventRequest, EventType, EventValuesMap},
         interval::IntervalPeriod,
         target::Target,
         values_map::Value,
@@ -399,9 +417,10 @@ mod tests {
             id: "event-1".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: "program-1".parse().unwrap(),
                 event_name: Some("event-1-name".to_string()),
+                duration: None,
                 priority: Some(4).into(),
                 targets: vec![
                     Target::from_str("group-1").unwrap(),
@@ -414,7 +433,7 @@ mod tests {
                     duration: Some("P0Y0M0DT1H0M0S".parse().unwrap()),
                     randomize_start: Some("P0Y0M0DT1H0M0S".parse().unwrap()),
                 }),
-                intervals: vec![EventInterval {
+                intervals: Some(vec![EventInterval {
                     id: 3,
                     interval_period: Some(IntervalPeriod {
                         start: "2023-06-15T09:30:00+00:00".parse().unwrap(),
@@ -425,7 +444,7 @@ mod tests {
                         value_type: EventType::Price,
                         values: vec![Value::Number(0.17)],
                     }],
-                }],
+                }]),
             },
         }
     }
@@ -435,22 +454,23 @@ mod tests {
             id: "event-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: "program-2".parse().unwrap(),
                 event_name: Some("event-2-name".to_string()),
+                duration: None,
                 priority: None.into(),
                 targets: vec![Target::from_str("target-1").unwrap()],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: None,
-                intervals: vec![EventInterval {
+                intervals: Some(vec![EventInterval {
                     id: 3,
                     interval_period: None,
                     payloads: vec![EventValuesMap {
                         value_type: EventType::Private("SOME_PAYLOAD".to_string()),
                         values: vec![Value::String("value".to_string())],
                     }],
-                }],
+                }]),
             },
         }
     }
@@ -458,7 +478,7 @@ mod tests {
     fn event_3() -> Event {
         Event {
             id: "event-3".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: "program-3".parse().unwrap(),
                 event_name: Some("event-3-name".to_string()),
                 ..event_2().content

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM report r\n                   USING program p\n                   WHERE r.id = $1\n                     AND r.program_id = p.id\n                     AND ($2::text[] IS NULL OR p.business_id = ANY($2))\n                   RETURNING r.*\n            ",
+  "query": "\n            INSERT INTO report (id, created_date_time, modification_date_time, event_id, client_name, report_name, payload_descriptors, resources, client_id)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)\n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -20,39 +20,43 @@
       },
       {
         "ordinal": 3,
-        "name": "program_id",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 4,
         "name": "event_id",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "client_name",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "report_name",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "payload_descriptors",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "client_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "TextArray"
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Text"
       ]
     },
     "nullable": [
@@ -61,11 +65,11 @@
       false,
       false,
       false,
+      true,
+      true,
       false,
-      true,
-      true,
       false
     ]
   },
-  "hash": "53dd1002c89bf3bab9416f01e009ccf45db43068ed3e5da16ccc337dccc931ca"
+  "hash": "44dca0e550a071771c37bc390391d6e687063dcc8dd03e611142c89fe3c6b278"
 }

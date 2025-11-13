@@ -3,10 +3,8 @@
 use crate::{
     event::EventId,
     interval::{Interval, IntervalPeriod},
-    program::ProgramId,
     target::Target,
-    values_map::Value,
-    Identifier, IdentifierError, Unit,
+    ClientId, Identifier, IdentifierError, Unit,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -31,17 +29,15 @@ pub struct Report {
     pub modification_date_time: DateTime<Utc>,
     #[serde(flatten)]
     #[validate(nested)]
-    pub content: ReportContent,
+    pub content: ReportRequest,
+    #[serde(rename = "clientID")]
+    pub client_id: ClientId,
 }
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "REPORT")]
-pub struct ReportContent {
-    // FIXME Must likely be EITHER a programID OR an eventID
-    /// ID attribute of the program object this report is associated with.
-    #[serde(rename = "programID")]
-    pub program_id: ProgramId,
+pub struct ReportRequest {
     /// ID attribute of the event object this report is associated with.
     #[serde(rename = "eventID")]
     pub event_id: EventId,
@@ -59,7 +55,7 @@ pub struct ReportContent {
     pub resources: Vec<ReportResource>,
 }
 
-impl ReportContent {
+impl ReportRequest {
     pub fn with_client_name(mut self, client_name: &str) -> Self {
         self.client_name = client_name.to_string();
         self
@@ -119,18 +115,18 @@ pub struct ReportResource {
     pub intervals: Vec<Interval>,
 }
 
-/// An object that may be used to request a report from a VEN. See OpenADR REST User Guide for
-/// detailed description of how configure a report request.
+/// An object that may be used to request a report from a VEN.
 // TODO: replace "-1 means" with proper enum
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReportDescriptor {
-    /// Enumerated or private string signifying the nature of values.
+    /// Represents the nature of values.
+    ///
+    /// See enumerations in Definitions for defined string values, or use privately defined strings
     pub payload_type: ReportType,
     /// Enumerated or private string signifying the type of reading.
-    #[serde(default)]
-    pub reading_type: ReadingType,
+    pub reading_type: Option<ReadingType>,
     /// Units of measure.
     pub units: Option<Unit>,
     /// A list of targets.
@@ -153,6 +149,9 @@ pub struct ReportDescriptor {
     /// Number of times to repeat report. 1 indicates generate one report. -1 indicates repeat indefinitely.
     #[serde(default = "pos_one")]
     pub repeat: i32,
+    /// Indicates VEN report interval options. See User Guide.
+    #[serde(default)]
+    pub report_intervals: ReportIntervals,
 }
 
 impl ReportDescriptor {
@@ -160,7 +159,7 @@ impl ReportDescriptor {
     pub fn new(payload_type: ReportType) -> Self {
         Self {
             payload_type,
-            reading_type: ReadingType::default(),
+            reading_type: None,
             units: None,
             targets: None,
             aggregate: false,
@@ -169,8 +168,18 @@ impl ReportDescriptor {
             historical: true,
             frequency: -1,
             repeat: 1,
+            report_intervals: Default::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReportIntervals {
+    #[default]
+    Intervals,
+    SubIntervals,
+    OpenIntervals,
 }
 
 fn bool_false() -> bool {
@@ -194,9 +203,15 @@ fn pos_one() -> i32 {
 /// data quality.
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(
+    rename_all = "camelCase",
+    tag = "objectType",
+    rename = "REPORT_PAYLOAD_DESCRIPTOR"
+)]
 pub struct ReportPayloadDescriptor {
-    /// Enumerated or private string signifying the nature of values.
+    /// Represents the nature of values.
+    ///
+    /// See enumerations in Definitions for defined string values, or use privately defined strings
     pub payload_type: ReportType,
     /// Enumerated or private string signifying the type of reading.
     #[serde(skip_serializing_if = "ReadingType::is_default", default)]
@@ -233,41 +248,6 @@ impl ValidateRange<Confidence> for Confidence {
     fn less_than(&self, _: Confidence) -> Option<bool> {
         None
     }
-}
-
-/// An object defining a temporal window and a list of valuesMaps. if intervalPeriod present may set
-/// temporal aspects of interval or override event.intervalPeriod.
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
-#[skip_serializing_none]
-#[serde(rename_all = "camelCase")]
-pub struct ReportInterval {
-    /// A client generated number assigned an interval object. Not a sequence number.
-    pub id: i32,
-    /// Defines default start and durations of intervals.
-    pub interval_period: Option<IntervalPeriod>,
-    /// A list of valuesMap objects.
-    pub payloads: Vec<ReportValuesMap>,
-}
-
-impl ReportInterval {
-    pub fn new(id: i32, payloads: Vec<ReportValuesMap>) -> Self {
-        Self {
-            id,
-            interval_period: None,
-            payloads,
-        }
-    }
-}
-
-/// Represents one or more values associated with a type. E.g. a type of PRICE contains a single float value.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ReportValuesMap {
-    /// Enumerated or private string signifying the nature of values. E.G. \"PRICE\" indicates value is to be interpreted as a currency.
-    #[serde(rename = "type")]
-    pub value_type: ReportType,
-    /// A list of data points. Most often a singular value such as a price.
-    // TODO: The type of Value is actually defined by value_type
-    pub values: Vec<Value>,
 }
 
 #[cfg(test)]
@@ -343,9 +323,8 @@ mod tests {
 
     #[test]
     fn parses_minimal_report() {
-        let example = r#"{"programID":"p1","eventID":"e1","clientName":"c","resources":[]}"#;
-        let expected = ReportContent {
-            program_id: ProgramId("p1".parse().unwrap()),
+        let example = r#"{"eventID":"e1","clientName":"c","resources":[]}"#;
+        let expected = ReportRequest {
             event_id: EventId("e1".parse().unwrap()),
             client_name: "c".to_string(),
             report_name: None,
@@ -354,7 +333,7 @@ mod tests {
         };
 
         assert_eq!(
-            serde_json::from_str::<ReportContent>(example).unwrap(),
+            serde_json::from_str::<ReportRequest>(example).unwrap(),
             expected
         );
     }
@@ -419,15 +398,15 @@ mod tests {
                   }
                 ]
               }
-            ]
+            ],
+            "clientID": "249rj49jiej"
           }]"#;
 
         let expected = Report {
             id: ReportId("object-999".parse().unwrap()),
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
-            content: ReportContent {
-                program_id: ProgramId("object-999".parse().unwrap()),
+            content: ReportRequest {
                 event_id: EventId("object-999".parse().unwrap()),
                 client_name: "VEN-999".into(),
                 report_name: Some("Battery_usage_04112023".into()),
@@ -453,6 +432,7 @@ mod tests {
                     }],
                 }],
             },
+            client_id: ClientId::new("249rj49jiej").unwrap(),
         };
 
         assert_eq!(
