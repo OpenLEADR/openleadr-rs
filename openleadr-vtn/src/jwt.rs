@@ -110,21 +110,19 @@ where
     Ok(result)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
+#[sqlx(type_name = "scope", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 #[cfg_attr(test, derive(PartialOrd, Ord))]
 pub enum Scope {
-    #[serde(rename = "read_all")]
     ReadAll,
-    #[serde(rename = "write_programs")]
+    ReadTargets,
+    ReadVenObjects,
     WritePrograms,
-    #[serde(rename = "write_reports")]
-    WriteReports,
-    #[serde(rename = "write_events")]
     WriteEvents,
-    #[serde(rename = "write_vens")]
+    WriteReports,
+    WriteSubscriptions,
     WriteVens,
-    #[serde(untagged)]
-    UnknownScope(String),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
@@ -225,10 +223,13 @@ impl<'de> Deserialize<'de> for Scopes {
         for part in parts {
             match part {
                 "read_all" => scopes.push(Scope::ReadAll),
-                "write_vens" => scopes.push(Scope::WriteVens),
+                "read_targets" => scopes.push(Scope::ReadTargets),
+                "read_ven_objects" => scopes.push(Scope::ReadVenObjects),
                 "write_programs" => scopes.push(Scope::WritePrograms),
                 "write_events" => scopes.push(Scope::WriteEvents),
                 "write_reports" => scopes.push(Scope::WriteReports),
+                "write_subscriptions" => scopes.push(Scope::WriteSubscriptions),
+                "write_vens" => scopes.push(Scope::WriteVens),
                 _ => {
                     trace!("Unknown scope encountered: {:?}", part);
                 }

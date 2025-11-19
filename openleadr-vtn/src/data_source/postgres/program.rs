@@ -219,7 +219,7 @@ impl Crud for PgProgramStorage {
             ORDER BY p.created_date_time DESC
             OFFSET $2 LIMIT $3
             "#,
-            filter.targets.targets.as_deref(),
+            filter.targets.as_deref() as &[Target],
             filter.skip,
             filter.limit,
         )
@@ -329,7 +329,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                targets: TargetQueryParams { targets: None },
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
             }
@@ -458,9 +458,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -472,9 +470,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["not-existent".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["not-existent".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -491,9 +487,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string(), "group-2".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "group-2".parse().unwrap(),
+                        ])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -505,12 +502,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec![
-                                "group-1".to_string(),
-                                "group-not-existent".to_string(),
-                            ]),
-                        },
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "group-not-existent".parse().unwrap(),
+                        ])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -522,9 +517,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-2".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["group-2".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -536,9 +529,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

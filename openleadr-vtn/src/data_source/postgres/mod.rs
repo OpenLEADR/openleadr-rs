@@ -20,7 +20,7 @@ use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use tracing::{error, info};
 
-use super::Migrate;
+use super::{Migrate, VenObjectPrivacy};
 
 mod event;
 mod program;
@@ -49,6 +49,10 @@ impl DataSource for PostgresStorage {
     }
 
     fn vens(&self) -> Arc<dyn VenCrud> {
+        Arc::<PgVenStorage>::new(self.db.clone().into())
+    }
+
+    fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy> {
         Arc::<PgVenStorage>::new(self.db.clone().into())
     }
 
