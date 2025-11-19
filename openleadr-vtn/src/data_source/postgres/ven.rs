@@ -1,6 +1,6 @@
 use crate::{
     api::ven::QueryParams,
-    data_source::{postgres::to_json_value, Crud, VenCrud, VenPermissions},
+    data_source::{postgres::to_json_value, Crud, VenCrud, VenObjectPrivacy, VenPermissions},
     error::AppError,
 };
 use async_trait::async_trait;
@@ -8,8 +8,10 @@ use chrono::{DateTime, Utc};
 use openleadr_wire::{
     target::Target,
     ven::{BlVenRequest, Ven, VenId, VenRequest},
+    ClientId,
 };
 use sqlx::PgPool;
+use std::collections::BTreeSet;
 use tracing::{error, trace};
 
 #[async_trait]
@@ -176,7 +178,7 @@ impl Crud for PgVenStorage {
             OFFSET $4 LIMIT $5
             "#,
             filter.ven_name,
-            filter.targets.targets.as_deref(),
+            filter.targets.as_deref() as &[Target],
             ids.as_deref(),
             filter.skip,
             filter.limit,
@@ -303,6 +305,26 @@ impl Crud for PgVenStorage {
     }
 }
 
+#[async_trait]
+impl VenObjectPrivacy for PgVenStorage {
+    async fn targets_by_client_id(
+        &self,
+        client_id: ClientId,
+    ) -> Result<BTreeSet<Target>, AppError> {
+        Ok(sqlx::query_scalar!(
+            r#"
+            SELECT targets FROM ven WHERE client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_one(&self.db)
+        .await?
+        .into_iter()
+        .map(|id| id.parse())
+        .collect::<Result<BTreeSet<_>, _>>()?)
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod tests {
@@ -322,7 +344,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 ven_name: None,
-                targets: TargetQueryParams { targets: None },
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
             }
@@ -428,9 +450,7 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,
@@ -442,9 +462,7 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["not-existent".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["not-existent".parse().unwrap()])),
                         ..Default::default()
                     },
                     &VenPermissions::AllAllowed,

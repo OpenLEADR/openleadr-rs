@@ -16,19 +16,38 @@ use openleadr_wire::{
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
-    data_source::ProgramCrud,
+    data_source::{ProgramCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{BusinessUser, User},
 };
 
 pub async fn get_all(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Vec<Program>> {
     trace!(?query_params);
+    let client_id = user.sub.parse().map_err(|_| {
+        AppError::Auth("OAuth subject name is an invalid OpenADR clientID".to_string())
+    })?;
 
-    let programs = program_source.retrieve_all(&query_params, &user).await?;
+    dbg!(&user);
+
+    let mut targets = object_privacy
+        .targets_by_client_id(client_id)
+        .await
+        .map_err(|err| {
+            if matches!(err, AppError::NotFound) {
+                AppError::Forbidden("No VEN object associated with the clientID")
+            } else {
+                err
+            }
+        })?;
+
+    let programs = program_source
+        .retrieve_all(&query_params, &User(user))
+        .await?;
     trace!("retrieved {} programs", programs.len());
 
     Ok(Json(programs))
@@ -85,7 +104,6 @@ pub async fn delete(
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
     #[serde(flatten)]
-    #[validate(nested)]
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
@@ -586,15 +604,17 @@ mod test {
         }
 
         #[sqlx::test(fixtures("users", "business", "programs", "vens"))]
-        #[should_panic = "left: 3"] // FIXME implement object privacy
+        // FIXME implement object privacy
         async fn retrieve_all_returns_ven_assigned_programs_only(db: PgPool) {
             let (state, _) = state_with_programs(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+            let token = jwt_test_token_with_sub(&state, "ven-1-client-id".to_string(), vec![AuthRole::VEN("ven-1-client-id".parse().unwrap())]);
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
+            let status = response.status();
             let body = response.into_body().collect().await.unwrap().to_bytes();
+            println!("{}", String::from_utf8_lossy(&body));
+            assert_eq!(status, StatusCode::OK);
             let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
             assert_eq!(programs.len(), 2);
             let mut names = programs

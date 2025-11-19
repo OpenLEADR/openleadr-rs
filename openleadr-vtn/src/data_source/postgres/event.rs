@@ -230,6 +230,7 @@ impl Crud for PgEventStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
+        // TODO remove
         let business_ids = match user.business_ids() {
             BusinessIds::Specific(ids) => Some(ids),
             BusinessIds::Any => None,
@@ -253,24 +254,24 @@ impl Crud for PgEventStorage {
             FROM event e
               JOIN program p on p.id = e.program_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND ($2::text[] IS NULL OR e.targets && $2) -- FIXME use @> for and rather than or filtering
+              AND e.targets @> $2
               AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC
             OFFSET $5 LIMIT $6
             "#,
             filter.program_id.as_ref().map(|id| id.as_str()),
-            filter.targets.targets.as_deref(),
+            filter.targets.as_deref() as &[Target],
             user.is_business(),
             business_ids.as_deref(),
             filter.skip,
             filter.limit
         )
-            .fetch_all(&self.db)
-            .await?
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()?)
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()?)
     }
 
     async fn update(
@@ -405,7 +406,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 program_id: None,
-                targets: TargetQueryParams { targets: None },
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
             }
@@ -554,9 +555,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -569,9 +568,7 @@ mod tests {
             let mut events = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["target-1".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["target-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -585,9 +582,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["not-existent".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["not-existent".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -604,9 +599,7 @@ mod tests {
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["private-value".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["private-value".parse().unwrap()])),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
@@ -637,7 +630,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         program_id: Some("program-1".parse().unwrap()),
-                        targets: TargetQueryParams { targets: None },
+                        targets: TargetQueryParams(None),
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),

@@ -87,7 +87,6 @@ pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) ven_name: Option<String>,
     #[serde(flatten)]
-    #[validate(nested)]
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]

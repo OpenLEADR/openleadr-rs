@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{Executor, PgConnection, PgPool, Postgres};
 use tracing::warn;
+use crate::jwt::Scope;
 
 pub struct PgAuthSource {
     db: PgPool,
@@ -35,6 +36,7 @@ struct IntermediateUser {
     is_any_business_user: bool,
     is_user_manager: bool,
     is_ven_manager: bool,
+    scopes: Vec<Scope>
 }
 
 impl TryFrom<IntermediateUser> for UserDetails {
@@ -134,7 +136,12 @@ impl AuthSource for PgAuthSource {
         sqlx::query_as!(
             IntermediateUser,
             r#"
-            SELECT u.*,
+            SELECT u.id,
+                   u.reference,
+                   u.description,
+                   u.created,
+                   u.modified,
+                   u.scopes as "scopes:Vec<Scope>",
                    array_agg(DISTINCT c.client_id) FILTER ( WHERE c.client_id IS NOT NULL )     AS client_ids,
                    array_agg(DISTINCT b.business_id) FILTER ( WHERE b.business_id IS NOT NULL ) AS business_ids,
                    array_agg(DISTINCT ven.ven_id) FILTER ( WHERE ven.ven_id IS NOT NULL )       AS ven_ids,
@@ -419,7 +426,12 @@ impl PgAuthSource {
         sqlx::query_as!(
             IntermediateUser,
             r#"
-            SELECT u.*,
+            SELECT u.id,
+                   u.reference,
+                   u.description,
+                   u.created,
+                   u.modified,
+                   u.scopes as "scopes:Vec<Scope>",
                    array_agg(DISTINCT c.client_id) FILTER ( WHERE c.client_id IS NOT NULL )     AS client_ids,
                    array_agg(DISTINCT b.business_id) FILTER ( WHERE b.business_id IS NOT NULL ) AS business_ids,
                    array_agg(DISTINCT ven.ven_id) FILTER ( WHERE ven.ven_id IS NOT NULL )       AS ven_ids,
