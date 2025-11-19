@@ -11,6 +11,7 @@ use axum_extra::extract::{Query, QueryRejection};
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
 use validator::Validate;
+use openleadr_wire::target::Target;
 
 pub(crate) mod auth;
 pub(crate) mod event;
@@ -32,50 +33,13 @@ pub(crate) struct ValidatedQuery<T>(pub T);
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedJson<T>(pub T);
 
-#[derive(Deserialize, Validate, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TargetQueryParams {
-    #[serde(default, deserialize_with = "from_str")]
-    #[serde(rename = "targets")]
-    pub(crate) targets: Option<Vec<String>>,
-}
+#[derive(Deserialize, Debug, Clone)]
+#[serde(transparent)]
+pub(crate) struct TargetQueryParams(pub Option<Vec<Target>>);
 
-fn from_str<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StrOrArray {
-        String(String),
-        Array(Vec<String>),
-    }
-
-    let Some(str_or_array) = <Option<StrOrArray> as serde::Deserialize>::deserialize(deserializer)?
-    else {
-        return Ok(None);
-    };
-    match str_or_array {
-        StrOrArray::String(s) => {
-            if s.is_empty() {
-                Err(serde::de::Error::invalid_value(
-                    serde::de::Unexpected::Str(""),
-                    &"Empty targets",
-                ))
-            } else {
-                Ok(Some(vec![s]))
-            }
-        }
-        StrOrArray::Array(v) => {
-            if v.is_empty() {
-                Err(serde::de::Error::invalid_value(
-                    serde::de::Unexpected::Str(""),
-                    &"Empty targets",
-                ))
-            } else {
-                Ok(Some(v))
-            }
-        }
+impl TargetQueryParams {
+    pub fn as_deref(&self) -> &[Target] {
+        self.0.as_deref().unwrap_or_default()
     }
 }
 
@@ -239,6 +203,18 @@ mod test {
             .create(
                 std::time::Duration::from_secs(60),
                 "test_admin".to_string(),
+                roles,
+            )
+            .unwrap()
+    }
+
+    #[cfg(feature = "internal-oauth")]
+    pub(crate) fn jwt_test_token_with_sub(state: &AppState, sub: String, roles: Vec<AuthRole>) -> String {
+        state
+            .jwt_manager
+            .create(
+                std::time::Duration::from_secs(60),
+                sub,
                 roles,
             )
             .unwrap()

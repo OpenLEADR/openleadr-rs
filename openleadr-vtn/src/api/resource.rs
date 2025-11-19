@@ -106,7 +106,6 @@ pub struct QueryParams {
     #[serde(rename = "venID")]
     pub(crate) ven_id: Option<VenId>,
     #[serde(flatten)]
-    #[validate(nested)]
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]

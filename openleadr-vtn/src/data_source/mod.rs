@@ -1,25 +1,25 @@
 #[cfg(feature = "postgres")]
 mod postgres;
 
+use std::collections::BTreeSet;
 use crate::{
     error::AppError,
     jwt::{AuthRole, Claims, User},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use openleadr_wire::{
-    event::{EventId, EventRequest},
-    program::{ProgramId, ProgramRequest},
-    report::{ReportId, ReportRequest},
-    resource::{Resource, ResourceId, ResourceRequest},
-    ven::{Ven, VenId, VenRequest},
-    Event, Program, Report,
-};
+use openleadr_wire::{event::{EventId, EventRequest}, program::{ProgramId, ProgramRequest}, report::{ReportId, ReportRequest}, resource::{Resource, ResourceId, ResourceRequest}, ven::{Ven, VenId, VenRequest}, ClientId, Event, Program, Report};
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresStorage;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
 use std::sync::Arc;
+use openleadr_wire::target::Target;
+
+#[async_trait]
+pub trait VenObjectPrivacy: Send + Sync + 'static {
+    async fn targets_by_client_id(&self, client_id: ClientId) -> Result<BTreeSet<Target>, AppError>;
+}
 
 #[async_trait]
 pub trait Crud: Send + Sync + 'static {
@@ -205,6 +205,7 @@ pub trait DataSource: Send + Sync + 'static {
     fn reports(&self) -> Arc<dyn ReportCrud>;
     fn events(&self) -> Arc<dyn EventCrud>;
     fn vens(&self) -> Arc<dyn VenCrud>;
+    fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy>;
     fn resources(&self) -> Arc<dyn ResourceCrud>;
     #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource>;

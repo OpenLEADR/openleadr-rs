@@ -188,7 +188,7 @@ impl Crud for PgResourceStorage {
             "#,
             filter.ven_id.as_ref().map(|id| id.to_string()),
             filter.resource_name,
-            filter.targets.targets.as_deref(),
+            filter.targets.as_deref() as &[Target],
             filter.skip,
             filter.limit,
         )
@@ -316,7 +316,7 @@ mod test {
             Self {
                 resource_name: None,
                 ven_id: None,
-                targets: TargetQueryParams { targets: None },
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
             }
