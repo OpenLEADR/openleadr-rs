@@ -1,18 +1,17 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{extract_business_id, to_json_value},
+        postgres::{get_ven_targets, to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
-    jwt::User,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     target::Target,
-    Program,
+    ClientId, Program,
 };
 use sqlx::PgPool;
 use tracing::error;
@@ -117,15 +116,13 @@ impl Crud for PgProgramStorage {
     type NewType = ProgramRequest;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = User;
+    type PermissionFilter = Option<ClientId>;
 
     async fn create(
         &self,
         new: Self::NewType,
-        User(user): &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_id = extract_business_id(user)?;
-
         let program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -137,9 +134,8 @@ impl Crud for PgProgramStorage {
                                  program_descriptions,
                                  payload_descriptors,
                                  targets,
-                                 business_id,
                                  attributes)
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)
             RETURNING id,
                       created_date_time,
                       modification_date_time,
@@ -155,7 +151,6 @@ impl Crud for PgProgramStorage {
             to_json_value(new.program_descriptions)?,
             to_json_value(new.payload_descriptors)?,
             new.targets.as_slice() as &[Target],
-            business_id,
             to_json_value(new.attributes)?,
         )
         .fetch_one(&self.db)
@@ -168,9 +163,9 @@ impl Crud for PgProgramStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -186,8 +181,10 @@ impl Crud for PgProgramStorage {
                    p.attributes
             FROM program p
             WHERE id = $1
+              AND p.targets @> $2
             "#,
             id.as_str(),
+            ven_targets as _
         )
         .fetch_one(&self.db)
         .await?
@@ -197,9 +194,9 @@ impl Crud for PgProgramStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -214,12 +211,14 @@ impl Crud for PgProgramStorage {
                    p.targets as  "targets:Vec<Target>",
                    p.attributes
             FROM program p
-            WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering
+            WHERE ($1::text[] IS NULL OR p.targets @> $1)
+              AND p.targets @> $2
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $2 LIMIT $3
+            OFFSET $3 LIMIT $4
             "#,
-            filter.targets.as_deref() as &[Target],
+            filter.targets.as_deref() as _,
+            ven_targets as _,
             filter.skip,
             filter.limit,
         )
@@ -234,10 +233,8 @@ impl Crud for PgProgramStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        User(user): &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
-
         let program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -265,7 +262,7 @@ impl Crud for PgProgramStorage {
             to_json_value(new.interval_period)?,
             to_json_value(new.program_descriptions)?,
             to_json_value(new.payload_descriptors)?,
-            new.targets.as_slice() as &[Target],
+            new.targets.as_slice() as _,
             to_json_value(new.attributes)?
         )
         .fetch_one(&self.db)
@@ -278,16 +275,13 @@ impl Crud for PgProgramStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        User(user): &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_id = extract_business_id(user)?;
-
         Ok(sqlx::query_as!(
             PostgresProgram,
             r#"
             DELETE FROM program p
                    WHERE id = $1
-                     AND ($2::text IS NULL OR business_id = $2)
             RETURNING p.id,
                    p.created_date_time,
                    p.modification_date_time,
@@ -299,7 +293,6 @@ impl Crud for PgProgramStorage {
                    p.attributes
             "#,
             id.as_str(),
-            business_id,
         )
         .fetch_one(&self.db)
         .await?
