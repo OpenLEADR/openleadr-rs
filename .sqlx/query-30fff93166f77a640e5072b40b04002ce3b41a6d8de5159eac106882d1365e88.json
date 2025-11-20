@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT DISTINCT\n                v.id AS \"id!\",\n                v.created_date_time AS \"created_date_time!\",\n                v.modification_date_time AS \"modification_date_time!\",\n                v.ven_name AS \"ven_name!\",\n                v.attributes,\n                v.targets as \"targets:Vec<Target>\",\n                v.client_id\n            FROM ven v\n              LEFT JOIN resource r ON r.ven_id = v.id\n            WHERE ($1::text IS NULL OR v.ven_name = $1)\n              AND ($2::text[] IS NULL OR v.targets && $2)\n              AND ($3::text[] IS NULL OR v.id = ANY($3))\n            ORDER BY v.created_date_time DESC\n            OFFSET $4 LIMIT $5\n            ",
+  "query": "\n            SELECT DISTINCT\n                v.id AS \"id!\",\n                v.created_date_time AS \"created_date_time!\",\n                v.modification_date_time AS \"modification_date_time!\",\n                v.ven_name AS \"ven_name!\",\n                v.attributes,\n                v.targets as \"targets:Vec<Target>\",\n                v.client_id\n            FROM ven v\n              LEFT JOIN resource r ON r.ven_id = v.id\n            WHERE ($1::text IS NULL OR v.ven_name = $1)\n              AND ($2::text[] IS NULL OR v.targets && $2)\n              AND ($3::text IS NULL OR v.client_id = $3)\n            ORDER BY v.created_date_time DESC\n            OFFSET $4 LIMIT $5\n            ",
   "describe": {
     "columns": [
       {
@@ -43,7 +43,7 @@
       "Left": [
         "Text",
         "TextArray",
-        "TextArray",
+        "Text",
         "Int8",
         "Int8"
       ]
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "39c3bf205132f7eb19468070bda7a046bbae821b75f4198bdb5e750bfbabbe13"
+  "hash": "30fff93166f77a640e5072b40b04002ce3b41a6d8de5159eac106882d1365e88"
 }

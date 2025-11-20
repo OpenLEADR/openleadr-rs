@@ -2,13 +2,12 @@ use crate::{
     api::report::QueryParams,
     data_source::{postgres::to_json_value, Crud, ReportCrud},
     error::AppError,
-    jwt::User,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     report::{ReportId, ReportRequest},
-    Report,
+    ClientId, Report,
 };
 use sqlx::PgPool;
 use tracing::{error, info, trace};
@@ -81,14 +80,18 @@ impl Crud for PgReportStorage {
     type NewType = ReportRequest;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = User;
+    type PermissionFilter = Option<ClientId>;
 
     async fn create(
         &self,
         new: Self::NewType,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let Some(client_id) = client_id else {
+            return Err(AppError::Forbidden(
+                "client_id is required to create a report",
+            ));
+        };
 
         let report: Report = sqlx::query_as!(
             PostgresReport,
@@ -102,7 +105,7 @@ impl Crud for PgReportStorage {
             new.report_name,
             to_json_value(new.payload_descriptors)?,
             serde_json::to_value(new.resources).map_err(AppError::SerdeJsonBadRequest)?,
-            user.sub,
+            client_id as _,
         )
             .fetch_one(&self.db)
             .await?
@@ -116,18 +119,18 @@ impl Crud for PgReportStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
-
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
             SELECT r.*
             FROM report r
             WHERE r.id = $1
+              AND ($2::text IS NULL OR r.client_id = $2)
             "#,
             id.as_str(),
+            client_id as _,
         )
         .fetch_one(&self.db)
         .await?
@@ -141,10 +144,8 @@ impl Crud for PgReportStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let _ = user; // FIXME implement object privacy
-
         let reports = sqlx::query_as!(
             PostgresReport,
             r#"
@@ -154,12 +155,14 @@ impl Crud for PgReportStorage {
             WHERE ($1::text IS NULL OR $1 like e.program_id)
               AND ($2::text IS NULL OR $2 like r.event_id)
               AND ($3::text IS NULL OR $3 like r.client_name)
+              AND ($4::text IS NULL OR $4 like r.client_id)
             ORDER BY r.created_date_time DESC
-            OFFSET $4 LIMIT $5
+            OFFSET $5 LIMIT $6
             "#,
             filter.program_id.clone().map(|x| x.to_string()),
             filter.event_id.clone().map(|x| x.to_string()),
             filter.client_name,
+            client_id as _,
             filter.skip,
             filter.limit,
         )
@@ -178,9 +181,13 @@ impl Crud for PgReportStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let Some(client_id) = client_id else {
+            return Err(AppError::Forbidden(
+                "client_id is required to update a report",
+            ));
+        };
 
         let report: Report = sqlx::query_as!(
             PostgresReport,
@@ -193,7 +200,8 @@ impl Crud for PgReportStorage {
                 payload_descriptors = $5,
                 resources = $6
             FROM program p
-            WHERE r.id = $1
+            WHERE r.id = $1 
+              AND client_id = $7
             RETURNING r.*
             "#,
             id.as_str(),
@@ -202,6 +210,7 @@ impl Crud for PgReportStorage {
             new.report_name,
             to_json_value(new.payload_descriptors)?,
             serde_json::to_value(new.resources).map_err(AppError::SerdeJsonBadRequest)?,
+            client_id as _
         )
         .fetch_one(&self.db)
         .await?
@@ -215,18 +224,24 @@ impl Crud for PgReportStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let Some(client_id) = client_id else {
+            return Err(AppError::Forbidden(
+                "client_id is required to delete a report",
+            ));
+        };
 
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
             DELETE FROM report r
-                   WHERE r.id = $1
+                   WHERE r.id = $1 
+                     AND r.client_id = $2
                    RETURNING r.*
             "#,
             id.as_str(),
+            client_id as _,
         )
         .fetch_one(&self.db)
         .await?

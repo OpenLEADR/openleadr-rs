@@ -1,26 +1,26 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE id = $1\n            ",
+  "query": "\n            SELECT p.id AS \"id!\",\n                   p.created_date_time AS \"created_date_time!\",\n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE ($1::text[] IS NULL OR p.targets @> $1)\n              AND p.targets @> $2\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $3 LIMIT $4\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "id!",
         "type_info": "Text"
       },
       {
         "ordinal": 1,
-        "name": "created_date_time",
+        "name": "created_date_time!",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 2,
-        "name": "modification_date_time",
+        "name": "modification_date_time!",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 3,
-        "name": "program_name",
+        "name": "program_name!",
         "type_info": "Text"
       },
       {
@@ -51,7 +51,10 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "TextArray",
+        "TextArray",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -66,5 +69,5 @@
       true
     ]
   },
-  "hash": "3b27c436099508ab0bc3c2edf8a73539b979dfd49212e8e0168d5310a3e7ac7c"
+  "hash": "d333f9e2eb90b6fee31e04cd4c3c845be158a97270584e3fe12cf99cf1686257"
 }

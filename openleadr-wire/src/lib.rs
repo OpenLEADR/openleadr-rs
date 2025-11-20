@@ -344,7 +344,8 @@ pub enum Unit {
 }
 
 // example: 249rj49jiej
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, sqlx::Type)]
+#[sqlx(transparent)]
 pub struct ClientId(pub(crate) Identifier);
 
 impl Display for ClientId {

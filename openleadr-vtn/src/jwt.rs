@@ -16,9 +16,10 @@ use axum_extra::{
     TypedHeader,
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
-use openleadr_wire::ven::VenId;
 use tracing::{trace, warn};
 
+use derive_more::AsRef;
+use openleadr_wire::ClientId;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::env;
 
@@ -27,35 +28,6 @@ pub struct JwtManager {
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
     validation: Validation,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(test, derive(PartialOrd, Ord))]
-#[serde(tag = "role", content = "id")]
-pub enum AuthRole {
-    UserManager,
-    VenManager,
-    Business(String),
-    AnyBusiness,
-    VEN(VenId),
-}
-
-impl AuthRole {
-    pub fn is_business(&self) -> bool {
-        matches!(self, AuthRole::Business(_) | AuthRole::AnyBusiness)
-    }
-
-    pub fn is_ven(&self) -> bool {
-        matches!(self, AuthRole::VEN(_))
-    }
-
-    pub fn is_user_manager(&self) -> bool {
-        matches!(self, AuthRole::UserManager)
-    }
-
-    pub fn is_ven_manager(&self) -> bool {
-        matches!(self, AuthRole::VenManager)
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -176,39 +148,36 @@ struct EdKeys {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Claims {
-    exp: usize,
-    nbf: Option<usize>,
+    /// (subject): Subject of the JWT (the user)
     pub(crate) sub: String,
-    pub(crate) roles: Vec<AuthRole>,
+    /// (expiration time): Time after which the JWT expires
+    exp: i64,
+    /// (issued at time): Time at which the JWT was issued; can be used to determine age of the JWT
+    iat: Option<i64>,
+    /// (not before time): Time before which the JWT must not be accepted for processing
+    nbf: Option<i64>,
+    #[serde(default, alias = "roles")]
+    pub(crate) scope: Scopes,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct InitialClaims {
-    exp: usize,
-    nbf: Option<usize>,
-    sub: String,
-    #[serde(default)]
-    // Allow the roles claim to either contain the internal roles structure of OpenLEADR
-    // or the scopes structure of the typical scope claim.
-    // or the internal roles of OpenLEADR.
-    // This is needed since a major auth provider (Entra) does not support setting
-    // scopes for machine-to-machine authentication. Only allowing the roles claim
-    // to be set.
-    roles: Option<RolesOrScopes>,
-    #[serde(default)]
-    scope: Option<Scopes>,
+impl Claims {
+    pub fn client_id(&self) -> Result<ClientId, AppError> {
+        self.sub.parse::<ClientId>().map_err(|err| {
+            AppError::Auth(format!(
+                "OAuth2 subject cannot be parsed as OpenADR clientId: {err}"
+            ))
+        })
+    }
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
-struct Scopes {
-    scopes: Vec<Scope>,
-}
+#[derive(Clone, Debug, serde::Serialize, Default, derive_more::From, AsRef)]
+#[serde(transparent)]
+pub struct Scopes(Vec<Scope>);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum RolesOrScopes {
-    AuthRoles(Vec<AuthRole>),
-    Scopes(Vec<Scope>),
+impl Scopes {
+    pub fn contains(&self, scope: Scope) -> bool {
+        self.0.contains(&scope)
+    }
 }
 
 impl<'de> Deserialize<'de> for Scopes {
@@ -236,163 +205,7 @@ impl<'de> Deserialize<'de> for Scopes {
             }
         }
 
-        Ok(Scopes { scopes })
-    }
-}
-
-impl InitialClaims {
-    fn scopes_to_roles(scopes: &[Scope]) -> Vec<AuthRole> {
-        let mut roles = Vec::new();
-
-        if scopes.contains(&Scope::ReadAll) && scopes.contains(&Scope::WriteVens) {
-            roles.push(AuthRole::VenManager);
-        }
-
-        if scopes.contains(&Scope::ReadAll) && scopes.contains(&Scope::WriteReports) {
-            roles.push(AuthRole::VEN(VenId::new("anonymous").unwrap()));
-        }
-
-        if scopes.contains(&Scope::ReadAll)
-            && scopes.contains(&Scope::WritePrograms)
-            && scopes.contains(&Scope::WriteEvents)
-        {
-            roles.push(AuthRole::AnyBusiness);
-        }
-
-        roles
-    }
-
-    fn map_scope_roles_to_internal_roles(&self) -> Vec<AuthRole> {
-        match &self.roles {
-            Some(RolesOrScopes::Scopes(scope_list)) => Self::scopes_to_roles(scope_list),
-            _ => vec![],
-        }
-    }
-
-    fn map_scope_to_roles(&self) -> Vec<AuthRole> {
-        match &self.scope {
-            None => vec![],
-            Some(s) => Self::scopes_to_roles(&s.scopes),
-        }
-    }
-}
-
-impl TryFrom<InitialClaims> for Claims {
-    type Error = ResponseOAuthError;
-
-    fn try_from(initial: InitialClaims) -> Result<Self, Self::Error> {
-        match initial.roles {
-            // when roles are empty, check scopes
-            // and map these to our roles
-            None => {
-                if initial.scope.is_none() {
-                    return Err(OAuthError::new(OAuthErrorType::InvalidGrant)
-                        .with_description(
-                            "Token must contain valid roles or a valid scope".to_string(),
-                        )
-                        .into());
-                }
-
-                Ok(Claims {
-                    roles: initial.map_scope_to_roles(),
-                    exp: initial.exp,
-                    nbf: initial.nbf,
-                    sub: initial.sub,
-                })
-            }
-
-            // otherwise ignore scope and use the roles claim.
-            // The roles claim can be one of two types:
-            // 1. The internal auth roles from OpenLEADR
-            // 2. The standard list of oadr scopes, similar to the scopes claim.
-            // Reason 2 exists since Entra ID does not allow setting the scope claim
-            // for machine to machine authentication, forcing the usage of the roles claim.
-            // To ensure a wide range of compatibility with auth providers, both are supported here.
-            Some(RolesOrScopes::AuthRoles(roles)) => Ok(Claims {
-                roles,
-                exp: initial.exp,
-                nbf: initial.nbf,
-                sub: initial.sub,
-            }),
-
-            Some(RolesOrScopes::Scopes(_)) => {
-                let roles = initial.map_scope_roles_to_internal_roles();
-                Ok(Claims {
-                    roles,
-                    exp: initial.exp,
-                    nbf: initial.nbf,
-                    sub: initial.sub,
-                })
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-#[cfg(feature = "live-db-test")]
-impl Claims {
-    pub(crate) fn new(roles: Vec<AuthRole>) -> Self {
-        Self {
-            exp: 0,
-            nbf: Some(0),
-            sub: "".to_string(),
-            roles,
-        }
-    }
-
-    pub(crate) fn any_business_user() -> Claims {
-        Claims::new(vec![AuthRole::AnyBusiness])
-    }
-}
-
-#[derive(Debug)]
-pub enum BusinessIds {
-    Specific(Vec<String>),
-    Any,
-}
-
-impl Claims {
-    pub fn ven_ids(&self) -> Vec<VenId> {
-        self.roles
-            .iter()
-            .filter_map(|role| {
-                if let AuthRole::VEN(id) = role {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    pub fn business_ids(&self) -> BusinessIds {
-        let mut ids = vec![];
-
-        for role in &self.roles {
-            match role {
-                AuthRole::Business(id) => ids.push(id.clone()),
-                AuthRole::AnyBusiness => return BusinessIds::Any,
-                _ => {}
-            }
-        }
-
-        BusinessIds::Specific(ids)
-    }
-
-    pub fn is_ven(&self) -> bool {
-        self.roles.iter().any(AuthRole::is_ven)
-    }
-
-    pub fn is_business(&self) -> bool {
-        self.roles.iter().any(AuthRole::is_business)
-    }
-
-    pub fn is_user_manager(&self) -> bool {
-        self.roles.iter().any(AuthRole::is_user_manager)
-    }
-
-    pub fn is_ven_manager(&self) -> bool {
-        self.roles.iter().any(AuthRole::is_ven_manager)
+        Ok(Scopes(scopes))
     }
 }
 
@@ -430,16 +243,17 @@ impl JwtManager {
         &self,
         expires_in: std::time::Duration,
         client_id: String,
-        roles: Vec<AuthRole>,
+        scope: impl Into<Scopes>,
     ) -> Result<String, ResponseOAuthError> {
         let now = chrono::Utc::now();
         let exp = now + expires_in;
 
         let claims = Claims {
-            exp: exp.timestamp() as usize,
-            nbf: Some(now.timestamp() as usize),
+            exp: exp.timestamp(),
+            iat: Some(now.timestamp()),
+            nbf: Some(now.timestamp()),
             sub: client_id,
-            roles,
+            scope: scope.into(),
         };
 
         if let Some(encoding_key) = &self.encoding_key {
@@ -458,9 +272,8 @@ impl JwtManager {
     async fn decode_and_validate(&self, token: &str) -> Result<Claims, ResponseOAuthError> {
         match &self.decoding_key {
             Some(key) => {
-                let token_data =
-                    jsonwebtoken::decode::<InitialClaims>(token, key, &self.validation)?;
-                token_data.claims.try_into()
+                let token_data = jsonwebtoken::decode::<Claims>(token, key, &self.validation)?;
+                Ok(Self::check_time(token_data.claims)?)
             }
             None => {
                 // Fetch server keys with kid references
@@ -477,21 +290,18 @@ impl JwtManager {
                 for (kid, decoding_key) in keys.iter() {
                     let key_ref = kid.as_deref().unwrap_or("no_kid");
 
-                    let token_data = jsonwebtoken::decode::<InitialClaims>(
-                        token,
-                        decoding_key,
-                        &self.validation,
-                    );
+                    let token_data =
+                        jsonwebtoken::decode::<Claims>(token, decoding_key, &self.validation);
 
                     match token_data {
                         Ok(data) => {
-                            return data.claims.try_into();
+                            return Ok(Self::check_time(data.claims)?);
                         }
                         Err(e) => {
                             use jsonwebtoken::errors::ErrorKind;
                             match e.kind() {
                                 ErrorKind::InvalidSignature => {
-                                    tracing::warn!("JWT signature failed for kid={}: {e}", key_ref);
+                                    warn!("JWT signature failed for kid={}: {e}", key_ref);
                                     // In case of invalid signature, try next key
                                 }
                                 _ => {
@@ -514,6 +324,34 @@ impl JwtManager {
                     .into())
             }
         }
+    }
+
+    fn check_time(claims: Claims) -> Result<Claims, OAuthError> {
+        let now = chrono::Utc::now().timestamp();
+
+        if let Some(nbf) = claims.nbf {
+            if now < nbf {
+                return Err(OAuthError {
+                    error: OAuthErrorType::NotYetValid,
+                    error_description: Some(
+                        "The 'nbf' claim disallows using this token already".to_string(),
+                    ),
+                    error_uri: None,
+                });
+            }
+        };
+
+        if claims.exp < now {
+            return Err(OAuthError {
+                error: OAuthErrorType::Expired,
+                error_description: Some(
+                    "The 'exp' claim disallows using this token anymore".to_string(),
+                ),
+                error_uri: None,
+            });
+        }
+
+        Ok(claims)
     }
 
     /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
@@ -606,19 +444,6 @@ impl JwtManager {
 /// User claims extracted from the request
 pub struct User(pub(crate) Claims);
 
-/// User claims extracted from the request, with the requirement that the user is a business user
-pub struct BusinessUser(pub(crate) Claims);
-
-/// User claims extracted from the request, with the requirement that the user is a VEN user
-pub struct VENUser(pub(crate) Claims);
-
-/// User claims extracted from the request, with the requirement that the user is a user manager
-#[allow(dead_code)]
-pub struct UserManagerUser(pub(crate) Claims);
-
-/// User claims extracted from the request, with the requirement that the user is a VEN manager
-pub struct VenManagerUser(pub(crate) Claims);
-
 impl<S: Send + Sync> FromRequestParts<S> for User
 where
     Arc<JwtManager>: FromRef<S>,
@@ -646,80 +471,32 @@ where
     }
 }
 
-impl<S: Send + Sync> FromRequestParts<S> for BusinessUser
-where
-    Arc<JwtManager>: FromRef<S>,
-{
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let User(user) = User::from_request_parts(parts, state).await?;
-        if !user.is_business() {
-            return Err(AppError::Forbidden("User does not have the required role"));
-        }
-        Ok(BusinessUser(user))
-    }
-}
-
-impl<S: Send + Sync> FromRequestParts<S> for VENUser
-where
-    Arc<JwtManager>: FromRef<S>,
-{
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let User(user) = User::from_request_parts(parts, state).await?;
-        if !user.is_ven() {
-            return Err(AppError::Forbidden("User does not have the required role"));
-        }
-        Ok(VENUser(user))
-    }
-}
-
-impl<S: Send + Sync> FromRequestParts<S> for UserManagerUser
-where
-    Arc<JwtManager>: FromRef<S>,
-{
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let User(user) = User::from_request_parts(parts, state).await?;
-        if !user.is_user_manager() {
-            return Err(AppError::Forbidden("User does not have the required role"));
-        }
-        Ok(UserManagerUser(user))
-    }
-}
-
-impl<S: Send + Sync> FromRequestParts<S> for VenManagerUser
-where
-    Arc<JwtManager>: FromRef<S>,
-{
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let User(user) = User::from_request_parts(parts, state).await?;
-        if !user.is_ven_manager() {
-            return Err(AppError::Auth(
-                "User does not have the required role".to_string(),
-            ));
-        }
-        Ok(VenManagerUser(user))
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::jwt::{AuthRole, Claims, InitialClaims, RolesOrScopes, Scope, Scopes, VenId};
+    use crate::jwt::{Claims, Scope, Scopes};
+    use std::fmt::Display;
+
+    #[cfg(feature = "live-db-test")]
+    impl Claims {
+        pub(crate) fn new(sub: impl Display, scope: Vec<Scope>) -> Self {
+            Self {
+                exp: 0,
+                iat: Some(0),
+                nbf: Some(0),
+                sub: sub.to_string(),
+                scope: scope.into(),
+            }
+        }
+    }
 
     #[test]
-    fn test_no_roles_no_scope_into_claims() {
-        let initial = InitialClaims {
+    fn test_no_scope_into_claims() {
+        let initial = Claims {
             exp: 10,
+            iat: None,
             nbf: Some(10),
             sub: "test".to_string(),
-            roles: None,
-            scope: None,
+            scope: vec![].into(),
         };
 
         let claims: Result<Claims, _> = initial.try_into();

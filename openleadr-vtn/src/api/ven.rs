@@ -9,13 +9,13 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::ven::{Ven, VenId, VenRequest};
+use openleadr_wire::ven::{BlVenRequest, Ven, VenId, VenRequest};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
-    data_source::VenCrud,
+    data_source::{VenCrud, VenObjectPrivacy},
     error::AppError,
-    jwt::{User, VenManagerUser},
+    jwt::{Scope, User},
 };
 
 pub async fn get_all(
@@ -25,11 +25,19 @@ pub async fn get_all(
 ) -> AppResponse<Vec<Ven>> {
     trace!(?query_params);
 
-    let vens = ven_source
-        .retrieve_all(&query_params, &user.try_into()?)
-        .await?;
+    let vens = if user.scope.contains(Scope::ReadAll) {
+        ven_source.retrieve_all(&query_params, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        ven_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
 
-    trace!("retrieved {} VENs", vens.len());
+    trace!(client_id = user.sub, "retrieved {} VENs", vens.len());
 
     Ok(Json(vens))
 }
@@ -39,34 +47,82 @@ pub async fn get(
     Path(id): Path<VenId>,
     User(user): User,
 ) -> AppResponse<Ven> {
-    let ven = ven_source.retrieve(&id, &user.try_into()?).await?;
+    let ven = if user.scope.contains(Scope::ReadAll) {
+        ven_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        ven_source.retrieve(&id, &Some(user.client_id()?)).await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
 
-    trace!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN retrieved");
+    trace!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN retrieved");
 
     Ok(Json(ven))
 }
 
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
-    VenManagerUser(user): VenManagerUser,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
+    User(user): User,
     ValidatedJson(new_ven): ValidatedJson<VenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
-    let ven = ven_source.create(new_ven, &user.try_into()?).await?;
+    // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
+    //  See also https://github.com/oadr3-org/specification/discussions/371
+    let new_ven = match new_ven {
+        VenRequest::BlVenRequest(new_ven) => new_ven,
+        VenRequest::VenVenRequest(new_ven) => BlVenRequest {
+            client_id: user.client_id()?,
+            // FIXME see https://github.com/oadr3-org/specification/discussions/372
+            targets: object_privacy
+                .targets_by_client_id(&user.client_id()?)
+                .await?,
+            ven_name: new_ven.ven_name,
+            attributes: new_ven.attributes,
+        },
+    };
 
-    info!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN added");
+    let ven = if user.scope.contains(Scope::WriteVens) {
+        ven_source.create(new_ven, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    };
+
+    info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN added");
 
     Ok((StatusCode::CREATED, Json(ven)))
 }
 
 pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<VenId>,
-    VenManagerUser(user): VenManagerUser,
-    ValidatedJson(content): ValidatedJson<VenRequest>,
+    User(user): User,
+    ValidatedJson(update): ValidatedJson<VenRequest>,
 ) -> AppResponse<Ven> {
-    let ven = ven_source.update(&id, content, &user.try_into()?).await?;
+    // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
+    //  See also https://github.com/oadr3-org/specification/discussions/371
+    let update = match update {
+        VenRequest::BlVenRequest(new_ven) => new_ven,
+        VenRequest::VenVenRequest(new_ven) => BlVenRequest {
+            client_id: user.client_id()?,
+            // FIXME see https://github.com/oadr3-org/specification/discussions/372
+            targets: object_privacy
+                .targets_by_client_id(&user.client_id()?)
+                .await?,
+            ven_name: new_ven.ven_name,
+            attributes: new_ven.attributes,
+        },
+    };
 
-    info!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN updated");
+    let ven = if user.scope.contains(Scope::WriteVens) {
+        ven_source.update(&id, update, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    };
+
+    info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN updated");
 
     Ok(Json(ven))
 }
@@ -74,10 +130,18 @@ pub async fn edit(
 pub async fn delete(
     State(ven_source): State<Arc<dyn VenCrud>>,
     Path(id): Path<VenId>,
-    VenManagerUser(user): VenManagerUser,
+    User(user): User,
 ) -> AppResponse<Ven> {
-    let ven = ven_source.delete(&id, &user.try_into()?).await?;
-    info!(%ven.id, ven.ven_name=ven.content.ven_name, "VEN deleted");
+    let ven = if user.scope.contains(Scope::WriteVens) {
+        // FIXME how to prevent VEN clients to delete other clients' VENs?
+        //  See also https://github.com/oadr3-org/specification/discussions/371
+        ven_source.delete(&id, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    };
+
+    info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN deleted");
+
     Ok(Json(ven))
 }
 
