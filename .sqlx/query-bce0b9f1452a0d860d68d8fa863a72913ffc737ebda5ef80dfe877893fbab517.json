@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \"user\" SET\n                reference = $2,\n                description = $3,\n                scopes = $4,\n                modified = now()\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "scope[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "scope",
+                  "kind": {
+                    "Enum": [
+                      "read_all",
+                      "read_targets",
+                      "read_ven_objects",
+                      "write_programs",
+                      "write_events",
+                      "write_reports",
+                      "write_subscriptions",
+                      "write_vens"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bce0b9f1452a0d860d68d8fa863a72913ffc737ebda5ef80dfe877893fbab517"
+}

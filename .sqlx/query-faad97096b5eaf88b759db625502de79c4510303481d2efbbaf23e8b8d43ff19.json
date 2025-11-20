@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id,\n                   client_secret,\n                   scopes as \"scopes:Vec<Scope>\"\n            FROM \"user\"\n                JOIN user_credentials ON user_id = id\n            WHERE client_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "scopes:Vec<Scope>",
+        "type_info": {
+          "Custom": {
+            "name": "scope[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "scope",
+                  "kind": {
+                    "Enum": [
+                      "read_all",
+                      "read_targets",
+                      "read_ven_objects",
+                      "write_programs",
+                      "write_events",
+                      "write_reports",
+                      "write_subscriptions",
+                      "write_vens"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "faad97096b5eaf88b759db625502de79c4510303481d2efbbaf23e8b8d43ff19"
+}

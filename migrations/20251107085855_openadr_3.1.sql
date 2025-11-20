@@ -9,6 +9,7 @@ ALTER TABLE program
     DROP COLUMN principal_subdivision,
     DROP COLUMN binding_events,
     DROP COLUMN local_price,
+    DROP COLUMN business_id,
 --     DROP COLUMN business_id,
     ADD COLUMN attributes jsonb;
 
@@ -43,11 +44,12 @@ ALTER TABLE report
     ADD COLUMN client_id text NOT NULL;
 
 
--- DROP TABLE any_business_user;
--- DROP TABLE user_ven;
--- DROP TABLE user_manager;
--- DROP TABLE user_business;
--- DROP TABLE business;
+DROP TABLE any_business_user;
+DROP TABLE user_ven;
+DROP TABLE user_manager;
+DROP TABLE user_business;
+DROP TABLE business;
+DROP TABLE ven_manager;
 
 CREATE TYPE scope AS ENUM (
     'read_all',

@@ -1,18 +1,17 @@
 use crate::{
     api::ven::QueryParams,
-    data_source::{postgres::to_json_value, Crud, VenCrud, VenObjectPrivacy, VenPermissions},
+    data_source::{postgres::to_json_value, Crud, VenCrud, VenObjectPrivacy},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     target::Target,
-    ven::{BlVenRequest, Ven, VenId, VenRequest},
+    ven::{BlVenRequest, Ven, VenId},
     ClientId,
 };
 use sqlx::PgPool;
-use std::collections::BTreeSet;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 #[async_trait]
 impl VenCrud for PgVenStorage {}
@@ -68,15 +67,15 @@ impl TryFrom<PostgresVen> for Ven {
 impl Crud for PgVenStorage {
     type Type = Ven;
     type Id = VenId;
-    type NewType = VenRequest;
+    type NewType = BlVenRequest;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = VenPermissions;
+    type PermissionFilter = Option<ClientId>;
 
     async fn create(
         &self,
         new: Self::NewType,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
@@ -100,13 +99,10 @@ impl Crud for PgVenStorage {
                 targets as "targets:Vec<Target>",
                 client_id
             "#,
-            new.ven_name(),
-            to_json_value(new.attributes())?,
-            new.targets() as &[Target],
-            // FIXME object privacy
-            new.client_id()
-                .map(|id| id.as_str())
-                .unwrap_or("FIXME-object-privacy")
+            new.ven_name,
+            to_json_value(new.attributes)?,
+            new.targets as _,
+            new.client_id as _
         )
         .fetch_one(&self.db)
         .await?
@@ -120,10 +116,8 @@ impl Crud for PgVenStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        permissions: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let ids = permissions.as_value();
-
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -137,10 +131,10 @@ impl Crud for PgVenStorage {
                 client_id
             FROM ven
             WHERE id = $1
-            AND ($2::text[] IS NULL OR id = ANY($2))
+            AND ($2::text IS NULL OR client_id = $2)
             "#,
             id.as_str(),
-            ids.as_deref(),
+            client_id as _,
         )
         .fetch_one(&self.db)
         .await?
@@ -154,10 +148,8 @@ impl Crud for PgVenStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        permissions: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let ids = permissions.as_value();
-
         let vens = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -173,13 +165,13 @@ impl Crud for PgVenStorage {
               LEFT JOIN resource r ON r.ven_id = v.id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
               AND ($2::text[] IS NULL OR v.targets && $2)
-              AND ($3::text[] IS NULL OR v.id = ANY($3))
+              AND ($3::text IS NULL OR v.client_id = $3)
             ORDER BY v.created_date_time DESC
             OFFSET $4 LIMIT $5
             "#,
             filter.ven_name,
-            filter.targets.as_deref() as &[Target],
-            ids.as_deref(),
+            filter.targets.as_deref() as _,
+            client_id as _,
             filter.skip,
             filter.limit,
         )
@@ -198,7 +190,7 @@ impl Crud for PgVenStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
@@ -211,15 +203,29 @@ impl Crud for PgVenStorage {
         .fetch_one(&mut *tx)
         .await?;
 
-        if let Some(new_client_id) = new.client_id() {
-            if old.client_id != new_client_id.as_str() {
-                let error = "Tried to update `client_id` of VEN. \
+        // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
+        //  See also https://github.com/oadr3-org/specification/discussions/371
+        // match client_id {
+        //     Some(client_id) => {
+        //         if old.client_id != client_id.as_str() {
+        //             warn!(
+        //                 client_id = ?client_id,
+        //                 ven_id = id.as_str(),
+        //                 "Client tried to update VEN it does not own"
+        //             );
+        //             return Err(Self::Error::NotFound);
+        //         }
+        //     }
+        //     _ => {}
+        // }
+
+        if old.client_id != new.client_id.as_str() {
+            let error = "Tried to update `client_id` of VEN. \
                 This is not allowed in the current version of openLEADR as the specification is not quite \
                 clear about if that should be allowed. If you disagree with that interpretation, please open \
                 an issue on GitHub.";
-                error!(ven_id = id.as_str(), "{}", error);
-                return Err(Self::Error::BadRequest(error));
-            }
+            error!(ven_id = id.as_str(), "{}", error);
+            return Err(Self::Error::BadRequest(error));
         }
 
         let ven: Ven = sqlx::query_as!(
@@ -241,9 +247,9 @@ impl Crud for PgVenStorage {
                 client_id
             "#,
             id.as_str(),
-            new.ven_name(),
-            to_json_value(new.attributes())?,
-            new.targets() as &[Target],
+            new.ven_name,
+            to_json_value(new.attributes)?,
+            new.targets as _,
         )
         .fetch_one(&mut *tx)
         .await?
@@ -258,7 +264,7 @@ impl Crud for PgVenStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
@@ -307,10 +313,9 @@ impl Crud for PgVenStorage {
 
 #[async_trait]
 impl VenObjectPrivacy for PgVenStorage {
-    async fn targets_by_client_id(
-        &self,
-        client_id: ClientId,
-    ) -> Result<BTreeSet<Target>, AppError> {
+    async fn targets_by_client_id(&self, client_id: &ClientId) -> Result<Vec<Target>, AppError> {
+        // FIXME what about multiple VENs with the same client_id?
+        //  See also https://github.com/oadr3-org/specification/discussions/372
         Ok(sqlx::query_scalar!(
             r#"
             SELECT targets FROM ven WHERE client_id = $1
@@ -321,7 +326,7 @@ impl VenObjectPrivacy for PgVenStorage {
         .await?
         .into_iter()
         .map(|id| id.parse())
-        .collect::<Result<BTreeSet<_>, _>>()?)
+        .collect::<Result<Vec<_>, _>>()?)
     }
 }
 

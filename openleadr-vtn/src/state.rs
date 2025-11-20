@@ -7,7 +7,9 @@ use axum::routing::{delete, post};
 
 use crate::{
     api::{event, healthcheck, program, report, resource, ven},
-    data_source::{DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud},
+    data_source::{
+        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud, VenObjectPrivacy,
+    },
     error::AppError,
     jwt::JwtManager,
 };
@@ -36,7 +38,6 @@ use std::{
 };
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
-use crate::data_source::VenObjectPrivacy;
 
 #[derive(Clone, FromRef)]
 pub struct AppState {

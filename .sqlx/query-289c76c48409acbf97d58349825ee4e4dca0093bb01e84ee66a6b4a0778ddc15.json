@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO program (id,\n                                 created_date_time,\n                                 modification_date_time,\n                                 program_name,\n                                 interval_period,\n                                 program_descriptions,\n                                 payload_descriptors,\n                                 targets,\n                                 business_id,\n                                 attributes)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7)\n            RETURNING id,\n                      created_date_time,\n                      modification_date_time,\n                      program_name,\n                      interval_period,\n                      program_descriptions,\n                      payload_descriptors,\n                      targets as  \"targets:Vec<Target>\",\n                      attributes\n            ",
+  "query": "\n            INSERT INTO program (id,\n                                 created_date_time,\n                                 modification_date_time,\n                                 program_name,\n                                 interval_period,\n                                 program_descriptions,\n                                 payload_descriptors,\n                                 targets,\n                                 attributes)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)\n            RETURNING id,\n                      created_date_time,\n                      modification_date_time,\n                      program_name,\n                      interval_period,\n                      program_descriptions,\n                      payload_descriptors,\n                      targets as  \"targets:Vec<Target>\",\n                      attributes\n            ",
   "describe": {
     "columns": [
       {
@@ -56,7 +56,6 @@
         "Jsonb",
         "Jsonb",
         "TextArray",
-        "Text",
         "Jsonb"
       ]
     },
@@ -72,5 +71,5 @@
       true
     ]
   },
-  "hash": "55330976ef80bf18af7265270d6d2c29884bd90c46ee8b085551e747a4cdc8e9"
+  "hash": "289c76c48409acbf97d58349825ee4e4dca0093bb01e84ee66a6b4a0778ddc15"
 }

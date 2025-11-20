@@ -1,26 +1,26 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id AS \"id!\",\n                   p.created_date_time AS \"created_date_time!\",\n                   p.modification_date_time AS \"modification_date_time!\",\n                   p.program_name AS \"program_name!\",\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering\n            GROUP BY p.id, p.created_date_time\n            ORDER BY p.created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
+  "query": "\n            DELETE FROM program p\n                   WHERE id = $1\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!",
+        "name": "id",
         "type_info": "Text"
       },
       {
         "ordinal": 1,
-        "name": "created_date_time!",
+        "name": "created_date_time",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 2,
-        "name": "modification_date_time!",
+        "name": "modification_date_time",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 3,
-        "name": "program_name!",
+        "name": "program_name",
         "type_info": "Text"
       },
       {
@@ -51,9 +51,7 @@
     ],
     "parameters": {
       "Left": [
-        "TextArray",
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -68,5 +66,5 @@
       true
     ]
   },
-  "hash": "f8122f292ebaf7d52d8d8b8e301c61498d5faf9acfa8266080893aed1ebaa879"
+  "hash": "69451a1e7e184e32937fbf3016e9ba656749c0da6b48f1cae255f7aba60553a3"
 }

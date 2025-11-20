@@ -1,6 +1,7 @@
 #[cfg(feature = "internal-oauth")]
 use crate::data_source::{postgres::user::PgAuthSource, AuthSource};
 
+use super::{Migrate, VenObjectPrivacy};
 use crate::{
     data_source::{
         postgres::{
@@ -10,17 +11,15 @@ use crate::{
         DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
     error::AppError,
-    jwt::{BusinessIds, Claims},
 };
 use async_trait::async_trait;
 use dotenvy::dotenv;
+use openleadr_wire::{target::Target, ClientId};
 use resource::PgResourceStorage;
 use serde::Serialize;
 use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use tracing::{error, info};
-
-use super::{Migrate, VenObjectPrivacy};
 
 mod event;
 mod program;
@@ -117,22 +116,14 @@ fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>
         .transpose()
 }
 
-fn extract_business_id(user: &Claims) -> Result<Option<String>, AppError> {
-    match user.business_ids() {
-        BusinessIds::Specific(ids) => {
-            if ids.len() == 1 {
-                Ok(Some(ids[0].clone()))
-            } else {
-                Err(AppError::BadRequest("Cannot infer business id from user"))?
-            }
-        }
-        BusinessIds::Any => Ok(None),
-    }
-}
-
-fn extract_business_ids(user: &Claims) -> Option<Vec<String>> {
-    match user.business_ids() {
-        BusinessIds::Specific(ids) => Some(ids),
-        BusinessIds::Any => None,
-    }
+async fn get_ven_targets(
+    db: PgPool,
+    client_id: &Option<ClientId>,
+) -> Result<Vec<Target>, AppError> {
+    Ok(if let Some(client_id) = client_id {
+        let ven_store: PgVenStorage = db.into();
+        ven_store.targets_by_client_id(client_id).await?
+    } else {
+        vec![]
+    })
 }

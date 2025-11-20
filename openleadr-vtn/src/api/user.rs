@@ -2,7 +2,7 @@ use crate::{
     api::{AppResponse, ValidatedJson},
     data_source::{AuthSource, UserDetails},
     error::AppError,
-    jwt::{AuthRole, UserManagerUser},
+    jwt::{Scope, User},
 };
 use axum::{
     extract::{Path, State},
@@ -21,7 +21,7 @@ use validator::Validate;
 pub struct NewUser {
     reference: String,
     description: Option<String>,
-    roles: Vec<AuthRole>,
+    scope: Vec<Scope>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -31,9 +31,10 @@ pub struct NewCredential {
     client_secret: String,
 }
 
+// FIXME add authorization checks to all handlers
 pub async fn get_all(
     State(auth_source): State<Arc<dyn AuthSource>>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
 ) -> AppResponse<Vec<UserDetails>> {
     let users = auth_source.get_all_users().await?;
 
@@ -44,7 +45,7 @@ pub async fn get_all(
 pub async fn get(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
 ) -> AppResponse<UserDetails> {
     let user = auth_source.get_user(&id).await?;
     trace!(user_id = user.id(), "received user");
@@ -53,14 +54,14 @@ pub async fn get(
 
 pub async fn add_user(
     State(auth_source): State<Arc<dyn AuthSource>>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
     ValidatedJson(new_user): ValidatedJson<NewUser>,
 ) -> Result<(StatusCode, Json<UserDetails>), AppError> {
     let user = auth_source
         .add_user(
             &new_user.reference,
             new_user.description.as_deref(),
-            &new_user.roles,
+            &new_user.scope,
         )
         .await?;
     info!(user_id = user.id(), "created new user");
@@ -70,7 +71,7 @@ pub async fn add_user(
 pub async fn add_credential(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
     ValidatedJson(new): ValidatedJson<NewCredential>,
 ) -> AppResponse<UserDetails> {
     let user = auth_source
@@ -87,7 +88,7 @@ pub async fn add_credential(
 pub async fn edit(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
     ValidatedJson(modified): ValidatedJson<NewUser>,
 ) -> AppResponse<UserDetails> {
     let user = auth_source
@@ -95,7 +96,7 @@ pub async fn edit(
             &id,
             &modified.reference,
             modified.description.as_deref(),
-            &modified.roles,
+            &modified.scope,
         )
         .await?;
 
@@ -106,7 +107,7 @@ pub async fn edit(
 pub async fn delete_user(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
 ) -> AppResponse<UserDetails> {
     let user = auth_source.remove_user(&id).await?;
     info!(user_id = user.id(), "deleted user");
@@ -116,7 +117,7 @@ pub async fn delete_user(
 pub async fn delete_credential(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path((user_id, client_id)): Path<(String, String)>,
-    UserManagerUser(_): UserManagerUser,
+    User(_): User,
 ) -> AppResponse<UserDetails> {
     let user = auth_source.remove_credentials(&user_id, &client_id).await?;
     info!(user_id = user.id(), client_id, "deleted credential");

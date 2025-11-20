@@ -8,10 +8,10 @@ use axum::{
     Form, Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
+use openleadr_wire::target::Target;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
 use validator::Validate;
-use openleadr_wire::target::Target;
 
 pub(crate) mod auth;
 pub(crate) mod event;
@@ -209,14 +209,14 @@ mod test {
     }
 
     #[cfg(feature = "internal-oauth")]
-    pub(crate) fn jwt_test_token_with_sub(state: &AppState, sub: String, roles: Vec<AuthRole>) -> String {
+    pub(crate) fn jwt_test_token_with_sub(
+        state: &AppState,
+        sub: String,
+        roles: Vec<AuthRole>,
+    ) -> String {
         state
             .jwt_manager
-            .create(
-                std::time::Duration::from_secs(60),
-                sub,
-                roles,
-            )
+            .create(std::time::Duration::from_secs(60), sub, roles)
             .unwrap()
     }
 

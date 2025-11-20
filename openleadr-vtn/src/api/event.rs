@@ -19,18 +19,27 @@ use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::EventCrud,
     error::AppError,
-    jwt::{BusinessUser, User},
+    jwt::{Scope, User},
 };
 
 pub async fn get_all(
     State(event_source): State<Arc<dyn EventCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Vec<Event>> {
     trace!(?query_params);
-
-    let events = event_source.retrieve_all(&query_params, &user).await?;
-    trace!("retrieved {} events", events.len());
+    let events = if user.scope.contains(Scope::ReadAll) {
+        event_source.retrieve_all(&query_params, &None).await?
+    } else if user.scope.contains(Scope::ReadTargets) {
+        event_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_targets' scope",
+        ));
+    };
+    trace!(client_id = user.sub, "retrieved {} events", events.len());
 
     Ok(Json(events))
 }
@@ -38,22 +47,37 @@ pub async fn get_all(
 pub async fn get(
     State(event_source): State<Arc<dyn EventCrud>>,
     Path(id): Path<EventId>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Event> {
-    let event = event_source.retrieve(&id, &user).await?;
-    trace!(%event.id, event.event_name=event.content.event_name, "retrieved event");
+    let event = if user.scope.contains(Scope::ReadAll) {
+        event_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadTargets) {
+        event_source.retrieve(&id, &Some(user.client_id()?)).await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_targets' scope",
+        ));
+    };
+
+    trace!(%event.id, event.event_name=event.content.event_name, client_id = user.sub, "retrieved event");
 
     Ok(Json(event))
 }
 
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
-    BusinessUser(user): BusinessUser,
+    User(user): User,
     ValidatedJson(new_event): ValidatedJson<EventRequest>,
 ) -> Result<(StatusCode, Json<Event>), AppError> {
-    let event = event_source.create(new_event, &User(user)).await?;
+    if !user.scope.contains(Scope::WriteEvents) {
+        return Err(AppError::Forbidden("Missing 'write_events' scope"));
+    }
 
-    info!(%event.id, event_name=event.content.event_name, "event created");
+    let event = event_source
+        .create(new_event, &Some(user.client_id()?))
+        .await?;
+
+    info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event created");
 
     Ok((StatusCode::CREATED, Json(event)))
 }
@@ -61,12 +85,18 @@ pub async fn add(
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
     Path(id): Path<EventId>,
-    BusinessUser(user): BusinessUser,
+    User(user): User,
     ValidatedJson(content): ValidatedJson<EventRequest>,
 ) -> AppResponse<Event> {
-    let event = event_source.update(&id, content, &User(user)).await?;
+    if !user.scope.contains(Scope::WriteEvents) {
+        return Err(AppError::Forbidden("Missing 'write_events' scope"));
+    }
 
-    info!(%event.id, event_name=event.content.event_name, "event updated");
+    let event = event_source
+        .update(&id, content, &Some(user.client_id()?))
+        .await?;
+
+    info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event updated");
 
     Ok(Json(event))
 }
@@ -74,10 +104,14 @@ pub async fn edit(
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
     Path(id): Path<EventId>,
-    BusinessUser(user): BusinessUser,
+    User(user): User,
 ) -> AppResponse<Event> {
-    let event = event_source.delete(&id, &User(user)).await?;
-    info!(%event.id, event.event_name=event.content.event_name, "deleted event");
+    if !user.scope.contains(Scope::WriteEvents) {
+        return Err(AppError::Forbidden("Missing 'write_events' scope"));
+    }
+
+    let event = event_source.delete(&id, &Some(user.client_id()?)).await?;
+    info!(%event.id, event.event_name=event.content.event_name, client_id = user.sub, "deleted event");
     Ok(Json(event))
 }
 
@@ -112,7 +146,7 @@ mod test {
     // for `call`, `oneshot`, and `ready`
     use crate::data_source::DataSource;
     // for `collect`
-    use crate::jwt::{AuthRole, Claims};
+    use crate::jwt::Claims;
     use axum::{
         body::Body,
         http::{self, Request, Response, StatusCode},

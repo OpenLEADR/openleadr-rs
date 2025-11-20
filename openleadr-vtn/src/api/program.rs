@@ -16,39 +16,35 @@ use openleadr_wire::{
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
-    data_source::{ProgramCrud, VenObjectPrivacy},
+    data_source::ProgramCrud,
     error::AppError,
-    jwt::{BusinessUser, User},
+    jwt::{Scope, User},
 };
 
 pub async fn get_all(
     State(program_source): State<Arc<dyn ProgramCrud>>,
-    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
     User(user): User,
 ) -> AppResponse<Vec<Program>> {
     trace!(?query_params);
-    let client_id = user.sub.parse().map_err(|_| {
-        AppError::Auth("OAuth subject name is an invalid OpenADR clientID".to_string())
-    })?;
 
-    dbg!(&user);
+    let programs = if user.scope.contains(Scope::ReadAll) {
+        program_source.retrieve_all(&query_params, &None).await?
+    } else if user.scope.contains(Scope::ReadTargets) {
+        program_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_targets' scope",
+        ));
+    };
 
-    let mut targets = object_privacy
-        .targets_by_client_id(client_id)
-        .await
-        .map_err(|err| {
-            if matches!(err, AppError::NotFound) {
-                AppError::Forbidden("No VEN object associated with the clientID")
-            } else {
-                err
-            }
-        })?;
-
-    let programs = program_source
-        .retrieve_all(&query_params, &User(user))
-        .await?;
-    trace!("retrieved {} programs", programs.len());
+    trace!(
+        client_id = user.sub,
+        "retrieved {} programs",
+        programs.len()
+    );
 
     Ok(Json(programs))
 }
@@ -56,23 +52,49 @@ pub async fn get_all(
 pub async fn get(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Program> {
-    let program = program_source.retrieve(&id, &user).await?;
+    let program = if user.scope.contains(Scope::ReadAll) {
+        program_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadTargets) {
+        program_source
+            .retrieve(&id, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_targets' scope",
+        ));
+    };
 
-    trace!(%program.id, program.program_name=program.content.program_name, "program retrieved");
+    trace!(
+        %program.id,
+        program.program_name=program.content.program_name,
+        client_id = user.sub,
+        "program retrieved"
+    );
 
     Ok(Json(program))
 }
 
 pub async fn add(
     State(program_source): State<Arc<dyn ProgramCrud>>,
-    BusinessUser(user): BusinessUser,
+    User(user): User,
     ValidatedJson(new_program): ValidatedJson<ProgramRequest>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
-    let program = program_source.create(new_program, &User(user)).await?;
+    if !user.scope.contains(Scope::WritePrograms) {
+        return Err(AppError::Forbidden("Missing 'write_programs' scope"));
+    }
 
-    info!(%program.id, program.program_name=program.content.program_name, "program added");
+    let program = program_source
+        .create(new_program, &Some(user.client_id()?))
+        .await?;
+
+    info!(
+        %program.id,
+        program.program_name=program.content.program_name,
+        client_id = user.sub,
+        "program added"
+    );
 
     Ok((StatusCode::CREATED, Json(program)))
 }
@@ -80,12 +102,23 @@ pub async fn add(
 pub async fn edit(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
-    BusinessUser(user): BusinessUser,
+    User(user): User,
     ValidatedJson(content): ValidatedJson<ProgramRequest>,
 ) -> AppResponse<Program> {
-    let program = program_source.update(&id, content, &User(user)).await?;
+    if !user.scope.contains(Scope::WritePrograms) {
+        return Err(AppError::Forbidden("Missing 'write_programs' scope"));
+    }
 
-    info!(%program.id, program.program_name=program.content.program_name, "program updated");
+    let program = program_source
+        .update(&id, content, &Some(user.client_id()?))
+        .await?;
+
+    info!(
+        %program.id,
+        program.program_name=program.content.program_name,
+        client_id = user.sub,
+        "program updated"
+    );
 
     Ok(Json(program))
 }
@@ -93,10 +126,14 @@ pub async fn edit(
 pub async fn delete(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
-    BusinessUser(user): BusinessUser,
+    User(user): User,
 ) -> AppResponse<Program> {
-    let program = program_source.delete(&id, &User(user)).await?;
-    info!(%id, "deleted program");
+    if !user.scope.contains(Scope::WritePrograms) {
+        return Err(AppError::Forbidden("Missing 'write_programs' scope"));
+    }
+
+    let program = program_source.delete(&id, &Some(user.client_id()?)).await?;
+    info!(%id, client_id = user.sub, "deleted program");
     Ok(Json(program))
 }
 
@@ -128,10 +165,7 @@ mod test {
 
     use super::*;
     // for `collect`
-    use crate::{
-        data_source::DataSource,
-        jwt::{AuthRole, Claims},
-    };
+    use crate::{data_source::DataSource, jwt::Claims};
     use axum::{
         body::Body,
         http::{self, Request, Response, StatusCode},
@@ -609,7 +643,11 @@ mod test {
             let (state, _) = state_with_programs(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token_with_sub(&state, "ven-1-client-id".to_string(), vec![AuthRole::VEN("ven-1-client-id".parse().unwrap())]);
+            let token = jwt_test_token_with_sub(
+                &state,
+                "ven-1-client-id".to_string(),
+                vec![AuthRole::VEN("ven-1-client-id".parse().unwrap())],
+            );
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             let status = response.status();
             let body = response.into_body().collect().await.unwrap().to_bytes();
