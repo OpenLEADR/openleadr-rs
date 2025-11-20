@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n                     JOIN program p ON e.program_id = p.id\n            WHERE e.id = $1\n            ",
+  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND e.targets @> $2\n              -- TODO What should happen if the event has no targets set?\n              --  Shall all VENs have access to it or only those without any targets?\n              AND e.targets @> $3\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $4 LIMIT $5\n            ",
   "describe": {
     "columns": [
       {
@@ -66,7 +66,11 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -84,5 +88,5 @@
       true
     ]
   },
-  "hash": "d84982fb522bfc5ec4ccbf2625c648915c2694c0c453019bfcd2960e4f5c7094"
+  "hash": "4fd2566b79ab84a499fbd4c21519baf0f0c7a4b9e2b6f7b59ad5d6db69ce0cce"
 }

@@ -110,11 +110,11 @@ impl From<password_hash::Error> for AppError {
     }
 }
 
-impl AppError {
-    fn into_problem(self) -> Problem {
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
         let reference = Uuid::new_v4();
 
-        match self {
+        let problem = match self {
             AppError::Validation(err) => {
                 trace!(%reference,
                     "Received invalid request: {}",
@@ -343,13 +343,8 @@ impl AppError {
                     instance: Some(reference.to_string()),
                 }
             }
-        }
-    }
-}
+        };
 
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let problem = self.into_problem();
         (problem.status, Json(problem)).into_response()
     }
 }

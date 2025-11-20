@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\",\n                client_id\n            FROM ven\n            WHERE id = $1\n            AND ($2::text[] IS NULL OR id = ANY($2))\n            ",
+  "query": "\n            DELETE FROM report r\n                   WHERE r.id = $1 \n                     AND r.client_id = $2\n                   RETURNING r.*\n            ",
   "describe": {
     "columns": [
       {
@@ -20,21 +20,31 @@
       },
       {
         "ordinal": 3,
-        "name": "ven_name",
+        "name": "event_id",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "attributes",
-        "type_info": "Jsonb"
+        "name": "client_name",
+        "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "targets:Vec<Target>",
-        "type_info": "TextArray"
+        "name": "report_name",
+        "type_info": "Text"
       },
       {
         "ordinal": 6,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "resources",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
         "name": "client_id",
         "type_info": "Text"
       }
@@ -42,7 +52,7 @@
     "parameters": {
       "Left": [
         "Text",
-        "TextArray"
+        "Text"
       ]
     },
     "nullable": [
@@ -50,10 +60,12 @@
       false,
       false,
       false,
+      false,
+      true,
       true,
       false,
       false
     ]
   },
-  "hash": "d077858532b6d46ed44fcbc344eed4612ab602528a4a14ca0494897da3bb8fbf"
+  "hash": "cb7ba20590b66f06bf2e9eec4794a4e2c52b68da1d944243be1ad46c1345a4ba"
 }
