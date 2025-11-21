@@ -1,45 +1,50 @@
 use crate::common::setup;
+use openleadr_client::VirtualEndNode;
 use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
-    resource::ResourceContent,
-    target::{TargetEntry, TargetMap, TargetType},
+    target::Target,
     values_map::{Value, ValueType, ValuesMap},
-    ven::VenContent,
+    ven::VenVenRequest,
 };
 use serial_test::serial;
+use std::str::FromStr;
 
 mod common;
 
 #[tokio::test]
 #[serial]
 async fn crud() {
-    let ctx = setup(AuthRole::VenManager).await;
+    let ctx = setup::<VirtualEndNode>(AuthRole::VenManager).await;
 
     // create new VEN
-    let new = VenContent::new("ven-test".to_string(), None, None, None);
+    let new = VenVenRequest {
+        ven_name: "ven-test".to_string(),
+        attributes: None,
+    };
     let ven = ctx.create_ven(new).await.unwrap();
 
     // Create
-    let new = ResourceContent {
-        resource_name: "test-resource".to_string(),
-        attributes: None,
-        targets: None,
-    };
-    let created_resource = ven.create_resource(new.clone()).await.unwrap();
+    let created_resource = ven.create_resource("test-resource", None).await.unwrap();
     assert_eq!(created_resource.content().resource_name, "test-resource");
 
     // Create with the same name fails for the same ven
     {
-        let err = ven.create_resource(new.clone()).await.unwrap_err();
+        let err = ven
+            .create_resource("test-resource", None)
+            .await
+            .unwrap_err();
         assert!(err.is_conflict());
     }
 
     // Create with the same name succeeds for a different ven
     {
-        let new_ven2 = VenContent::new("ven-test2".to_string(), None, None, None);
+        let new_ven2 = VenVenRequest {
+            ven_name: "ven-test2".to_string(),
+            attributes: None,
+        };
         let ven2 = ctx.create_ven(new_ven2).await.unwrap();
 
-        let resource = ven2.create_resource(new).await.unwrap();
+        let resource = ven2.create_resource("test-resource", None).await.unwrap();
 
         // Cleanup
         resource.delete().await.unwrap();
@@ -57,11 +62,7 @@ async fn crud() {
     // Retrieve one by name
     {
         let resource2 = ven
-            .create_resource(ResourceContent {
-                resource_name: "test-resource2".to_string(),
-                attributes: None,
-                targets: None,
-            })
+            .create_resource("test-resource2".to_string(), None)
             .await
             .unwrap();
         let get_resource = ven.get_resource_by_name("test-resource").await.unwrap();
@@ -80,10 +81,7 @@ async fn crud() {
             value_type: ValueType("PRICE".to_string()),
             values: vec![Value::Number(123.12)],
         }]);
-        let updated_targets = Some(TargetMap(vec![TargetEntry {
-            label: TargetType::Group,
-            values: vec!["group-1".to_string()],
-        }]));
+        let updated_targets = vec![Target::from_str("group-1").unwrap()];
 
         get_resource.content_mut().resource_name = updated_name.clone();
         get_resource.content_mut().attributes = updated_attributes.clone();
