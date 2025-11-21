@@ -7,7 +7,9 @@ use axum::routing::{delete, post};
 
 use crate::{
     api::{event, healthcheck, program, report, resource, ven},
-    data_source::{DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud},
+    data_source::{
+        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud, VenObjectPrivacy,
+    },
     error::AppError,
     jwt::JwtManager,
 };
@@ -368,6 +370,12 @@ impl FromRef<AppState> for Arc<dyn VenCrud> {
     }
 }
 
+impl FromRef<AppState> for Arc<dyn VenObjectPrivacy> {
+    fn from_ref(state: &AppState) -> Arc<dyn VenObjectPrivacy> {
+        state.storage.ven_object_privacy()
+    }
+}
+
 impl FromRef<AppState> for Arc<dyn ResourceCrud> {
     fn from_ref(state: &AppState) -> Arc<dyn ResourceCrud> {
         state.storage.resources()
@@ -393,6 +401,10 @@ mod test {
         }
 
         fn vens(&self) -> Arc<dyn VenCrud> {
+            unimplemented!()
+        }
+
+        fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy> {
             unimplemented!()
         }
 

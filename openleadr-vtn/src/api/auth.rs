@@ -42,7 +42,7 @@ impl IntoResponse for ResponseOAuthError {
         match self.0.error {
             OAuthErrorType::InvalidClient => (
                 StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, r#"Basic realm="VTN""#)],
+                [(header::WWW_AUTHENTICATE, r#"Bearer realm="VTN""#)],
                 Json(self.0),
             )
                 .into_response(),
@@ -150,7 +150,7 @@ pub(crate) async fn token(
     };
 
     let expiration = std::time::Duration::from_secs(3600 * 24 * 30);
-    let token = jwt_manager.create(expiration, user.client_id, user.roles)?;
+    let token = jwt_manager.create(expiration, user.client_id, user.scope)?;
 
     Ok(AccessTokenResponse {
         access_token: token,

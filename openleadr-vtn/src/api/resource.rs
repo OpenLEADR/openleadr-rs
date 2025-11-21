@@ -10,39 +10,39 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::resource::{Resource, ResourceId, ResourceRequest};
+use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
-    data_source::ResourceCrud,
+    data_source::{ResourceCrud, VenObjectPrivacy},
     error::AppError,
-    jwt::User,
+    jwt::{Scope, User},
 };
-
-fn has_write_permission(User(claims): &User, ven_id: &VenId) -> Result<(), AppError> {
-    if claims.is_ven_manager() {
-        return Ok(());
-    }
-
-    if claims.is_ven() && claims.ven_ids().contains(ven_id) {
-        return Ok(());
-    }
-
-    Err(AppError::Forbidden(
-        "User not authorized to access this resource",
-    ))
-}
 
 pub async fn get_all(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Vec<Resource>> {
-    // FIXME object privacy
-    // has_write_permission(&user, &ven_id)?;
     trace!(?query_params);
 
-    let resources = resource_source.retrieve_all(&query_params, &user).await?;
+    let resources = if user.scope.contains(Scope::ReadAll) {
+        resource_source.retrieve_all(&query_params, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        resource_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
+
+    trace!(
+        client_id = user.sub,
+        "retrieved {} resources",
+        resources.len()
+    );
 
     Ok(Json(resources))
 }
@@ -50,38 +50,103 @@ pub async fn get_all(
 pub async fn get(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path(id): Path<ResourceId>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Resource> {
-    // FIXME object privacy
-    // has_write_permission(&user, &ven_id)?;
-    let ven = resource_source.retrieve(&id, &user).await?;
+    let resource = if user.scope.contains(Scope::ReadAll) {
+        resource_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        resource_source
+            .retrieve(&id, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
 
-    Ok(Json(ven))
+    trace!(
+        %resource.id,
+        resource.resource_name=resource.content.resource_name,
+        client_id = user.sub,
+        "resource retrieved"
+    );
+
+    Ok(Json(resource))
 }
 
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
-    user: User,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
+    User(user): User,
     ValidatedJson(new_resource): ValidatedJson<ResourceRequest>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
-    // FIXME object privacy
-    // has_write_permission(&user, &ven_id)?;
-    let ven = resource_source.create(new_resource, &user).await?;
+    // FIXME: how to restrict client logics (aka VENs) from creating resources for other vens?
+    //  See also https://github.com/oadr3-org/specification/discussions/371
+    let new_resource = match new_resource {
+        ResourceRequest::BlResourceRequest(new_resource) => new_resource,
+        ResourceRequest::VenResourceRequest(new_resource) => BlResourceRequest {
+            client_id: user.client_id()?,
+            // FIXME see https://github.com/oadr3-org/specification/discussions/372
+            targets: object_privacy
+                .targets_by_client_id(&user.client_id()?)
+                .await?,
+            resource_name: new_resource.resource_name,
+            ven_id: new_resource.ven_id,
+            attributes: new_resource.attributes,
+        },
+    };
 
-    Ok((StatusCode::CREATED, Json(ven)))
+    let resource = if user.scope.contains(Scope::WriteVens) {
+        resource_source.create(new_resource, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    };
+
+    info!(
+        %resource.id,
+        resource.resource_name=resource.content.resource_name,
+        client_id = user.sub,
+        "resource added"
+    );
+
+    Ok((StatusCode::CREATED, Json(resource)))
 }
 
 pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<ResourceId>,
-    user: User,
-    ValidatedJson(content): ValidatedJson<ResourceRequest>,
+    User(user): User,
+    ValidatedJson(update): ValidatedJson<ResourceRequest>,
 ) -> AppResponse<Resource> {
-    // FIXME object privacy
-    // has_write_permission(&user, &ven_id)?;
-    let resource = resource_source.update(&id, content, &user).await?;
+    // FIXME: how to restrict client logics (aka VENs) from creating resources for other vens?
+    //  See also https://github.com/oadr3-org/specification/discussions/371
+    let update = match update {
+        ResourceRequest::BlResourceRequest(update) => update,
+        ResourceRequest::VenResourceRequest(update) => BlResourceRequest {
+            client_id: user.client_id()?,
+            // FIXME see https://github.com/oadr3-org/specification/discussions/372
+            targets: object_privacy
+                .targets_by_client_id(&user.client_id()?)
+                .await?,
+            resource_name: update.resource_name,
+            ven_id: update.ven_id,
+            attributes: update.attributes,
+        },
+    };
 
-    info!(%resource.id, resource.resource_name=resource.content.resource_name, "resource updated");
+    let resource = if user.scope.contains(Scope::WriteVens) {
+        resource_source.update(&id, update, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    };
+
+    info!(
+        %resource.id,
+        resource.resource_name=resource.content.resource_name,
+        client_id = user.sub,
+        "resource updated"
+    );
 
     Ok(Json(resource))
 }
@@ -89,12 +154,17 @@ pub async fn edit(
 pub async fn delete(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path(id): Path<ResourceId>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Resource> {
-    // FIXME object privacy
-    // has_write_permission(&user, &ven_id)?;
-    let resource = resource_source.delete(&id, &user).await?;
-    info!(%id, "deleted resource");
+    let resource = if user.scope.contains(Scope::WriteVens) {
+        // FIXME how to prevent VEN clients to delete other clients' resources?
+        //  See also https://github.com/oadr3-org/specification/discussions/371
+        resource_source.delete(&id, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    };
+
+    info!(%id, client_id = user.sub, "deleted resource");
     Ok(Json(resource))
 }
 
@@ -106,7 +176,6 @@ pub struct QueryParams {
     #[serde(rename = "venID")]
     pub(crate) ven_id: Option<VenId>,
     #[serde(flatten)]
-    #[validate(nested)]
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
@@ -121,8 +190,9 @@ fn get_50() -> i64 {
 }
 
 #[cfg(test)]
+#[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use crate::{api::test::ApiTest};
     use axum::body::Body;
     use openleadr_wire::{
         problem::Problem,
@@ -130,10 +200,11 @@ mod test {
     };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
+    use crate::jwt::Scope;
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn test_get_all(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
@@ -150,7 +221,7 @@ mod test {
         assert_eq!(resources.len(), 3);
 
         // test with ven user
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens, Scope::ReadTargets]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
@@ -167,7 +238,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn get_all_filtered(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?skip=1", Body::empty())
@@ -200,7 +271,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn get_single_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -213,7 +284,7 @@ mod test {
         assert_eq!(resource.id.as_str(), "resource-1");
 
         // test with ven user
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadTargets, Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -246,7 +317,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn add_edit_delete(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -301,7 +372,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll, Scope::WriteVens]).await;
 
         let resources = [
             ResourceRequest::VenResourceRequest(VenResourceRequest {

@@ -4,12 +4,17 @@ pub enum OAuthErrorType {
     OAuthNotEnabled,
     InvalidRequest,
     InvalidClient,
+    InvalidSubject,
     InvalidGrant,
     // UnauthorizedClient,
     UnsupportedGrantType,
     // InvalidScope,
     ServerError,
     NoAvailableKeys,
+    /// nbf claim set to a later time than 'now'
+    NotYetValid,
+    /// exp claim > now
+    Expired,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

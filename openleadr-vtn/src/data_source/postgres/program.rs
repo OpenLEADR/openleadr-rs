@@ -1,18 +1,17 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{extract_business_id, to_json_value},
+        postgres::{get_ven_targets, to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
-    jwt::User,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     target::Target,
-    Program,
+    ClientId, Program,
 };
 use sqlx::PgPool;
 use tracing::error;
@@ -117,15 +116,13 @@ impl Crud for PgProgramStorage {
     type NewType = ProgramRequest;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = User;
+    type PermissionFilter = Option<ClientId>;
 
     async fn create(
         &self,
         new: Self::NewType,
-        User(user): &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_id = extract_business_id(user)?;
-
         let program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -137,9 +134,8 @@ impl Crud for PgProgramStorage {
                                  program_descriptions,
                                  payload_descriptors,
                                  targets,
-                                 business_id,
                                  attributes)
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)
             RETURNING id,
                       created_date_time,
                       modification_date_time,
@@ -155,7 +151,6 @@ impl Crud for PgProgramStorage {
             to_json_value(new.program_descriptions)?,
             to_json_value(new.payload_descriptors)?,
             new.targets.as_slice() as &[Target],
-            business_id,
             to_json_value(new.attributes)?,
         )
         .fetch_one(&self.db)
@@ -168,9 +163,9 @@ impl Crud for PgProgramStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -186,8 +181,10 @@ impl Crud for PgProgramStorage {
                    p.attributes
             FROM program p
             WHERE id = $1
+              AND p.targets @> $2
             "#,
             id.as_str(),
+            ven_targets as _
         )
         .fetch_one(&self.db)
         .await?
@@ -197,29 +194,31 @@ impl Crud for PgProgramStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        User(user): &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let _ = user; // FIXME implement object privacy
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresProgram,
             r#"
-            SELECT p.id AS "id!",
-                   p.created_date_time AS "created_date_time!",
-                   p.modification_date_time AS "modification_date_time!",
-                   p.program_name AS "program_name!",
+            SELECT p.id,
+                   p.created_date_time,
+                   p.modification_date_time,
+                   p.program_name,
                    p.interval_period,
                    p.program_descriptions,
                    p.payload_descriptors,
                    p.targets as  "targets:Vec<Target>",
                    p.attributes
             FROM program p
-            WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering
+            WHERE ($1::text[] IS NULL OR p.targets @> $1)
+              AND p.targets @> $2
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $2 LIMIT $3
+            OFFSET $3 LIMIT $4
             "#,
-            filter.targets.targets.as_deref(),
+            filter.targets as _,
+            ven_targets as _,
             filter.skip,
             filter.limit,
         )
@@ -234,10 +233,8 @@ impl Crud for PgProgramStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        User(user): &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let _ = user; // FIXME implement object privacy
-
         let program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -265,7 +262,7 @@ impl Crud for PgProgramStorage {
             to_json_value(new.interval_period)?,
             to_json_value(new.program_descriptions)?,
             to_json_value(new.payload_descriptors)?,
-            new.targets.as_slice() as &[Target],
+            new.targets.as_slice() as _,
             to_json_value(new.attributes)?
         )
         .fetch_one(&self.db)
@@ -278,16 +275,13 @@ impl Crud for PgProgramStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        User(user): &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_id = extract_business_id(user)?;
-
         Ok(sqlx::query_as!(
             PostgresProgram,
             r#"
             DELETE FROM program p
                    WHERE id = $1
-                     AND ($2::text IS NULL OR business_id = $2)
             RETURNING p.id,
                    p.created_date_time,
                    p.modification_date_time,
@@ -299,7 +293,6 @@ impl Crud for PgProgramStorage {
                    p.attributes
             "#,
             id.as_str(),
-            business_id,
         )
         .fetch_one(&self.db)
         .await?
@@ -311,10 +304,9 @@ impl Crud for PgProgramStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::{program::QueryParams, TargetQueryParams},
+        api::{program::QueryParams},
         data_source::{postgres::program::PgProgramStorage, Crud},
         error::AppError,
-        jwt::{Claims, User},
     };
     use openleadr_wire::{
         event::{EventPayloadDescriptor, EventType},
@@ -329,7 +321,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                targets: TargetQueryParams { targets: None },
+                targets: None,
                 skip: 0,
                 limit: 50,
             }
@@ -399,7 +391,7 @@ mod tests {
         async fn default_get_all(db: PgPool) {
             let repo: PgProgramStorage = db.into();
             let mut programs = repo
-                .retrieve_all(&Default::default(), &User(Claims::any_business_user()))
+                .retrieve_all(&Default::default(), &None)
                 .await
                 .unwrap();
             assert_eq!(programs.len(), 3);
@@ -416,7 +408,7 @@ mod tests {
                         limit: 1,
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -432,7 +424,7 @@ mod tests {
                         skip: 1,
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -444,7 +436,7 @@ mod tests {
                         skip: 3,
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -458,12 +450,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: Some(vec!["group-1".parse().unwrap()]),
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -472,12 +462,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["not-existent".to_string()]),
-                        },
+                        targets: Some(vec!["not-existent".parse().unwrap()]),
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -491,12 +479,13 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string(), "group-2".to_string()]),
-                        },
+                        targets: Some(vec![
+                            "group-1".parse().unwrap(),
+                            "group-2".parse().unwrap(),
+                        ]),
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -505,15 +494,13 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec![
-                                "group-1".to_string(),
-                                "group-not-existent".to_string(),
-                            ]),
-                        },
+                        targets: Some(vec![
+                            "group-1".parse().unwrap(),
+                            "group-not-existent".parse().unwrap(),
+                        ]),
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -522,12 +509,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-2".to_string()]),
-                        },
+                        targets: Some(vec!["group-2".parse().unwrap()]),
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -536,12 +521,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: Some(vec!["group-1".parse().unwrap()]),
                         ..Default::default()
                     },
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -559,7 +542,7 @@ mod tests {
             let program = repo
                 .retrieve(
                     &"program-1".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -572,7 +555,7 @@ mod tests {
             let program = repo
                 .retrieve(
                     &"program-not-existent".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await;
 
@@ -589,7 +572,7 @@ mod tests {
             let repo: PgProgramStorage = db.into();
 
             let program = repo
-                .create(program_1().content, &User(Claims::any_business_user()))
+                .create(program_1().content, &None)
                 .await
                 .unwrap();
             assert!(program.created_date_time < Utc::now() + Duration::minutes(10));
@@ -603,7 +586,7 @@ mod tests {
             let repo: PgProgramStorage = db.into();
 
             let program = repo
-                .create(program_1().content, &User(Claims::any_business_user()))
+                .create(program_1().content, &None)
                 .await;
             assert!(matches!(program, Err(AppError::Conflict(_, _))));
         }
@@ -620,7 +603,7 @@ mod tests {
                 .update(
                     &"program-1".parse().unwrap(),
                     program_1().content,
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -646,7 +629,7 @@ mod tests {
                 .update(
                     &"program-1".parse().unwrap(),
                     updated.clone(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -655,7 +638,7 @@ mod tests {
             let program = repo
                 .retrieve(
                     &"program-1".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -672,7 +655,7 @@ mod tests {
             let program = repo
                 .delete(
                     &"program-1".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -681,7 +664,7 @@ mod tests {
             let program = repo
                 .retrieve(
                     &"program-1".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await;
             assert!(matches!(program, Err(AppError::NotFound)));
@@ -689,7 +672,7 @@ mod tests {
             let program = repo
                 .retrieve(
                     &"program-2".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -702,7 +685,7 @@ mod tests {
             let program = repo
                 .delete(
                     &"program-not-existing".parse().unwrap(),
-                    &User(Claims::any_business_user()),
+                    &None,
                 )
                 .await;
             assert!(matches!(program, Err(AppError::NotFound)));

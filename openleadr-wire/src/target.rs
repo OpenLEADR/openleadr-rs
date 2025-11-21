@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 /// User generated target string.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, FromStr, sqlx::Type)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, FromStr, sqlx::Type, PartialOrd, Ord,
+)]
 #[sqlx(transparent)]
 pub struct Target(pub(crate) Identifier);
 

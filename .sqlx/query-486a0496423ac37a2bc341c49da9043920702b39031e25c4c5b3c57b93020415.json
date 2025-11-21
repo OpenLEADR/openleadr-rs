@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM program p\n                   WHERE id = $1\n                     AND ($2::text IS NULL OR business_id = $2)\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            ",
+  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE id = $1\n              AND p.targets @> $2\n            ",
   "describe": {
     "columns": [
       {
@@ -52,7 +52,7 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -67,5 +67,5 @@
       true
     ]
   },
-  "hash": "fb69908c36af22026b5e0ff345a9ad521488d2df456ee5ab4d8e517b616f03b9"
+  "hash": "486a0496423ac37a2bc341c49da9043920702b39031e25c4c5b3c57b93020415"
 }
