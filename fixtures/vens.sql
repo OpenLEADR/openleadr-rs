@@ -17,9 +17,19 @@ VALUES ('ven-1',
         '2024-07-25 08:31:10.776000 +00:00',
         'ven-2-name',
         NULL,
-        ARRAY []::text[],
-        'ven-2-client-id');
-
--- Fixme this should not be needed with object privacy
-INSERT INTO user_ven (ven_id, user_id)
-VALUES ('ven-1', 'user-1');
+        ARRAY ['group-2']::text[],
+        'ven-2-client-id'),
+       ('ven-3',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-3-name',
+        NULL,
+        ARRAY ['group-1']::text[],
+        'ven-3-client-id'),
+       ('ven-4',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-4-name',
+        NULL,
+        ARRAY ['group-1', 'group-2']::text[],
+        'ven-4-client-id');

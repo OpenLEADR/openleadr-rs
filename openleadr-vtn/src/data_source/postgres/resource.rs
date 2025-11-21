@@ -297,7 +297,6 @@ mod test {
     use crate::{
         api::{resource::QueryParams, TargetQueryParams},
         data_source::{postgres::resource::PgResourceStorage, Crud},
-        jwt::{AuthRole, User},
     };
     use sqlx::PgPool;
 
@@ -325,16 +324,15 @@ mod test {
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn retrieve_all(db: PgPool) {
         let repo = PgResourceStorage::from(db.clone());
-        let user = User(crate::jwt::Claims::new(vec![AuthRole::VenManager]));
 
         let resources = repo
-            .retrieve_all(&QueryParams::ven_id("ven-1"), &user)
+            .retrieve_all(&QueryParams::ven_id("ven-1"), &Some("ven-1-client-id".parse().unwrap()))
             .await
             .unwrap();
         assert_eq!(resources.len(), 2);
 
         let resources = repo
-            .retrieve_all(&QueryParams::ven_id("ven-2"), &user)
+            .retrieve_all(&QueryParams::ven_id("ven-2"), &Some("ven-2-client-id".parse().unwrap()))
             .await
             .unwrap();
         assert_eq!(resources.len(), 3);
@@ -345,8 +343,15 @@ mod test {
             ..Default::default()
         };
 
-        let resources = repo.retrieve_all(&filters, &user).await.unwrap();
+        let resources = repo.retrieve_all(&filters, &Some("ven-1-client-id".parse().unwrap())).await.unwrap();
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].content.resource_name, "resource-1-name");
+
+        // Ensure a client cannot see resources of another client
+        let resources = repo
+            .retrieve_all(&QueryParams::ven_id("ven-2"), &Some("ven-1-client-id".parse().unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(resources.len(), 0);
     }
 }
