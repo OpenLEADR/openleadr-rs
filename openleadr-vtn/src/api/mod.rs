@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use crate::{error::AppError, state::AppState};
 use axum::{
     extract::{
@@ -60,7 +61,7 @@ where
 
 impl<T, S> FromRequestParts<S> for ValidatedQuery<T>
 where
-    T: DeserializeOwned + Validate,
+    T: DeserializeOwned + Validate + Debug,
     S: Send + Sync,
     Query<T>: FromRequestParts<S, Rejection = QueryRejection>,
 {
@@ -102,7 +103,7 @@ pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoR
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{data_source::PostgresStorage, jwt::AuthRole, state::AppState};
+    use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState};
     use axum::{
         body::Body,
         http::{self, Request, StatusCode},
@@ -113,6 +114,7 @@ mod test {
     use reqwest::Method;
     use serde::de::DeserializeOwned;
     use sqlx::PgPool;
+    use std::fmt::Display;
     use tower::ServiceExt;
 
     pub(crate) struct ApiTest {
@@ -121,7 +123,7 @@ mod test {
     }
 
     impl ApiTest {
-        pub(crate) async fn new(db: PgPool, roles: Vec<AuthRole>) -> Self {
+        pub(crate) async fn new(db: PgPool, client_id: impl Display, scope: Vec<Scope>) -> Self {
             let store = PostgresStorage::new(db).unwrap();
             let app_state = AppState::new(store).await;
 
@@ -129,8 +131,8 @@ mod test {
                 .jwt_manager
                 .create(
                     std::time::Duration::from_secs(60),
-                    "test_admin".to_string(),
-                    roles,
+                    client_id.to_string(),
+                    scope,
                 )
                 .unwrap();
 
@@ -197,26 +199,18 @@ mod test {
     }
 
     #[cfg(feature = "internal-oauth")]
-    pub(crate) fn jwt_test_token(state: &AppState, roles: Vec<AuthRole>) -> String {
+    pub(crate) fn jwt_test_token(
+        state: &AppState,
+        client_id: impl Display,
+        scope: Vec<Scope>,
+    ) -> String {
         state
             .jwt_manager
             .create(
                 std::time::Duration::from_secs(60),
-                "test_admin".to_string(),
-                roles,
+                client_id.to_string(),
+                scope,
             )
-            .unwrap()
-    }
-
-    #[cfg(feature = "internal-oauth")]
-    pub(crate) fn jwt_test_token_with_sub(
-        state: &AppState,
-        sub: String,
-        roles: Vec<AuthRole>,
-    ) -> String {
-        state
-            .jwt_manager
-            .create(std::time::Duration::from_secs(60), sub, roles)
             .unwrap()
     }
 
@@ -229,7 +223,8 @@ mod test {
     async fn unsupported_media_type(db: PgPool) {
         let mut test = ApiTest::new(
             db.clone(),
-            vec![AuthRole::AnyBusiness, AuthRole::UserManager],
+            "test-client",
+            vec![Scope::ReadAll, Scope::WritePrograms],
         )
         .await;
 
@@ -248,7 +243,19 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let status = response.status();
+        let body = String::from_utf8(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        println!("Response body: {}", body);
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
         let (status, _) = test
             .request::<Problem>(Method::POST, "/auth/token", Body::empty())
@@ -259,7 +266,7 @@ mod test {
 
     #[sqlx::test]
     async fn method_not_allowed(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::DELETE, "/programs", Body::empty())
@@ -270,7 +277,7 @@ mod test {
 
     #[sqlx::test]
     async fn not_found(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
@@ -280,7 +287,7 @@ mod test {
 
     #[sqlx::test]
     async fn healthcheck(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
 
         let status = test.empty_request(Method::GET, "/health").await;
         assert_eq!(status, StatusCode::OK);

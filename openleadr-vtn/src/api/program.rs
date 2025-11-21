@@ -13,9 +13,9 @@ use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     Program,
 };
-
+use openleadr_wire::target::Target;
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, ValidatedJson, ValidatedQuery},
     data_source::ProgramCrud,
     error::AppError,
     jwt::{Scope, User},
@@ -140,12 +140,11 @@ pub async fn delete(
 #[derive(Deserialize, Validate, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
-    #[serde(flatten)]
-    pub(crate) targets: TargetQueryParams,
+    #[serde(default)]
+    pub(crate) targets: Option<Vec<Target>>,
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
-    // TODO how to interpret limit = 0 and what is the default?
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
@@ -164,18 +163,17 @@ mod test {
     use crate::api::test::*;
 
     use super::*;
-    // for `collect`
-    use crate::{data_source::DataSource, jwt::Claims};
+    use crate::data_source::DataSource;
     use axum::{
         body::Body,
         http::{self, Request, Response, StatusCode},
         Router,
     };
     use http_body_util::BodyExt;
-    use openleadr_wire::{problem::Problem, target::Target, Event};
+    use reqwest::Method;
+    use openleadr_wire::{problem::Problem, target::Target};
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
-    // for `call`, `oneshot`, and `ready`
 
     fn default_content() -> ProgramRequest {
         ProgramRequest {
@@ -189,7 +187,7 @@ mod test {
     }
 
     fn program_request(
-        method: http::Method,
+        method: Method,
         program: ProgramRequest,
         id: &str,
         token: &str,
@@ -213,7 +211,7 @@ mod test {
         for program in new_programs {
             let p = store
                 .programs()
-                .create(program.clone(), &User(Claims::any_business_user()))
+                .create(program.clone(), &None)
                 .await
                 .unwrap();
             assert_eq!(p.content, program);
@@ -223,10 +221,10 @@ mod test {
         (AppState::new(store).await, programs)
     }
 
-    async fn get_help(app: &mut Router, token: &str, id: &str) -> Response<Body> {
+    async fn help_get(app: &mut Router, token: &str, id: &str) -> Response<Body> {
         app.oneshot(
             Request::builder()
-                .method(http::Method::GET)
+                .method(Method::GET)
                 .uri(format!("/programs/{id}"))
                 .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
@@ -236,14 +234,27 @@ mod test {
         .unwrap()
     }
 
-    #[sqlx::test(fixtures("users"))]
+    async fn help_get_all(app: &mut Router, token: &str) -> Response<Body> {
+        app.oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/programs")
+                .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+            .await
+            .unwrap()
+    }
+
+    #[sqlx::test]
     async fn get(db: PgPool) {
         let (state, mut programs) = state_with_programs(vec![default_content()], db).await;
         let program = programs.remove(0);
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll]);
         let mut app = state.into_router();
 
-        let response = get_help(&mut app, &token, program.id.as_str()).await;
+        let response = help_get(&mut app, &token, program.id.as_str()).await;
 
         assert_eq!(response.status(), StatusCode::OK);
 
@@ -253,29 +264,45 @@ mod test {
         assert_eq!(program, db_program);
     }
 
-    #[sqlx::test(fixtures("users"))]
+    #[sqlx::test]
+    async fn get_all(db: PgPool) {
+        let mut programs = vec![default_content(), default_content(), default_content()];
+        programs[0].program_name = "program0".to_string();
+        programs[1].program_name = "program1".to_string();
+        programs[2].program_name = "program2".to_string();
+        let (state, _) = state_with_programs(programs, db).await;
+        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll]);
+        let mut app = state.into_router();
+
+        let response = help_get_all(&mut app, &token).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let db_programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(db_programs.len(), 3);
+    }
+
+    #[sqlx::test]
     async fn delete(db: PgPool) {
-        let program1 = ProgramRequest {
-            program_name: "program1".to_string(),
-            ..default_content()
-        };
-        let program2 = ProgramRequest {
-            program_name: "program2".to_string(),
-            ..default_content()
-        };
-        let program3 = ProgramRequest {
-            program_name: "program3".to_string(),
-            ..default_content()
-        };
+        let mut programs = vec![default_content(), default_content(), default_content()];
+        programs[0].program_name = "program0".to_string();
+        programs[1].program_name = "program1".to_string();
+        programs[2].program_name = "program2".to_string();
 
         let (state, programs) =
-            state_with_programs(vec![program1, program2.clone(), program3], db).await;
+            state_with_programs(programs, db).await;
         let program_id = programs[1].id.clone();
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::ReadAll, Scope::WritePrograms],
+        );
         let mut app = state.into_router();
 
         let request = Request::builder()
-            .method(http::Method::DELETE)
+            .method(Method::DELETE)
             .uri(format!("/programs/{program_id}"))
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .body(Body::empty())
@@ -293,7 +320,7 @@ mod test {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let db_program: Program = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(program2, db_program.content);
+        assert_eq!(programs[1], db_program);
 
         let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
         assert_eq!(response.status(), StatusCode::OK);
@@ -307,12 +334,12 @@ mod test {
     async fn update(db: PgPool) {
         let (state, mut programs) = state_with_programs(vec![default_content()], db).await;
         let program = programs.remove(0);
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll, Scope::WritePrograms]);
         let app = state.into_router();
 
         let response = app
             .oneshot(program_request(
-                http::Method::PUT,
+                Method::PUT,
                 program.content.clone(),
                 program.id.as_str(),
                 &token,
@@ -329,28 +356,23 @@ mod test {
         assert!(program.modification_date_time < db_program.modification_date_time);
     }
 
-    #[sqlx::test(fixtures("users"))]
+    #[sqlx::test]
     async fn update_same_name(db: PgPool) {
-        let program1 = ProgramRequest {
-            program_name: "program1".to_string(),
-            ..default_content()
-        };
-        let program2 = ProgramRequest {
-            program_name: "program2".to_string(),
-            ..default_content()
-        };
+        let mut programs = vec![default_content(), default_content()];
+        programs[0].program_name = "program0".to_string();
+        programs[1].program_name = "program1".to_string();
 
-        let (state, mut programs) = state_with_programs(vec![program1, program2], db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let (state, mut programs) = state_with_programs(programs, db).await;
+        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll, Scope::WritePrograms]);
         let app = state.into_router();
 
         let mut updated = programs.remove(0);
-        updated.content.program_name = "program2".to_string();
+        updated.content.program_name = "program1".to_string();
 
         // different id, same name
         let response = app
             .oneshot(program_request(
-                http::Method::PUT,
+                Method::PUT,
                 updated.content,
                 updated.id.as_str(),
                 &token,
@@ -367,7 +389,7 @@ mod test {
         body: &ProgramRequest,
     ) -> Response<Body> {
         let request = Request::builder()
-            .method(http::Method::POST)
+            .method(Method::POST)
             .uri("/programs")
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
@@ -382,10 +404,14 @@ mod test {
             .unwrap()
     }
 
-    #[sqlx::test(fixtures("users"))]
+    #[sqlx::test]
     async fn create_same_name(db: PgPool) {
         let (state, _) = state_with_programs(vec![], db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::ReadAll, Scope::WritePrograms],
+        );
         let mut app = state.into_router();
 
         let response = help_create_program(&mut app, &token, &default_content()).await;
@@ -397,23 +423,16 @@ mod test {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
+        let mut programs = vec![default_content(), default_content()];
+        programs[0].program_name = "".to_string();
+        programs[1].program_name = "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string();
 
-        let programs = [
-            ProgramRequest {
-                program_name: "".to_string(),
-                ..default_content()
-            },
-            ProgramRequest {
-                program_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(),
-                ..default_content()
-            },
-        ];
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         for program in &programs {
             let (status, error) = test
                 .request::<Problem>(
-                    http::Method::POST,
+                    Method::POST,
                     "/programs",
                     Body::from(serde_json::to_vec(&program).unwrap()),
                 )
@@ -421,10 +440,7 @@ mod test {
 
             assert_eq!(status, StatusCode::BAD_REQUEST);
             let detail = error.detail.unwrap();
-            assert!(
-                detail.contains("outside of allowed range 1..=128")
-                    || detail.contains("data did not match any variant")
-            );
+            assert!(detail.contains("outside of allowed range 1..=128"));
         }
     }
 
@@ -434,7 +450,7 @@ mod test {
         token: &str,
     ) -> Response<Body> {
         let request = Request::builder()
-            .method(http::Method::GET)
+            .method(Method::GET)
             .uri(format!("/programs?{query_params}"))
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
@@ -449,7 +465,7 @@ mod test {
             .unwrap()
     }
 
-    #[sqlx::test(fixtures("users"))]
+    #[sqlx::test]
     async fn retrieve_all_with_filter(db: PgPool) {
         let program1 = ProgramRequest {
             program_name: "program1".to_string(),
@@ -467,7 +483,7 @@ mod test {
         };
 
         let (state, _) = state_with_programs(vec![program1, program2, program3], db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll]);
         let mut app = state.into_router();
 
         // no query params
@@ -506,147 +522,106 @@ mod test {
         let response = retrieve_all_with_filter_help(&mut app, "limit=0", &token).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-        let response = retrieve_all_with_filter_help(&mut app, "targets", &token).await;
-        assert_eq!(
-            response.status(),
-            StatusCode::BAD_REQUEST,
-            "Do return BAD_REQUEST on empty targets"
-        );
-
-        let response = retrieve_all_with_filter_help(&mut app, "targets=", &token).await;
-        assert_eq!(
-            response.status(),
-            StatusCode::BAD_REQUEST,
-            "Do return BAD_REQUEST on empty targets"
-        );
-
         let response = retrieve_all_with_filter_help(&mut app, "targets=NONSENSE", &token).await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let programs: Vec<Event> = serde_json::from_slice(&body).unwrap();
+        let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
         assert_eq!(programs.len(), 0);
 
         let response =
-            retrieve_all_with_filter_help(&mut app, "targets=group-1&targets=group-2", &token)
+            retrieve_all_with_filter_help(&mut app, "targets=group-1", &token)
                 .await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(programs.len(), 2);
+        assert_eq!(programs.len(), 1);
     }
 
     mod permissions {
         use super::*;
 
-        #[sqlx::test(fixtures("users", "business"))]
-        async fn business_can_create_program(db: PgPool) {
+        #[sqlx::test]
+        async fn can_create_program_with_only_write_scope(db: PgPool) {
             let (state, _) = state_with_programs(vec![], db).await;
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
+            let token = jwt_test_token(&state, "test-client", vec![Scope::WritePrograms]);
             let mut app = state.into_router();
 
             let response = help_create_program(&mut app, &token, &default_content()).await;
             assert_eq!(response.status(), StatusCode::CREATED);
         }
 
-        #[sqlx::test(fixtures("users", "business"))]
-        async fn business_id_must_must_be_unambiguous_create_program(db: PgPool) {
+        #[sqlx::test]
+        async fn can_create_program_with_write_scope(db: PgPool) {
             let (state, _) = state_with_programs(vec![], db.clone()).await;
             let token = jwt_test_token(
                 &state,
-                vec![
-                    AuthRole::Business("business-1".to_string()),
-                    AuthRole::Business("business-2".to_string()),
-                ],
+                "test-client",
+                vec![Scope::ReadAll, Scope::WritePrograms],
             );
+
             let mut app = state.into_router();
 
             let response = help_create_program(&mut app, &token, &default_content()).await;
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(response.status(), StatusCode::CREATED);
         }
 
-        #[sqlx::test(fixtures("users", "business"))]
-        async fn businesses_can_read_any_program(db: PgPool) {
-            let (state, _) = state_with_programs(vec![], db).await;
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let mut app = state.clone().into_router();
-
-            let response = help_create_program(&mut app, &token, &default_content()).await;
-            assert_eq!(response.status(), StatusCode::CREATED);
-
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let program: Program = serde_json::from_slice(&body).unwrap();
-
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
-            assert_eq!(response.status(), StatusCode::OK);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-2".to_string())]);
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
-            assert_eq!(response.status(), StatusCode::OK);
-
+        #[sqlx::test]
+        async fn cannot_create_program_without_write_scope(db: PgPool) {
+            let (state, _) = state_with_programs(vec![], db.clone()).await;
             let token = jwt_test_token(
                 &state,
-                vec![
-                    AuthRole::Business("business-2".to_string()),
-                    AuthRole::Business("business-1".to_string()),
-                ],
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::WritePrograms)
+                    .collect(),
             );
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
-            assert_eq!(response.status(), StatusCode::OK);
 
-            let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
-            assert_eq!(response.status(), StatusCode::OK);
+            let mut app = state.into_router();
+
+            let response = help_create_program(&mut app, &token, &default_content()).await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
         }
 
-        #[sqlx::test(fixtures("users", "business", "programs", "vens"))]
-        #[should_panic = "left: 200"] // FIXME implement object privacy
+        #[sqlx::test(fixtures("vens"))]
         async fn vens_can_read_assigned_programs_only(db: PgPool) {
-            let (state, _) = state_with_programs(vec![], db).await;
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let mut app = state.clone().into_router();
-
             let content = ProgramRequest {
-                targets: vec![Target::from_str("ven-1-name").unwrap()],
+                targets: vec!["group-1".parse().unwrap(), "private-value".parse().unwrap()],
                 ..default_content()
             };
 
-            let response = help_create_program(&mut app, &token, &content).await;
-            assert_eq!(response.status(), StatusCode::CREATED);
+            let (state, mut programs) = state_with_programs(vec![content], db).await;
+            let program = programs.remove(0);
+            let mut app = state.clone().into_router();
 
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let program: Program = serde_json::from_slice(&body).unwrap();
-
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
+            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
+            let response = help_get(&mut app, &token, program.id.as_str()).await;
             assert_eq!(response.status(), StatusCode::OK);
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-2".parse().unwrap())]);
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
+            let token = jwt_test_token(&state, "ven-2-client-id", vec![Scope::ReadTargets]);
+            let response = help_get(&mut app, &token, program.id.as_str()).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-            let token = jwt_test_token(
-                &state,
-                vec![
-                    AuthRole::VEN("ven-2".parse().unwrap()),
-                    AuthRole::VEN("ven-1".parse().unwrap()),
-                ],
-            );
-            let response = get_help(&mut app, &token, program.id.as_str()).await;
+            let token = jwt_test_token(&state, "ven-3-client-id", vec![Scope::ReadTargets]);
+            let response = help_get(&mut app, &token, program.id.as_str()).await;
             assert_eq!(response.status(), StatusCode::OK);
+
+            let token = jwt_test_token(&state, "ven-4-client-id", vec![Scope::ReadTargets]);
+            let response = help_get(&mut app, &token, program.id.as_str()).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
-        #[sqlx::test(fixtures("users", "business", "programs", "vens"))]
-        // FIXME implement object privacy
+        #[sqlx::test(fixtures("users", "programs", "vens"))]
         async fn retrieve_all_returns_ven_assigned_programs_only(db: PgPool) {
             let (state, _) = state_with_programs(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token_with_sub(
+            let token = jwt_test_token(
                 &state,
                 "ven-1-client-id".to_string(),
-                vec![AuthRole::VEN("ven-1-client-id".parse().unwrap())],
+                vec![Scope::ReadTargets],
             );
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             let status = response.status();
@@ -662,7 +637,11 @@ mod test {
             names.sort();
             assert_eq!(names, vec!["program-1", "program-3"]);
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-2".parse().unwrap())]);
+            let token = jwt_test_token(
+                &state,
+                "ven-2-client-id".to_string(),
+                vec![Scope::ReadTargets],
+            );
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -675,46 +654,35 @@ mod test {
             names.sort();
             assert_eq!(names, vec!["program-1", "program-2"]);
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-2".parse().unwrap())]);
+            let token = jwt_test_token(
+                &state,
+                "ven-2-client-id".to_string(),
+                vec![Scope::ReadTargets],
+            );
             let response = retrieve_all_with_filter_help(&mut app, "targets=ven-1", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
             assert!(programs.is_empty());
-
-            let token = jwt_test_token(
-                &state,
-                vec![
-                    AuthRole::VEN("ven-2".parse().unwrap()),
-                    AuthRole::VEN("ven-1".parse().unwrap()),
-                ],
-            );
-            let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(programs.len(), 3);
-            let mut names = programs
-                .into_iter()
-                .map(|p| p.content.program_name)
-                .collect::<Vec<_>>();
-            names.sort();
-            assert_eq!(names, vec!["program-1", "program-2", "program-3"]);
         }
 
-        #[sqlx::test(fixtures("users", "business", "programs", "vens"))]
+        #[sqlx::test(fixtures("users", "programs", "vens"))]
         async fn ven_cannot_write_program(db: PgPool) {
             let (state, _) = state_with_programs(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+            let token = jwt_test_token(
+                &state,
+                "ven-1-client-id".to_string(),
+                vec![Scope::ReadTargets],
+            );
             let response = help_create_program(&mut app, &token, &default_content()).await;
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
             let response = app
                 .clone()
                 .oneshot(program_request(
-                    http::Method::PUT,
+                    Method::PUT,
                     default_content(),
                     "program-1",
                     &token,
@@ -726,7 +694,7 @@ mod test {
             app.clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::DELETE)
+                        .method(Method::DELETE)
                         .uri(format!("/programs/{}", "program-1"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
