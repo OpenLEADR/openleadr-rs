@@ -99,7 +99,7 @@ pub async fn add(
     let resource = if user.scope.contains(Scope::WriteVens) {
         resource_source.create(new_resource, &None).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_resources' scope"));
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     };
 
     info!(
@@ -138,7 +138,7 @@ pub async fn edit(
     let resource = if user.scope.contains(Scope::WriteVens) {
         resource_source.update(&id, update, &None).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_resources' scope"));
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     };
 
     info!(
@@ -161,7 +161,7 @@ pub async fn delete(
         //  See also https://github.com/oadr3-org/specification/discussions/371
         resource_source.delete(&id, &None).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_resources' scope"));
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     };
 
     info!(%id, client_id = user.sub, "deleted resource");
@@ -190,8 +190,9 @@ fn get_50() -> i64 {
 }
 
 #[cfg(test)]
+#[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use crate::{api::test::ApiTest};
     use axum::body::Body;
     use openleadr_wire::{
         problem::Problem,
@@ -199,10 +200,11 @@ mod test {
     };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
+    use crate::jwt::Scope;
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn test_get_all(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
@@ -219,7 +221,7 @@ mod test {
         assert_eq!(resources.len(), 3);
 
         // test with ven user
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens, Scope::ReadTargets]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
@@ -236,7 +238,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn get_all_filtered(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?skip=1", Body::empty())
@@ -269,7 +271,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn get_single_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -282,7 +284,7 @@ mod test {
         assert_eq!(resource.id.as_str(), "resource-1");
 
         // test with ven user
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadTargets, Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -315,7 +317,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn add_edit_delete(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -370,7 +372,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll, Scope::WriteVens]).await;
 
         let resources = [
             ResourceRequest::VenResourceRequest(VenResourceRequest {

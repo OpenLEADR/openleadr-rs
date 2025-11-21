@@ -146,7 +146,6 @@ mod test {
     // for `call`, `oneshot`, and `ready`
     use crate::data_source::DataSource;
     // for `collect`
-    use crate::jwt::Claims;
     use axum::{
         body::Body,
         http::{self, Request, Response, StatusCode},
@@ -202,13 +201,7 @@ mod test {
         let mut events = Vec::new();
 
         for event in new_events {
-            events.push(
-                store
-                    .events()
-                    .create(event.clone(), &User(Claims::any_business_user()))
-                    .await
-                    .unwrap(),
-            );
+            events.push(store.events().create(event.clone(), &None).await.unwrap());
             assert_eq!(events[events.len() - 1].content, event)
         }
 
@@ -218,7 +211,7 @@ mod test {
     async fn get_help(id: &str, token: &str, app: &mut Router) -> Response<Body> {
         app.oneshot(
             Request::builder()
-                .method(http::Method::GET)
+                .method(Method::GET)
                 .uri(format!("/events/{id}"))
                 .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
@@ -232,7 +225,7 @@ mod test {
     async fn get(db: PgPool) {
         let (state, mut events) = state_with_events(vec![default_event_content()], db).await;
         let event = events.remove(0);
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll]);
         let mut app = state.into_router();
 
         let response = get_help(event.id.as_str(), &token, &mut app).await;
@@ -264,13 +257,17 @@ mod test {
         };
 
         let (state, events) = state_with_events(vec![event1, event2.clone(), event3], db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::WriteEvents, Scope::ReadAll],
+        );
         let mut app = state.into_router();
 
         let event_id = events[1].id.clone();
 
         let request = Request::builder()
-            .method(http::Method::DELETE)
+            .method(Method::DELETE)
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .uri(format!("/events/{event_id}"))
             .body(Body::empty())
@@ -302,11 +299,15 @@ mod test {
     async fn update(db: PgPool) {
         let (state, mut events) = state_with_events(vec![default_event_content()], db).await;
         let event = events.remove(0);
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::WriteEvents, Scope::ReadAll],
+        );
         let app = state.into_router();
 
         let response = app
-            .oneshot(event_request(http::Method::PUT, event.clone(), &token))
+            .oneshot(event_request(Method::PUT, event.clone(), &token))
             .await
             .unwrap();
 
@@ -323,36 +324,57 @@ mod test {
         mut app: &mut Router,
         content: &EventRequest,
         token: &str,
-    ) -> Response<Body> {
+    ) -> (StatusCode, String) {
         let request = Request::builder()
-            .method(http::Method::POST)
+            .method(Method::POST)
             .uri("/events")
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
             .body(Body::from(serde_json::to_vec(content).unwrap()))
             .unwrap();
 
-        ServiceExt::<Request<Body>>::ready(&mut app)
+        let response = ServiceExt::<Request<Body>>::ready(&mut app)
             .await
             .unwrap()
             .call(request)
             .await
-            .unwrap()
+            .unwrap();
+
+        let status = response.status();
+
+        let body = String::from_utf8(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        println!("Response body: {}", body);
+
+        (status, body)
     }
 
     #[sqlx::test(fixtures("programs"))]
     async fn create_same_name(db: PgPool) {
         let (state, _) = state_with_events(vec![], db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::WriteEvents, Scope::ReadAll],
+        );
+
         let mut app = state.into_router();
 
         let content = default_event_content();
 
-        let response = help_create_event(&mut app, &content, &token).await;
-        assert_eq!(response.status(), StatusCode::CREATED);
+        let (status, _) = help_create_event(&mut app, &content, &token).await;
+        assert_eq!(status, StatusCode::CREATED);
 
-        let response = help_create_event(&mut app, &content, &token).await;
-        assert_eq!(response.status(), StatusCode::CREATED);
+        let (status, _)  = help_create_event(&mut app, &content, &token).await;
+        assert_eq!(status, StatusCode::CREATED);
     }
 
     async fn retrieve_all_with_filter_help(
@@ -361,7 +383,7 @@ mod test {
         token: &str,
     ) -> Response<Body> {
         let request = Request::builder()
-            .method(http::Method::GET)
+            .method(Method::GET)
             .uri(format!("/events?{query_params}"))
             .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
@@ -397,7 +419,7 @@ mod test {
             ..default_event_content()
         };
 
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteEvents, Scope::ReadAll]).await;
 
         for event in [event1, event2, event3] {
             let (status, _) = test
@@ -484,7 +506,7 @@ mod test {
     #[ignore = "Depends on https://github.com/oadr3-org/openadr3-vtn-reference-implementation/issues/104"]
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteEvents, Scope::ReadAll]).await;
 
         let events = [
             EventRequest {
@@ -520,7 +542,7 @@ mod test {
         for event in &events {
             let (status, error) = test
                 .request::<Problem>(
-                    http::Method::POST,
+                    Method::POST,
                     "/events",
                     Body::from(serde_json::to_vec(&event).unwrap()),
                 )
@@ -536,7 +558,7 @@ mod test {
 
     #[sqlx::test(fixtures("programs"))]
     async fn ordered_by_priority(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::AnyBusiness]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteEvents, Scope::ReadAll]).await;
 
         let events = vec![
             EventRequest {
@@ -592,7 +614,7 @@ mod test {
     mod permissions {
         use super::*;
 
-        #[sqlx::test(fixtures("users", "programs", "business", "events"))]
+        #[sqlx::test(fixtures("users", "programs", "events"))]
         async fn business_can_write_event_in_own_program_only(db: PgPool) {
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
@@ -602,30 +624,40 @@ mod test {
                 ..default_event_content()
             };
 
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response = help_create_event(&mut app, &content, &token).await;
-            assert_eq!(response.status(), StatusCode::CREATED);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-2".to_string())]);
-            let response = help_create_event(&mut app, &content, &token).await;
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
+            );
+            let (status, _) = help_create_event(&mut app, &content, &token).await;
+            assert_eq!(status, StatusCode::CREATED);
 
             let token = jwt_test_token(
                 &state,
-                vec![
-                    AuthRole::AnyBusiness,
-                    AuthRole::Business("business-2".to_string()),
-                ],
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
             );
-            let response = help_create_event(&mut app, &content, &token).await;
-            assert_eq!(response.status(), StatusCode::CREATED);
+            let (status, _) = help_create_event(&mut app, &content, &token).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-2".to_string())]);
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
+            );
+            let (status, _) = help_create_event(&mut app, &content, &token).await;
+            assert_eq!(status, StatusCode::CREATED);
+
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
+            );
             let response = app
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::DELETE)
+                        .method(Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
@@ -635,12 +667,16 @@ mod test {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-2".to_string())]);
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
+            );
             let response = app
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::PUT)
+                        .method(Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
@@ -651,12 +687,16 @@ mod test {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
+            );
             let response = app
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::PUT)
+                        .method(Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
@@ -667,12 +707,16 @@ mod test {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
 
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::WriteEvents, Scope::ReadAll],
+            );
             let response = app
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::DELETE)
+                        .method(Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
@@ -683,90 +727,46 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK);
         }
 
-        #[sqlx::test(fixtures("users", "programs", "business", "events"))]
-        #[should_panic = "left: 200"] // FIXME implement object privacy
-        async fn business_can_read_event_in_own_program_only(db: PgPool) {
-            let (state, _) = state_with_events(vec![], db).await;
-            let mut app = state.clone().into_router();
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response = get_help("event-3", &token, &mut app).await;
-            assert_eq!(response.status(), StatusCode::OK);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response = get_help("event-2", &token, &mut app).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-2".to_string())]);
-            let response = get_help("event-3", &token, &mut app).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
-            let token = jwt_test_token(
-                &state,
-                vec![
-                    AuthRole::VEN("ven-1".parse().unwrap()),
-                    AuthRole::Business("business-2".to_string()),
-                ],
-            );
-            let response = get_help("event-3", &token, &mut app).await;
-            assert_eq!(response.status(), StatusCode::OK);
-        }
-
-        #[sqlx::test(fixtures("users", "programs", "business", "events", "vens"))]
-        #[should_panic = "left: 200"] // FIXME implement object privacy
+        #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
         async fn vens_can_read_event_in_assigned_program_only(db: PgPool) {
+            // FIXME properly test object privacy
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+            let token = jwt_test_token(&state, "test-client", vec![Scope::ReadTargets]);
             let response = get_help("event-3", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::OK);
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-2".parse().unwrap())]);
+            let token = jwt_test_token(&state, "test-client", vec![Scope::ReadTargets]);
             let response = get_help("event-3", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-            let token = jwt_test_token(
-                &state,
-                vec![
-                    AuthRole::VEN("ven-2".parse().unwrap()),
-                    AuthRole::VEN("ven-1".parse().unwrap()),
-                ],
-            );
+            let token = jwt_test_token(&state, "test-client", vec![Scope::ReadTargets]);
             let response = get_help("event-3", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::OK);
 
             let token = jwt_test_token(
                 &state,
-                vec![
-                    AuthRole::VEN("ven-2".parse().unwrap()),
-                    AuthRole::Business("business-2".to_string()),
-                ],
+                "ven-2-client-id",
+                vec![Scope::WriteEvents, Scope::ReadTargets],
             );
             let response = get_help("event-3", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
-        #[sqlx::test(fixtures("users", "programs", "business", "events", "vens"))]
-        #[should_panic = "left: 0"] // FIXME implement object privacy
+        #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
         async fn vens_event_list_assigned_program_only(db: PgPool) {
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
             assert_eq!(events.len(), 2);
 
-            let token = jwt_test_token(
-                &state,
-                vec![
-                    AuthRole::VEN("ven-1".parse().unwrap()),
-                    AuthRole::VEN("ven-2".parse().unwrap()),
-                ],
-            );
+            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -776,7 +776,7 @@ mod test {
             // VEN should not be able to filter on other ven names,
             // even if they have a common set of events,
             // as this would leak information about which events the VENs have in common.
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
+            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
             let response =
                 retrieve_all_with_filter_help(&mut app, "targets=ven-2-name", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
@@ -785,63 +785,24 @@ mod test {
             assert_eq!(events.len(), 0);
         }
 
-        #[sqlx::test(fixtures("users", "programs", "business", "events", "vens"))]
-        async fn business_can_list_events_in_own_program_only(db: PgPool) {
-            let (state, _) = state_with_events(vec![], db).await;
-            let mut app = state.clone().into_router();
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 1);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response =
-                retrieve_all_with_filter_help(&mut app, "programID=program-3", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 1);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-1".to_string())]);
-            let response =
-                retrieve_all_with_filter_help(&mut app, "programID=program-2", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 0);
-
-            let token = jwt_test_token(&state, vec![AuthRole::Business("business-2".to_string())]);
-            let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 0);
-
-            let token = jwt_test_token(&state, vec![AuthRole::AnyBusiness]);
-            let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 3);
-        }
-
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
         async fn ven_cannot_write_event(db: PgPool) {
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token(&state, vec![AuthRole::VEN("ven-1".parse().unwrap())]);
-            let response = help_create_event(&mut app, &default_event_content(), &token).await;
-            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            let token = jwt_test_token(
+                &state,
+                "ven-1-client-id",
+                vec![Scope::ReadTargets, Scope::WriteVens],
+            );
+            let (status, _) = help_create_event(&mut app, &default_event_content(), &token).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
 
             let response = app
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::DELETE)
+                        .method(Method::DELETE)
                         .uri(format!("/events/{}", "event-3"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .body(Body::empty())
@@ -855,7 +816,7 @@ mod test {
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(http::Method::PUT)
+                        .method(Method::PUT)
                         .uri(format!("/events/{}", "event-3"))
                         .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
                         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())

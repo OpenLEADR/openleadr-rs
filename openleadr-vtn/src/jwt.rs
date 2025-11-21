@@ -20,8 +20,12 @@ use tracing::{trace, warn};
 
 use derive_more::AsRef;
 use openleadr_wire::ClientId;
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
-use std::env;
+use serde::{
+    de,
+    de::{DeserializeOwned, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
+use std::{env, fmt, str::FromStr};
 
 pub struct JwtManager {
     #[cfg(feature = "internal-oauth")]
@@ -82,7 +86,7 @@ where
     Ok(result)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
 #[sqlx(type_name = "scope", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(test, derive(PartialOrd, Ord))]
@@ -95,6 +99,31 @@ pub enum Scope {
     WriteReports,
     WriteSubscriptions,
     WriteVens,
+
+    #[cfg(feature = "internal-oauth")]
+    /// This scope is not standard, but used to represent full access to manage the users
+    /// in the internal OAuth system. Should be used only for prototyping and testing purposes.
+    WriteUsers,
+}
+
+impl FromStr for Scope {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "read_all" => Ok(Scope::ReadAll),
+            "read_targets" => Ok(Scope::ReadTargets),
+            "read_ven_objects" => Ok(Scope::ReadVenObjects),
+            "write_programs" => Ok(Scope::WritePrograms),
+            "write_events" => Ok(Scope::WriteEvents),
+            "write_reports" => Ok(Scope::WriteReports),
+            "write_subscriptions" => Ok(Scope::WriteSubscriptions),
+            "write_vens" => Ok(Scope::WriteVens),
+            #[cfg(feature = "internal-oauth")]
+            "write_users" => Ok(Scope::WriteUsers),
+            _ => Err(format!("Invalid scope: {}", s)),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
@@ -180,32 +209,55 @@ impl Scopes {
     }
 }
 
+struct ScopesVisitor;
+
+impl<'de> Visitor<'de> for ScopesVisitor {
+    type Value = Scopes;
+
+    // A human-readable name for the type being deserialized.
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a space-separated string of scopes or an array of strings")
+    }
+
+    // This method is called if the deserializer finds a string.
+    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        let mut scopes = Vec::new();
+
+        for part in s.split(' ') {
+            match part.parse() {
+                Ok(scope) => scopes.push(scope),
+                Err(err) => warn!("Ignoring invalid scope: {err}"),
+            }
+        }
+
+        Ok(Scopes(scopes))
+    }
+
+    // This method is called if the deserializer finds an array (JSON sequence).
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        let mut scopes = Vec::new();
+        while let Some(scope) = seq.next_element::<Scope>().transpose() {
+            match scope {
+                Ok(scope) => scopes.push(scope),
+                Err(err) => warn!("Ignoring invalid scope: {err}"),
+            }
+        }
+        Ok(Scopes(scopes))
+    }
+}
+
 impl<'de> Deserialize<'de> for Scopes {
     fn deserialize<D>(deserializer: D) -> Result<Scopes, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let s: &str = Deserialize::deserialize(deserializer)?;
-        let parts = s.split(" ");
-
-        let mut scopes: Vec<Scope> = Vec::new();
-        for part in parts {
-            match part {
-                "read_all" => scopes.push(Scope::ReadAll),
-                "read_targets" => scopes.push(Scope::ReadTargets),
-                "read_ven_objects" => scopes.push(Scope::ReadVenObjects),
-                "write_programs" => scopes.push(Scope::WritePrograms),
-                "write_events" => scopes.push(Scope::WriteEvents),
-                "write_reports" => scopes.push(Scope::WriteReports),
-                "write_subscriptions" => scopes.push(Scope::WriteSubscriptions),
-                "write_vens" => scopes.push(Scope::WriteVens),
-                _ => {
-                    trace!("Unknown scope encountered: {:?}", part);
-                }
-            }
-        }
-
-        Ok(Scopes(scopes))
+        deserializer.deserialize_any(ScopesVisitor)
     }
 }
 
@@ -272,7 +324,8 @@ impl JwtManager {
     async fn decode_and_validate(&self, token: &str) -> Result<Claims, ResponseOAuthError> {
         match &self.decoding_key {
             Some(key) => {
-                let token_data = jsonwebtoken::decode::<Claims>(token, key, &self.validation)?;
+                let token_data = jsonwebtoken::decode::<Claims>(token, key, &self.validation)
+                    .inspect_err(|err| warn!("received invalid authentication token: {err}"))?;
                 Ok(Self::check_time(token_data.claims)?)
             }
             None => {
@@ -331,6 +384,7 @@ impl JwtManager {
 
         if let Some(nbf) = claims.nbf {
             if now < nbf {
+                warn!("received token not yet valid: nbf={nbf} now={now}");
                 return Err(OAuthError {
                     error: OAuthErrorType::NotYetValid,
                     error_description: Some(
@@ -342,6 +396,7 @@ impl JwtManager {
         };
 
         if claims.exp < now {
+            warn!("received expired token: exp={} now={now}", claims.exp);
             return Err(OAuthError {
                 error: OAuthErrorType::Expired,
                 error_description: Some(
@@ -472,251 +527,22 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::jwt::{Claims, Scope, Scopes};
-    use std::fmt::Display;
+mod test {
+    use crate::jwt::Scope;
 
-    #[cfg(feature = "live-db-test")]
-    impl Claims {
-        pub(crate) fn new(sub: impl Display, scope: Vec<Scope>) -> Self {
-            Self {
-                exp: 0,
-                iat: Some(0),
-                nbf: Some(0),
-                sub: sub.to_string(),
-                scope: scope.into(),
-            }
-        }
-    }
-
-    #[test]
-    fn test_no_scope_into_claims() {
-        let initial = Claims {
-            exp: 10,
-            iat: None,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            scope: vec![].into(),
-        };
-
-        let claims: Result<Claims, _> = initial.try_into();
-        assert!(claims.is_err());
-    }
-
-    #[test]
-    fn test_initial_roles_into_claims() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: Some(RolesOrScopes::AuthRoles(vec![
-                AuthRole::AnyBusiness,
-                AuthRole::VenManager,
-            ])),
-            scope: None,
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(
-            values.roles,
-            vec![AuthRole::AnyBusiness, AuthRole::VenManager]
-        );
-    }
-
-    #[test]
-    fn test_scope_ignored_if_roles_present() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: Some(RolesOrScopes::AuthRoles(vec![AuthRole::AnyBusiness])),
-            scope: Some(Scopes {
-                scopes: vec![Scope::ReadAll, Scope::WriteVens],
-            }),
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.roles, vec![AuthRole::AnyBusiness]);
-    }
-
-    #[test]
-    fn test_scope_into_any_business_role() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: None,
-            scope: Some(Scopes {
-                scopes: vec![Scope::ReadAll, Scope::WritePrograms, Scope::WriteEvents],
-            }),
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(values.roles, vec![AuthRole::AnyBusiness]);
-    }
-
-    #[test]
-    fn test_scope_into_ven_manager_role() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: None,
-            scope: Some(Scopes {
-                scopes: vec![Scope::ReadAll, Scope::WriteVens],
-            }),
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(values.roles, vec![AuthRole::VenManager]);
-    }
-
-    #[test]
-    fn test_scope_into_anonymous_ven_role() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: None,
-            scope: Some(Scopes {
-                scopes: vec![Scope::ReadAll, Scope::WriteReports],
-            }),
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(
-            values.roles,
-            vec![AuthRole::VEN(VenId::new("anonymous").unwrap())]
-        );
-    }
-
-    #[test]
-    fn test_scope_into_multiple_roles() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: None,
-            scope: Some(Scopes {
-                scopes: vec![
-                    Scope::ReadAll,
-                    Scope::WriteVens,
-                    Scope::WritePrograms,
-                    Scope::WriteEvents,
-                ],
-            }),
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(
-            values.roles,
-            vec![AuthRole::VenManager, AuthRole::AnyBusiness]
-        );
-    }
-
-    #[test]
-    fn test_oadr_roles_into_any_business_role() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: Some(RolesOrScopes::Scopes(vec![
+    impl Scope {
+        pub fn all() -> Vec<Scope> {
+            vec![
                 Scope::ReadAll,
+                Scope::ReadTargets,
+                Scope::ReadVenObjects,
                 Scope::WritePrograms,
                 Scope::WriteEvents,
-            ])),
-            scope: None,
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(values.roles, vec![AuthRole::AnyBusiness]);
-    }
-
-    #[test]
-    fn test_oadr_roles_into_ven_manager_role() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: Some(RolesOrScopes::Scopes(vec![
-                Scope::ReadAll,
-                Scope::WriteVens,
-            ])),
-            scope: None,
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(values.roles, vec![AuthRole::VenManager]);
-    }
-
-    #[test]
-    fn test_oadr_roles_into_anonymous_ven_role() {
-        let initial = InitialClaims {
-            exp: 10,
-            nbf: Some(10),
-            sub: "test".to_string(),
-            roles: Some(RolesOrScopes::Scopes(vec![
-                Scope::ReadAll,
                 Scope::WriteReports,
-            ])),
-            scope: None,
-        };
-
-        let claims: Result<Claims, _> = initial.clone().try_into();
-        assert!(claims.is_ok());
-
-        let values = claims.unwrap();
-        assert_eq!(values.exp, initial.exp);
-        assert_eq!(values.nbf, initial.nbf);
-        assert_eq!(values.sub, initial.sub);
-        assert_eq!(
-            values.roles,
-            vec![AuthRole::VEN(VenId::new("anonymous").unwrap())]
-        );
+                Scope::WriteSubscriptions,
+                Scope::WriteVens,
+                Scope::WriteUsers,
+            ]
+        }
     }
 }

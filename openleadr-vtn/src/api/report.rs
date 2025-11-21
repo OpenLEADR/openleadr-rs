@@ -148,13 +148,14 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use crate::{api::test::ApiTest};
     use axum::{body::Body, http, http::StatusCode};
     use openleadr_wire::{
         problem::Problem,
         report::{ReportPayloadDescriptor, ReportRequest, ReportType},
     };
     use sqlx::PgPool;
+    use crate::jwt::Scope;
 
     fn default() -> ReportRequest {
         ReportRequest {
@@ -168,7 +169,7 @@ mod test {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens, Scope::ReadTargets]).await;
 
         let reports = [
             ReportRequest {
