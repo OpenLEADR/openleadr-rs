@@ -1,6 +1,5 @@
 use crate::common::{setup, TestContext};
 use openleadr_client::{Filter, VirtualEndNode};
-use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
     target::Target,
     values_map::{Value, ValueType, ValuesMap},
