@@ -6,20 +6,7 @@ VALUES ('event-1',
         'program-1',
         'event-1-name',
         '4',
-        '[
-          {
-            "type": "GROUP",
-            "values": [
-              "group-1"
-            ]
-          },
-          {
-            "type": "PRIVATE_LABEL",
-            "values": [
-              "private value"
-            ]
-          }
-        ]'::jsonb,
+        ARRAY['group-1', 'private-value'],
         null,
         null,
         '{
@@ -51,14 +38,7 @@ VALUES ('event-1',
         'program-2',
         'event-2-name',
         null,
-        '[
-          {
-            "type": "SOME_TARGET",
-            "values": [
-              "target-1"
-            ]
-          }
-        ]'::jsonb,
+        ARRAY['target-1'],
         null,
         null,
         null,
@@ -81,14 +61,7 @@ VALUES ('event-1',
         'program-3',
         'event-3-name',
         null,
-        '[
-          {
-            "type": "SOME_TARGET",
-            "values": [
-              "target-1"
-            ]
-          }
-        ]'::jsonb,
+        ARRAY['target-1'],
         null,
         null,
         null,

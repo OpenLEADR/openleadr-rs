@@ -2,11 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 
-/// ValuesMap : Represents one or more values associated with a type. E.g. a type of PRICE contains a single float value.
+/// ValuesMap : Represents one or more values associated with a type.
+///
+/// See enumerations in Definitions for defined string values, or use privately defined strings
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ValuesMap {
-    /// Enumerated or private string signifying the nature of values. E.G. \"PRICE\" indicates value is to be interpreted as a currency.
+    /// Represents the nature of values.
+    ///
+    /// See enumerations in Definitions for defined string values, or use privately defined strings
     #[serde(rename = "type")]
     pub value_type: ValueType,
     /// A list of data points. Most often a singular value such as a price.

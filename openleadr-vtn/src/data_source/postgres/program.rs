@@ -1,7 +1,7 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{extract_business_id, extract_vens, to_json_value},
+        postgres::{extract_business_id, to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
@@ -10,8 +10,8 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    program::{ProgramContent, ProgramId},
-    target::TargetEntry,
+    program::{ProgramId, ProgramRequest},
+    target::Target,
     Program,
 };
 use sqlx::PgPool;
@@ -36,18 +36,11 @@ struct PostgresProgram {
     created_date_time: DateTime<Utc>,
     modification_date_time: DateTime<Utc>,
     program_name: String,
-    program_long_name: Option<String>,
-    retailer_name: Option<String>,
-    retailer_long_name: Option<String>,
-    program_type: Option<String>,
-    country: Option<String>,
-    principal_subdivision: Option<String>,
     interval_period: Option<serde_json::Value>,
     program_descriptions: Option<serde_json::Value>,
-    binding_events: Option<bool>,
-    local_price: Option<bool>,
     payload_descriptors: Option<serde_json::Value>,
-    targets: Option<serde_json::Value>,
+    attributes: Option<serde_json::Value>,
+    targets: Vec<Target>,
 }
 
 impl TryFrom<PostgresProgram> for Program {
@@ -88,11 +81,15 @@ impl TryFrom<PostgresProgram> for Program {
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
-        let targets = match value.targets {
+
+        let attributes = match value.attributes {
             None => None,
             Some(t) => serde_json::from_value(t)
                 .inspect_err(|err| {
-                    error!(?err, "Failed to deserialize JSON from DB to `TargetMap`")
+                    error!(
+                        ?err,
+                        "Failed to deserialize JSON from DB to `Vec<ValuesMap>`"
+                    )
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
@@ -101,21 +98,13 @@ impl TryFrom<PostgresProgram> for Program {
             id: value.id.parse()?,
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
-            content: ProgramContent {
+            content: ProgramRequest {
                 program_name: value.program_name,
-                program_long_name: value.program_long_name,
-                retailer_name: value.retailer_name,
-                retailer_long_name: value.retailer_long_name,
-                program_type: value.program_type,
-                country: value.country,
-                principal_subdivision: value.principal_subdivision,
-                time_zone_offset: None,
                 interval_period,
                 program_descriptions,
-                binding_events: value.binding_events,
-                local_price: value.local_price,
                 payload_descriptors,
-                targets,
+                attributes,
+                targets: value.targets,
             },
         })
     }
@@ -125,7 +114,7 @@ impl TryFrom<PostgresProgram> for Program {
 impl Crud for PgProgramStorage {
     type Type = Program;
     type Id = ProgramId;
-    type NewType = ProgramContent;
+    type NewType = ProgramRequest;
     type Error = AppError;
     type Filter = QueryParams;
     type PermissionFilter = User;
@@ -135,10 +124,7 @@ impl Crud for PgProgramStorage {
         new: Self::NewType,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let (targets, vens) = extract_vens(new.targets);
         let business_id = extract_business_id(user)?;
-
-        let mut tx = self.db.begin().await?;
 
         let program: Program = sqlx::query_as!(
             PostgresProgram,
@@ -147,76 +133,35 @@ impl Crud for PgProgramStorage {
                                  created_date_time,
                                  modification_date_time,
                                  program_name,
-                                 program_long_name,
-                                 retailer_name,
-                                 retailer_long_name,
-                                 program_type,
-                                 country,
-                                 principal_subdivision,
                                  interval_period,
                                  program_descriptions,
-                                 binding_events,
-                                 local_price,
                                  payload_descriptors,
                                  targets,
-                                 business_id)
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                                 business_id,
+                                 attributes)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7)
             RETURNING id,
                       created_date_time,
                       modification_date_time,
                       program_name,
-                      program_long_name,
-                      retailer_name,
-                      retailer_long_name,
-                      program_type,
-                      country,
-                      principal_subdivision,
                       interval_period,
                       program_descriptions,
-                      binding_events,
-                      local_price,
                       payload_descriptors,
-                      targets
+                      targets as  "targets:Vec<Target>",
+                      attributes
             "#,
             new.program_name,
-            new.program_long_name,
-            new.retailer_name,
-            new.retailer_long_name,
-            new.program_type,
-            new.country,
-            new.principal_subdivision,
             to_json_value(new.interval_period)?,
             to_json_value(new.program_descriptions)?,
-            new.binding_events,
-            new.local_price,
             to_json_value(new.payload_descriptors)?,
-            to_json_value(targets)?,
+            new.targets.as_slice() as &[Target],
             business_id,
+            to_json_value(new.attributes)?,
         )
-            .fetch_one(&mut *tx)
-            .await?
-            .try_into()?;
+        .fetch_one(&self.db)
+        .await?
+        .try_into()?;
 
-        if let Some(vens) = vens {
-            let rows_affected = sqlx::query!(
-                r#"
-                INSERT INTO ven_program (program_id, ven_id)
-                    (SELECT $1, id FROM ven WHERE ven_name = ANY ($2))
-                "#,
-                program.id.as_str(),
-                &vens
-            )
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-            if rows_affected as usize != vens.len() {
-                Err(AppError::Conflict(
-                    "One or multiple VEN names linked in the program do not exist".to_string(),
-                    None,
-                ))?
-            }
-        };
-        tx.commit().await?;
         Ok(program)
     }
 
@@ -225,6 +170,8 @@ impl Crud for PgProgramStorage {
         id: &Self::Id,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let _ = user; // FIXME implement object privacy
+
         Ok(sqlx::query_as!(
             PostgresProgram,
             r#"
@@ -232,26 +179,15 @@ impl Crud for PgProgramStorage {
                    p.created_date_time,
                    p.modification_date_time,
                    p.program_name,
-                   p.program_long_name,
-                   p.retailer_name,
-                   p.retailer_long_name,
-                   p.program_type,
-                   p.country,
-                   p.principal_subdivision,
                    p.interval_period,
                    p.program_descriptions,
-                   p.binding_events,
-                   p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as  "targets:Vec<Target>",
+                   p.attributes
             FROM program p
-              LEFT JOIN ven_program vp ON p.id = vp.program_id
             WHERE id = $1
-              AND (NOT $2 OR vp.ven_id IS NULL OR vp.ven_id = ANY($3)) -- Filter for VEN ids
             "#,
             id.as_str(),
-            user.is_ven(),
-            &user.ven_ids_string()
         )
         .fetch_one(&self.db)
         .await?
@@ -263,57 +199,27 @@ impl Crud for PgProgramStorage {
         filter: &Self::Filter,
         User(user): &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let target: Option<TargetEntry> = filter.targets.clone().into();
-        let target_values = target.as_ref().map(|t| t.values.clone());
+        let _ = user; // FIXME implement object privacy
 
         Ok(sqlx::query_as!(
             PostgresProgram,
             r#"
-            SELECT p.id AS "id!", 
-                   p.created_date_time AS "created_date_time!", 
+            SELECT p.id AS "id!",
+                   p.created_date_time AS "created_date_time!",
                    p.modification_date_time AS "modification_date_time!",
                    p.program_name AS "program_name!",
-                   p.program_long_name,
-                   p.retailer_name,
-                   p.retailer_long_name,
-                   p.program_type,
-                   p.country,
-                   p.principal_subdivision,
                    p.interval_period,
                    p.program_descriptions,
-                   p.binding_events,
-                   p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as  "targets:Vec<Target>",
+                   p.attributes
             FROM program p
-              LEFT JOIN ven_program vp ON p.id = vp.program_id
-              LEFT JOIN ven v ON v.id = vp.ven_id
-              LEFT JOIN LATERAL (
-
-                  SELECT targets.p_id,
-                           (t ->> 'type' = $1) AND
-                           (t -> 'values' ?| $2) AS target_test
-                    FROM (SELECT program.id                            AS p_id,
-                                 jsonb_array_elements(program.targets) AS t
-                          FROM program) AS targets
-                  
-                  )
-                  ON p.id = p_id
-            WHERE ($1 IS NULL OR $2 IS NULL OR target_test)
-              AND (
-                  ($3 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($4)))
-                  OR
-                  ($5)
-                  )
+            WHERE ($1::text[] IS NULL OR p.targets && $1) -- FIXME use @> for and rather than or filtering
             GROUP BY p.id, p.created_date_time
             ORDER BY p.created_date_time DESC
-            OFFSET $6 LIMIT $7
+            OFFSET $2 LIMIT $3
             "#,
-            target.as_ref().map(|t| t.label.as_str()),
-            target_values.as_deref(),
-            user.is_ven(),
-            &user.ven_ids_string(),
-            user.is_business(),
+            filter.targets.targets.as_deref(),
             filter.skip,
             filter.limit,
         )
@@ -330,10 +236,7 @@ impl Crud for PgProgramStorage {
         new: Self::NewType,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let (targets, vens) = extract_vens(new.targets);
-        let business_id = extract_business_id(user)?;
-
-        let mut tx = self.db.begin().await?;
+        let _ = user; // FIXME implement object privacy
 
         let program: Program = sqlx::query_as!(
             PostgresProgram,
@@ -341,85 +244,34 @@ impl Crud for PgProgramStorage {
             UPDATE program p
             SET modification_date_time = now(),
                 program_name = $2,
-                program_long_name = $3,
-                retailer_name = $4,
-                retailer_long_name = $5,
-                program_type = $6,
-                country = $7,
-                principal_subdivision = $8,
-                interval_period = $9,
-                program_descriptions = $10,
-                binding_events = $11,
-                local_price = $12,
-                payload_descriptors = $13,
-                targets = $14
+                interval_period = $3,
+                program_descriptions = $4,
+                payload_descriptors = $5,
+                targets = $6,
+                attributes = $7
             WHERE id = $1
-                AND ($15::text IS NULL OR business_id = $15)
             RETURNING p.id,
                    p.created_date_time,
                    p.modification_date_time,
                    p.program_name,
-                   p.program_long_name,
-                   p.retailer_name,
-                   p.retailer_long_name,
-                   p.program_type,
-                   p.country,
-                   p.principal_subdivision,
                    p.interval_period,
                    p.program_descriptions,
-                   p.binding_events,
-                   p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as "targets:Vec<Target>",
+                   p.attributes
             "#,
             id.as_str(),
             new.program_name,
-            new.program_long_name,
-            new.retailer_name,
-            new.retailer_long_name,
-            new.program_type,
-            new.country,
-            new.principal_subdivision,
             to_json_value(new.interval_period)?,
             to_json_value(new.program_descriptions)?,
-            new.binding_events,
-            new.local_price,
             to_json_value(new.payload_descriptors)?,
-            to_json_value(targets)?,
-            business_id
+            new.targets.as_slice() as &[Target],
+            to_json_value(new.attributes)?
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.db)
         .await?
         .try_into()?;
 
-        if let Some(vens) = vens {
-            sqlx::query!(
-                r#"
-                DELETE FROM ven_program WHERE program_id = $1
-                "#,
-                program.id.as_str()
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            let rows_affected = sqlx::query!(
-                r#"
-                INSERT INTO ven_program (program_id, ven_id)
-                    (SELECT $1, id FROM ven WHERE ven_name = ANY($2))
-                "#,
-                program.id.as_str(),
-                &vens
-            )
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-            if rows_affected as usize != vens.len() {
-                Err(AppError::BadRequest(
-                    "One or multiple VEN names linked in the program do not exist",
-                ))?
-            }
-        };
-        tx.commit().await?;
         Ok(program)
     }
 
@@ -440,18 +292,11 @@ impl Crud for PgProgramStorage {
                    p.created_date_time,
                    p.modification_date_time,
                    p.program_name,
-                   p.program_long_name,
-                   p.retailer_name,
-                   p.retailer_long_name,
-                   p.program_type,
-                   p.country,
-                   p.principal_subdivision,
                    p.interval_period,
                    p.program_descriptions,
-                   p.binding_events,
-                   p.local_price,
                    p.payload_descriptors,
-                   p.targets
+                   p.targets as  "targets:Vec<Target>",
+                   p.attributes
             "#,
             id.as_str(),
             business_id,
@@ -474,19 +319,17 @@ mod tests {
     use openleadr_wire::{
         event::{EventPayloadDescriptor, EventType},
         interval::IntervalPeriod,
-        program::{PayloadDescriptor, ProgramContent, ProgramDescription},
-        target::{TargetEntry, TargetMap, TargetType},
+        program::{PayloadDescriptor, ProgramDescription, ProgramRequest},
+        target::Target,
         Program,
     };
     use sqlx::PgPool;
+    use std::str::FromStr;
 
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                targets: TargetQueryParams {
-                    target_type: None,
-                    values: None,
-                },
+                targets: TargetQueryParams { targets: None },
                 skip: 0,
                 limit: 50,
             }
@@ -498,36 +341,22 @@ mod tests {
             id: "program-1".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: ProgramContent {
+            content: ProgramRequest {
                 program_name: "program-1".to_string(),
-                program_long_name: Some("program long name".to_string()),
-                retailer_name: Some("retailer name".to_string()),
-                retailer_long_name: Some("retailer long name".to_string()),
-                program_type: Some("program type".to_string()),
-                country: Some("country".to_string()),
-                principal_subdivision: Some("principal-subdivision".to_string()),
-                time_zone_offset: None,
                 interval_period: Some(IntervalPeriod::new(
                     "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
                 )),
                 program_descriptions: Some(vec![ProgramDescription {
                     url: "https://program-description-1.com".to_string(),
                 }]),
-                binding_events: Some(false),
-                local_price: Some(true),
                 payload_descriptors: Some(vec![PayloadDescriptor::EventPayloadDescriptor(
                     EventPayloadDescriptor::new(EventType::ExportPrice),
                 )]),
-                targets: Some(TargetMap(vec![
-                    TargetEntry {
-                        label: TargetType::Group,
-                        values: vec!["group-1".to_string()],
-                    },
-                    TargetEntry {
-                        label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: vec!["private value".to_string()],
-                    },
-                ])),
+                attributes: None,
+                targets: vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("private-value").unwrap(),
+                ],
             },
         }
     }
@@ -537,24 +366,16 @@ mod tests {
             id: "program-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: ProgramContent {
+            content: ProgramRequest {
                 program_name: "program-2".to_string(),
-                program_long_name: None,
-                retailer_name: None,
-                retailer_long_name: None,
-                program_type: None,
-                country: None,
-                principal_subdivision: None,
-                time_zone_offset: None,
                 interval_period: None,
                 program_descriptions: None,
-                binding_events: None,
-                local_price: None,
                 payload_descriptors: None,
-                targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetType::Group,
-                    values: vec!["group-1".to_string(), "group-2".to_string()],
-                }])),
+                attributes: None,
+                targets: vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("group-2").unwrap(),
+                ],
             },
         }
     }
@@ -562,9 +383,9 @@ mod tests {
     fn program_3() -> Program {
         Program {
             id: "program-3".parse().unwrap(),
-            content: ProgramContent {
+            content: ProgramRequest {
                 program_name: "program-3".to_string(),
-                targets: None,
+                targets: vec![],
                 ..program_2().content
             },
             ..program_2()
@@ -573,7 +394,6 @@ mod tests {
 
     mod get_all {
         use super::*;
-        use openleadr_wire::target::TargetType;
 
         #[sqlx::test(fixtures("programs"))]
         async fn default_get_all(db: PgPool) {
@@ -639,8 +459,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string()]),
+                            targets: Some(vec!["group-1".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -654,30 +473,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["not-existent".to_string()]),
-                        },
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 0);
-        }
-
-        #[sqlx::test(fixtures("programs"))]
-        async fn filter_multiple_targets(db: PgPool) {
-            let repo: PgProgramStorage = db.into();
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        // The target type and target value are both in the program, but not in the same target, i.e.,
-                        // there exists a target type group with some value and another target type with the value 'private value'
-                        targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["private value".to_string()]),
+                            targets: Some(vec!["not-existent".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -696,8 +492,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string(), "group-2".to_string()]),
+                            targets: Some(vec!["group-1".to_string(), "group-2".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -711,8 +506,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec![
+                            targets: Some(vec![
                                 "group-1".to_string(),
                                 "group-not-existent".to_string(),
                             ]),
@@ -729,8 +523,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-2".to_string()]),
+                            targets: Some(vec!["group-2".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -744,8 +537,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string()]),
+                            targets: Some(vec!["group-1".to_string()]),
                         },
                         ..Default::default()
                     },
