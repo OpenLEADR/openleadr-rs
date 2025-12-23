@@ -12,7 +12,7 @@ use validator::Validate;
 use openleadr_wire::{
     event::EventId,
     program::ProgramId,
-    report::{ReportContent, ReportId},
+    report::{ReportId, ReportRequest},
     Report,
 };
 
@@ -48,7 +48,7 @@ pub async fn get(
 pub async fn add(
     State(report_source): State<Arc<dyn ReportCrud>>,
     VENUser(user): VENUser,
-    ValidatedJson(new_report): ValidatedJson<ReportContent>,
+    ValidatedJson(new_report): ValidatedJson<ReportRequest>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
     let report = report_source.create(new_report, &User(user)).await?;
 
@@ -62,7 +62,7 @@ pub async fn edit(
     State(report_source): State<Arc<dyn ReportCrud>>,
     Path(id): Path<ReportId>,
     VENUser(user): VENUser,
-    ValidatedJson(content): ValidatedJson<ReportContent>,
+    ValidatedJson(content): ValidatedJson<ReportRequest>,
 ) -> AppResponse<Report> {
     let report = report_source.update(&id, content, &User(user)).await?;
 
@@ -111,13 +111,12 @@ mod test {
     use axum::{body::Body, http, http::StatusCode};
     use openleadr_wire::{
         problem::Problem,
-        report::{ReportContent, ReportPayloadDescriptor, ReportType},
+        report::{ReportPayloadDescriptor, ReportRequest, ReportType},
     };
     use sqlx::PgPool;
 
-    fn default() -> ReportContent {
-        ReportContent {
-            program_id: "asdf".parse().unwrap(),
+    fn default() -> ReportRequest {
+        ReportRequest {
             event_id: "asdf".parse().unwrap(),
             client_name: "".to_string(),
             report_name: None,
@@ -131,15 +130,15 @@ mod test {
         let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
 
         let reports = [
-            ReportContent {
+            ReportRequest {
                 report_name: Some("".to_string()),
                 ..default()
             },
-            ReportContent {
+            ReportRequest {
                 report_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
                 ..default()
             },
-            ReportContent {
+            ReportRequest {
                 payload_descriptors: Some(vec![
                     ReportPayloadDescriptor{
                         payload_type: ReportType::Private("".to_string()),
@@ -151,7 +150,7 @@ mod test {
                 ]),
                 ..default()
             },
-            ReportContent {
+            ReportRequest {
                 payload_descriptors: Some(vec![
                     ReportPayloadDescriptor{
                         payload_type: ReportType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
