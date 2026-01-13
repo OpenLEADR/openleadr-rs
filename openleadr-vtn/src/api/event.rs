@@ -116,11 +116,12 @@ pub async fn delete(
 }
 
 #[derive(Deserialize, Validate, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
     #[serde(rename = "programID")]
     pub(crate) program_id: Option<ProgramId>,
-    #[serde(flatten)]
+    // #[serde(flatten)]
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
@@ -161,6 +162,34 @@ mod test {
     use reqwest::Method;
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
+
+    #[test]
+    fn query_params_deserialization() {
+        let query = "skip=1&limit=2&targets=group-1&targets=group-2&programID=program-1";
+        let params: QueryParams = serde_html_form::from_str(query).unwrap();
+        assert_eq!(
+            params,
+            QueryParams {
+                program_id: Some("program-1".parse().unwrap(),),
+                targets: TargetQueryParams(Some(vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("group-2").unwrap()
+                ])),
+                skip: 1,
+                limit: 2,
+            }
+        );
+
+        let query = "targets=group-1";
+        let params: QueryParams = serde_html_form::from_str(query).unwrap();
+        assert_eq!(
+            params,
+            QueryParams {
+                targets: TargetQueryParams(Some(vec![Target::from_str("group-1").unwrap(),])),
+                ..Default::default()
+            }
+        )
+    }
 
     fn default_event_content() -> EventRequest {
         EventRequest {
@@ -373,7 +402,7 @@ mod test {
         let (status, _) = help_create_event(&mut app, &content, &token).await;
         assert_eq!(status, StatusCode::CREATED);
 
-        let (status, _)  = help_create_event(&mut app, &content, &token).await;
+        let (status, _) = help_create_event(&mut app, &content, &token).await;
         assert_eq!(status, StatusCode::CREATED);
     }
 
@@ -398,7 +427,7 @@ mod test {
             .unwrap()
     }
 
-    #[sqlx::test(fixtures("programs"))]
+    #[sqlx::test(fixtures("programs", "vens"))]
     async fn retrieve_all_with_filter(db: PgPool) {
         let event1 = EventRequest {
             program_id: ProgramId::new("program-1").unwrap(),
@@ -409,7 +438,10 @@ mod test {
         let event2 = EventRequest {
             program_id: ProgramId::new("program-2").unwrap(),
             event_name: Some("event2".to_string()),
-            targets: vec![Target::from_str("group-2").unwrap()],
+            targets: vec![
+                Target::from_str("group-1").unwrap(),
+                Target::from_str("group-2").unwrap(),
+            ],
             ..default_event_content()
         };
         let event3 = EventRequest {
@@ -478,13 +510,14 @@ mod test {
             .request::<Vec<Event>>(Method::GET, "/events?targets=nonsense", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
+        dbg!(&events);
         assert_eq!(events.len(), 0);
 
         let (status, events) = test
             .request::<Vec<Event>>(Method::GET, "/events?targets=group-1", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
 
         let (status, events) = test
             .request::<Vec<Event>>(
@@ -494,7 +527,7 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 1);
 
         let (status, events) = test
             .request::<Vec<Event>>(Method::GET, "/events?programID=program-1", Body::empty())

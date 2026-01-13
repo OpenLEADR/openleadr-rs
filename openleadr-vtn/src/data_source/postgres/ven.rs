@@ -11,6 +11,7 @@ use openleadr_wire::{
     ClientId,
 };
 use sqlx::PgPool;
+use std::collections::BTreeSet;
 use tracing::{error, trace, warn};
 
 #[async_trait]
@@ -314,11 +315,10 @@ impl Crud for PgVenStorage {
 #[async_trait]
 impl VenObjectPrivacy for PgVenStorage {
     async fn targets_by_client_id(&self, client_id: &ClientId) -> Result<Vec<Target>, AppError> {
-        // FIXME what about multiple VENs with the same client_id?
-        //  See also https://github.com/oadr3-org/specification/discussions/372
-        Ok(sqlx::query_scalar!(
+        // According to the spec, a client_id MUST match at most one VEN object, see also https://github.com/oadr3-org/specification/discussions/372
+        let ven_targets = sqlx::query_scalar!(
             r#"
-            SELECT targets FROM ven WHERE client_id = $1
+            SELECT targets FROM ven WHERE ven.client_id = $1
             "#,
             client_id.as_str()
         )
@@ -326,7 +326,30 @@ impl VenObjectPrivacy for PgVenStorage {
         .await?
         .into_iter()
         .map(|id| id.parse())
-        .collect::<Result<Vec<_>, _>>()?)
+        .collect::<Result<BTreeSet<_>, _>>()?;
+
+        let full_targets: Result<_, AppError> = sqlx::query_scalar!(
+            r#"
+            SELECT resource.targets
+            FROM ven
+                     JOIN resource ON ven.id = resource.ven_id
+            WHERE ven.client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .try_fold(ven_targets, |mut set, resource_targets| {
+            let mut resource_set = resource_targets
+                .into_iter()
+                .map(|target| target.parse())
+                .collect::<Result<BTreeSet<Target>, _>>()?;
+            set.append(&mut resource_set);
+            Ok(set)
+        });
+
+        Ok(full_targets?.into_iter().collect())
     }
 }
 
@@ -499,6 +522,7 @@ mod tests {
             assert_eq!(vens.len(), 0);
         }
 
+        #[sqlx::test(fixtures("users", "vens"))]
         async fn filter_client_id_get_all(db: PgPool) {
             let repo: PgVenStorage = db.into();
 
