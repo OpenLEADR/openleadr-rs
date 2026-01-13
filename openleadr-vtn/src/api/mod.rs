@@ -35,6 +35,7 @@ pub(crate) struct ValidatedQuery<T>(pub T);
 pub(crate) struct ValidatedJson<T>(pub T);
 
 #[derive(Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(transparent)]
 pub(crate) struct TargetQueryParams(pub Option<Vec<Target>>);
 

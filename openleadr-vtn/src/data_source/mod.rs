@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait VenObjectPrivacy: Send + Sync + 'static {
+    /// Returns the union of the VEN object [`targets`](field@BlVenRequest::targets) with all resources [`targets`](field@BlResourceRequest::targets) of resources that belong to the VEN.
     async fn targets_by_client_id(&self, client_id: &ClientId) -> Result<Vec<Target>, AppError>;
 }
 

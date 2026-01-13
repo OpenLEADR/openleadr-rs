@@ -77,4 +77,50 @@ VALUES ('event-1',
               }
             ]
           }
+        ]'::jsonb),
+       ('event-4',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'program-3',
+        'event-4-name',
+        null,
+        ARRAY['target-1', 'group-1'],
+        null,
+        null,
+        null,
+        '[
+          {
+            "id": 3,
+            "payloads": [
+              {
+                "type": "SOME_PAYLOAD",
+                "values": [
+                  "value"
+                ]
+              }
+            ]
+          }
+        ]'::jsonb),
+       ('event-5',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'program-3',
+        'event-5-name',
+        null,
+        ARRAY[]::text[],
+        null,
+        null,
+        null,
+        '[
+          {
+            "id": 3,
+            "payloads": [
+              {
+                "type": "SOME_PAYLOAD",
+                "values": [
+                  "value"
+                ]
+              }
+            ]
+          }
         ]'::jsonb);

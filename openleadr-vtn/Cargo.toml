@@ -48,6 +48,7 @@ dotenvy = { workspace = true, optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 serial_test.workspace = true
+serde_html_form = "0.4.0"
 
 [features]
 default = ["postgres", "live-db-test", "internal-oauth"]
