@@ -116,14 +116,20 @@ fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>
         .transpose()
 }
 
+/// Returns the targets of the VEN associated with the given `client_id` and it's resources.
+/// If the VEN does not exist, returns an empty vector.
 async fn get_ven_targets(
     db: PgPool,
-    client_id: &Option<ClientId>,
+    client_id: &ClientId,
 ) -> Result<Vec<Target>, AppError> {
-    Ok(if let Some(client_id) = client_id {
-        let ven_store: PgVenStorage = db.into();
-        ven_store.targets_by_client_id(client_id).await?
-    } else {
-        vec![]
-    })
+    let ven_store: PgVenStorage = db.into();
+    match ven_store.targets_by_client_id(client_id).await {
+        Ok(t) => Ok(t),
+        // Cite from OpenADR Spec 3.1.1 Definition.md, "VEN created object privacy":
+        //      4. If a VEN object is not found, return objects that do not have targets and do not proceed to step 5.
+        //      [...]
+        //      6. If the union of the targets of the VEN and its resources is empty, return objects that do not have targets and do not proceed to step 7.
+        Err(AppError::NotFound) => Ok(Vec::new()),
+        Err(err) => Err(err),
+    }
 }

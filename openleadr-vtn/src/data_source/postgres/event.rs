@@ -169,7 +169,8 @@ impl Crud for PgEventStorage {
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
+        unimplemented!("Retrieving an event by ID is not supported yet.");
+        /*        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresEvent,
@@ -195,7 +196,7 @@ impl Crud for PgEventStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?)
+        .try_into()?)*/
     }
 
     async fn retrieve_all(
@@ -203,44 +204,10 @@ impl Crud for PgEventStorage {
         filter: &Self::Filter,
         client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
-
-        Ok(sqlx::query_as!(
-            PostgresEvent,
-            r#"
-            SELECT e.id,
-                   e.created_date_time,
-                   e.modification_date_time,
-                   e.program_id,
-                   e.event_name,
-                   e.priority,
-                   e.targets as "targets:Vec<Target>",
-                   e.report_descriptors,
-                   e.payload_descriptors,
-                   e.interval_period,
-                   e.intervals,
-                   e.duration
-            FROM event e
-            WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND e.targets @> $2
-              -- TODO What should happen if the event has no targets set?
-              --  Shall all VENs have access to it or only those without any targets?
-              AND e.targets @> $3
-            GROUP BY e.id, e.priority, e.created_date_time
-            ORDER BY priority ASC , created_date_time DESC
-            OFFSET $4 LIMIT $5
-            "#,
-            filter.program_id.as_ref().map(|id| id.as_str()),
-            filter.targets.as_deref() as _,
-            ven_targets as _,
-            filter.skip,
-            filter.limit
-        )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()?)
+        match client_id {
+            None => self.retrieve_all_without_client_id(filter).await,
+            Some(client_id) => self.retrieve_all_with_client_id(filter, client_id).await,
+        }
     }
 
     async fn update(
@@ -324,6 +291,96 @@ impl Crud for PgEventStorage {
         .fetch_one(&self.db)
         .await?
         .try_into()?)
+    }
+}
+
+impl PgEventStorage {
+    async fn retrieve_all_with_client_id(
+        &self,
+        filter: &QueryParams,
+        client_id: &ClientId,
+    ) -> Result<Vec<Event>, AppError> {
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
+
+        sqlx::query_as!(
+            PostgresEvent,
+            r#"
+            SELECT e.id,
+                   e.created_date_time,
+                   e.modification_date_time,
+                   e.program_id,
+                   e.event_name,
+                   e.priority,
+                   e.targets as "targets:Vec<Target>",
+                   e.report_descriptors,
+                   e.payload_descriptors,
+                   e.interval_period,
+                   e.intervals,
+                   e.duration
+            FROM event e
+            WHERE ($1::text IS NULL OR e.program_id like $1)
+              -- TODO according to the spec, we MUST only test query params
+              --  against the event that the VEN object (and its resources) have as targets
+              AND ($2::text[] IS NULL OR e.targets @> $2)
+              AND (
+                    e.targets && $3 OR array_length(e.targets, 1) IS NULL
+                  )
+            GROUP BY e.id, e.priority, e.created_date_time
+            ORDER BY priority ASC, created_date_time DESC
+            OFFSET $4 LIMIT $5
+            "#,
+            filter.program_id.as_ref().map(|id| id.as_str()),
+            filter.targets.as_deref() as _,
+            ven_targets as _,
+            filter.skip,
+            filter.limit
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+    }
+
+    async fn retrieve_all_without_client_id(
+        &self,
+        filter: &QueryParams,
+    ) -> Result<Vec<Event>, AppError> {
+        dbg!(&filter);
+        sqlx::query_as!(
+            PostgresEvent,
+            r#"
+            SELECT e.id,
+                   e.created_date_time,
+                   e.modification_date_time,
+                   e.program_id,
+                   e.event_name,
+                   e.priority,
+                   e.targets as "targets:Vec<Target>",
+                   e.report_descriptors,
+                   e.payload_descriptors,
+                   e.interval_period,
+                   e.intervals,
+                   e.duration
+            FROM event e
+            WHERE ($1::text IS NULL OR e.program_id like $1)
+              -- IF filter targets are empty, do not filter.
+              -- IF filter targets are not empty, filter only if they are in the event targets.
+              AND ($2::text[] IS NULL OR e.targets @> $2)
+            GROUP BY e.id, e.priority, e.created_date_time
+            ORDER BY priority ASC, created_date_time DESC
+            OFFSET $3 LIMIT $4
+            "#,
+            filter.program_id.as_ref().map(|id| id.as_str()),
+            filter.targets.as_deref() as _,
+            filter.skip,
+            filter.limit
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
     }
 }
 
@@ -433,19 +490,46 @@ mod tests {
         }
     }
 
+    fn event_4() -> Event {
+        Event {
+            id: "event-4".parse().unwrap(),
+            content: EventRequest {
+                program_id: "program-3".parse().unwrap(),
+                event_name: Some("event-4-name".to_string()),
+                targets: vec![
+                    Target::from_str("target-1").unwrap(),
+                    Target::from_str("group-1").unwrap(),
+                ],
+                ..event_2().content
+            },
+            ..event_2()
+        }
+    }
+
+    fn event_5() -> Event {
+        Event {
+            id: "event-5".parse().unwrap(),
+            content: EventRequest {
+                program_id: "program-3".parse().unwrap(),
+                event_name: Some("event-5-name".to_string()),
+                targets: vec![],
+                ..event_2().content
+            },
+            ..event_2()
+        }
+    }
+
     mod get_all {
         use super::*;
+        use openleadr_wire::ClientId;
 
         #[sqlx::test(fixtures("programs", "events"))]
         async fn default_get_all(db: PgPool) {
             let repo: PgEventStorage = db.into();
-            let mut events = repo
-                .retrieve_all(&Default::default(), &None)
-                .await
-                .unwrap();
-            assert_eq!(events.len(), 3);
+            let mut events = repo.retrieve_all(&Default::default(), &None).await.unwrap();
+            assert_eq!(events.len(), 5);
             events.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
-            assert_eq!(events, vec![event_1(), event_2(), event_3()]);
+            assert_eq!(events, vec![event_1(), event_2(), event_3(), event_4(), event_5()]);
         }
 
         #[sqlx::test(fixtures("programs", "events"))]
@@ -493,8 +577,168 @@ mod tests {
             assert_eq!(events.len(), 0);
         }
 
+        #[sqlx::test(fixtures("programs", "events", "vens"))]
+        // TODO
+        // Check that a client_id that can't be found returns all and only events that don't have targets.
+        async fn filter_target_get_all_ven_not_found(db: PgPool) {}
+
+        #[sqlx::test(fixtures("programs", "events", "vens"))]
+        // As this test does use a client_id, it is mimicking the functionality
+        // when a VEN client does the request.
+        async fn filter_target_get_all_ven_client(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+
+            // Has access to targets "group-1" and "private-value"
+            let ven_1: ClientId = "ven-1-client-id".parse().unwrap();
+
+            // Has access to targets "group-2"
+            let ven_2: ClientId = "ven-2-client-id".parse().unwrap();
+
+            // Has access to targets "group-1"
+            let ven_3: ClientId = "ven-3-client-id".parse().unwrap();
+
+            // Has access to targets "group-2"
+            let ven_4: ClientId = "ven-4-client-id".parse().unwrap();
+
+
+            // ven_1 has access to targets "group-1" and "private-value"
+            // which should allow access to event-1, event-4, and event-5
+            let events = repo
+                .retrieve_all(&QueryParams::default(), &Some(ven_1.clone()))
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events, vec![event_1(), event_4(), event_5()]);
+
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 2);
+            assert_eq!(events, vec![event_1(), event_4()]);
+
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "private-value".parse().unwrap(),
+                        ])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events, vec![event_1()]);
+
+            // TODO eventually, filtering on "target-1" should not have any effect on the result
+            //  compared to no filtering as ven_1 does not have access to "target-1"
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["target-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "target-1".parse().unwrap(),
+                        ])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+
+            // ven_2 has access to target "group-2" for which there is no event with that target.
+            // Therefore, it should allow only access to event-5.
+            let events = repo
+                .retrieve_all(&QueryParams::default(), &Some(ven_2.clone()))
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events, vec![event_5()]);
+
+            // TODO eventually, filtering on "target-1" should not have any effect on the result
+            //  compared to no filtering as ven_2 does not have access to "target-1"
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["target-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_2.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 0);
+
+
+            // ven_3 has access to target "group-1" which should allow access to event-1, event-4, and event-5
+            let events = repo
+                .retrieve_all(&QueryParams::default(), &Some(ven_3.clone()))
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 3);
+
+            // TODO eventually, filtering on "target-1" should not have any effect on the result
+            //  compared to no filtering as ven_3 does not have access to "target-1"
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["target-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_3.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+
+            // ven_4 has access to targets "group-1" and "group-2" which should allow access to event-1, event-4, and event-5
+            let events = repo
+                .retrieve_all(&QueryParams::default(), &Some(ven_4.clone()))
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 3);
+
+            // TODO eventually, filtering on "target-1" should not have any effect on the result
+            //  compared to no filtering as ven_4 does not have access to "target-1"
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["target-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_4.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+        }
+
         #[sqlx::test(fixtures("programs", "events"))]
-        async fn filter_target_get_all(db: PgPool) {
+        // As this test does not use a client_id, it is mimicking the functionality
+        // when a BL client does the request.
+        async fn filter_target_get_all_bl_client(db: PgPool) {
             let repo: PgEventStorage = db.into();
 
             let events = repo
@@ -537,14 +781,32 @@ mod tests {
             assert_eq!(events.len(), 0);
         }
 
-        #[sqlx::test(fixtures("programs"))]
+        #[sqlx::test(fixtures("programs", "events"))]
         async fn filter_multiple_targets(db: PgPool) {
             let repo: PgEventStorage = db.into();
 
             let events = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams(Some(vec!["private-value".parse().unwrap()])),
+                        targets: TargetQueryParams(Some(vec![
+                            "private-value".parse().unwrap(),
+                            "group-1".parse().unwrap(),
+                        ])),
+                        ..Default::default()
+                    },
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec![
+                            "private-value".parse().unwrap(),
+                            "target-1".parse().unwrap(),
+                        ])),
                         ..Default::default()
                     },
                     &None,
@@ -606,10 +868,7 @@ mod tests {
         async fn get_existing(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .retrieve(
-                    &"event-1".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"event-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(event, event_1());
@@ -618,12 +877,7 @@ mod tests {
         #[sqlx::test(fixtures("programs", "events"))]
         async fn get_not_existing(db: PgPool) {
             let repo: PgEventStorage = db.into();
-            let event = repo
-                .retrieve(
-                    &"not-existent".parse().unwrap(),
-                    &None,
-                )
-                .await;
+            let event = repo.retrieve(&"not-existent".parse().unwrap(), &None).await;
             assert!(matches!(event, Err(AppError::NotFound)));
         }
     }
@@ -634,10 +888,7 @@ mod tests {
         #[sqlx::test(fixtures("programs"))]
         async fn add(db: PgPool) {
             let repo: PgEventStorage = db.into();
-            let event = repo
-                .create(event_1().content, &None)
-                .await
-                .unwrap();
+            let event = repo.create(event_1().content, &None).await.unwrap();
             assert_eq!(event.content, event_1().content);
             assert!(event.created_date_time < Utc::now() + Duration::minutes(10));
             assert!(event.created_date_time > Utc::now() - Duration::minutes(10));
@@ -648,9 +899,7 @@ mod tests {
         #[sqlx::test(fixtures("programs", "events"))]
         async fn add_existing_conflict_name(db: PgPool) {
             let repo: PgEventStorage = db.into();
-            let event = repo
-                .create(event_1().content, &None)
-                .await;
+            let event = repo.create(event_1().content, &None).await;
             assert!(event.is_ok());
         }
     }
@@ -662,11 +911,7 @@ mod tests {
         async fn updates_modify_time(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .update(
-                    &"event-1".parse().unwrap(),
-                    event_1().content,
-                    &None,
-                )
+                .update(&"event-1".parse().unwrap(), event_1().content, &None)
                 .await
                 .unwrap();
             assert_eq!(event.content, event_1().content);
@@ -686,19 +931,12 @@ mod tests {
             let mut updated = event_2().content;
             updated.event_name = Some("updated-name".to_string());
             let event = repo
-                .update(
-                    &"event-1".parse().unwrap(),
-                    updated.clone(),
-                    &None,
-                )
+                .update(&"event-1".parse().unwrap(), updated.clone(), &None)
                 .await
                 .unwrap();
             assert_eq!(event.content, updated);
             let event = repo
-                .retrieve(
-                    &"event-1".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"event-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(event.content, updated);
@@ -708,11 +946,7 @@ mod tests {
         async fn update_name_conflict(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .update(
-                    &"event-1".parse().unwrap(),
-                    event_2().content,
-                    &None,
-                )
+                .update(&"event-1".parse().unwrap(), event_2().content, &None)
                 .await;
             assert!(event.is_ok());
         }
@@ -725,27 +959,16 @@ mod tests {
         async fn delete_existing(db: PgPool) {
             let repo: PgEventStorage = db.into();
             let event = repo
-                .delete(
-                    &"event-1".parse().unwrap(),
-                    &None,
-                )
+                .delete(&"event-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(event, event_1());
 
-            let event = repo
-                .retrieve(
-                    &"event-1".parse().unwrap(),
-                    &None,
-                )
-                .await;
+            let event = repo.retrieve(&"event-1".parse().unwrap(), &None).await;
             assert!(matches!(event, Err(AppError::NotFound)));
 
             let event = repo
-                .retrieve(
-                    &"event-2".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"event-2".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(event, event_2());
@@ -754,12 +977,7 @@ mod tests {
         #[sqlx::test(fixtures("programs", "events"))]
         async fn delete_not_existing(db: PgPool) {
             let repo: PgEventStorage = db.into();
-            let event = repo
-                .delete(
-                    &"not-existent".parse().unwrap(),
-                    &None,
-                )
-                .await;
+            let event = repo.delete(&"not-existent".parse().unwrap(), &None).await;
             assert!(matches!(event, Err(AppError::NotFound)));
         }
     }

@@ -1,7 +1,7 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{get_ven_targets, to_json_value},
+        postgres::{to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
@@ -165,7 +165,8 @@ impl Crud for PgProgramStorage {
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
+        unimplemented!();
+/*        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -188,7 +189,7 @@ impl Crud for PgProgramStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?)
+        .try_into()?)*/
     }
 
     async fn retrieve_all(
@@ -196,7 +197,8 @@ impl Crud for PgProgramStorage {
         filter: &Self::Filter,
         client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
+        unimplemented!();
+/*        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         Ok(sqlx::query_as!(
             PostgresProgram,
@@ -222,11 +224,11 @@ impl Crud for PgProgramStorage {
             filter.skip,
             filter.limit,
         )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()?)
+            .fetch_all(&self.db)
+            .await?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?)*/
     }
 
     async fn update(
