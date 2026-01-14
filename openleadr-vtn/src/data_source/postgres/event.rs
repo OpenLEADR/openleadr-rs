@@ -5,7 +5,6 @@ use crate::{
         Crud, EventCrud,
     },
     error::AppError,
-    jwt::Scope,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -564,6 +563,10 @@ mod tests {
             content: EventRequest {
                 program_id: "program-3".parse().unwrap(),
                 event_name: Some("event-3-name".to_string()),
+                targets: vec![
+                    Target::from_str("target-1").unwrap(),
+                    Target::from_str("somewhere-in-the-nowhere").unwrap(),
+                ],
                 ..event_2().content
             },
             ..event_2()
@@ -877,6 +880,31 @@ mod tests {
             assert_eq!(events.len(), 3);
         }
 
+        #[sqlx::test(fixtures("programs", "events", "vens", "resources"))]
+        async fn get_all_as_ven_client_with_target_in_resource(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+
+            // Has access to targets "group-1" and "private-value"
+            // and via it's attached resources also to "somewhere-in-the-nowhere" and "group-2"
+            let ven_1: ClientId = "ven-1-client-id".parse().unwrap();
+
+            // event-3 has the target "somewhere-in-the-nowhere" which should be accessible to ven_1
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["somewhere-in-the-nowhere"
+                            .parse()
+                            .unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events, vec![without_targets(event_3(), ["target-1"])]);
+        }
+
         #[sqlx::test(fixtures("programs", "events"))]
         // As this test does not use a client_id, it is mimicking the functionality
         // when a BL client does the request.
@@ -1073,7 +1101,7 @@ mod tests {
                 .unwrap();
             assert_eq!(event, event_5());
 
-            // ven_5 has no access to any targets and therefore should not be able to access event-5 only
+            // ven_5 has no access to any targets and therefore should be able to access event-5 only
             let err = repo
                 .retrieve(&"event-1".parse().unwrap(), &Some(ven_5.clone()))
                 .await;
@@ -1083,6 +1111,22 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(event, event_5());
+        }
+
+        #[sqlx::test(fixtures("programs", "events", "vens", "resources"))]
+        async fn get_as_ven_client_with_target_in_resource(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+
+            // Has access to targets "group-1" and "private-value"
+            // and via it's attached resources also to "somewhere-in-the-nowhere" and "group-2"
+            let ven_1: ClientId = "ven-1-client-id".parse().unwrap();
+
+            // event-3 has the target "somewhere-in-the-nowhere" which should be accessible to ven_1
+            let event = repo
+                .retrieve(&"event-3".parse().unwrap(), &Some(ven_1.clone()))
+                .await
+                .unwrap();
+            assert_eq!(event, without_targets(event_3(), ["target-1"]));
         }
     }
 

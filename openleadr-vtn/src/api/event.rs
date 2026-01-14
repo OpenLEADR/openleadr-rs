@@ -646,8 +646,41 @@ mod test {
     mod permissions {
         use super::*;
 
+        #[sqlx::test(fixtures("programs"))]
+        async fn can_create_event_with_write_scope(db: PgPool) {
+            let (state, _) = state_with_events(vec![], db.clone()).await;
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                vec![Scope::ReadAll, Scope::WriteEvents],
+            );
+
+            let mut app = state.into_router();
+
+            let (status, _) = help_create_event(&mut app, &default_event_content(), &token).await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+
+        #[sqlx::test(fixtures("programs"))]
+        async fn cannot_create_event_without_write_scope(db: PgPool) {
+            let (state, _) = state_with_events(vec![], db.clone()).await;
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::WriteEvents)
+                    .collect(),
+            );
+
+            let mut app = state.into_router();
+
+            let (status, _) = help_create_event(&mut app, &default_event_content(), &token).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
-        async fn vens_can_read_event_in_assigned_program_only(db: PgPool) {
+        async fn vens_can_read_assigned_events_only(db: PgPool) {
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
@@ -692,7 +725,7 @@ mod test {
         }
 
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
-        async fn vens_event_list_assigned_program_only(db: PgPool) {
+        async fn vens_list_assigned_events_only(db: PgPool) {
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
@@ -721,7 +754,12 @@ mod test {
             assert_eq!(events.len(), 2);
 
             // check that query param targets are additive, i.e., further restrict the results
-            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1&targets=private-value", &token).await;
+            let response = retrieve_all_with_filter_help(
+                &mut app,
+                "targets=group-1&targets=private-value",
+                &token,
+            )
+            .await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
@@ -730,7 +768,9 @@ mod test {
             // check that query params that the VEN client isn't granted access to are ignored.
             // If the restriction to "target-1" is evaluated, the VTN returned only event-4.
             // If the VTN behaves correctly and ignores the "target-1" query, it also returns event-1
-            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1&targets=target-1", &token).await;
+            let response =
+                retrieve_all_with_filter_help(&mut app, "targets=group-1&targets=target-1", &token)
+                    .await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
@@ -753,7 +793,11 @@ mod test {
             assert_eq!(events[0].id.as_str(), "event-5");
 
             // check that VEN clients without targets cannot access events with any targets
-            let token = jwt_test_token(&state, "ven-has-no-targets-client-id", vec![Scope::ReadTargets]);
+            let token = jwt_test_token(
+                &state,
+                "ven-has-no-targets-client-id",
+                vec![Scope::ReadTargets],
+            );
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();

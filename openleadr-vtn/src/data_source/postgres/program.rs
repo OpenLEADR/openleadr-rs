@@ -445,7 +445,7 @@ mod tests {
         interval::IntervalPeriod,
         program::{PayloadDescriptor, ProgramDescription, ProgramRequest},
         target::Target,
-        Program,
+        ClientId, Program,
     };
     use sqlx::PgPool;
     use std::str::FromStr;
@@ -516,8 +516,28 @@ mod tests {
         }
     }
 
+    pub fn without_targets<'a>(
+        program: Program,
+        targets: impl IntoIterator<Item = &'a str>,
+    ) -> Program {
+        let targets: Vec<Target> = targets.into_iter().map(|t| t.parse().unwrap()).collect();
+        Program {
+            content: ProgramRequest {
+                targets: program
+                    .content
+                    .targets
+                    .into_iter()
+                    .filter(|t| !targets.contains(t))
+                    .collect(),
+                ..program.content
+            },
+            ..program
+        }
+    }
+
     mod get_all {
         use super::*;
+        use openleadr_wire::ClientId;
 
         #[sqlx::test(fixtures("programs"))]
         async fn default_get_all(db: PgPool) {
@@ -573,7 +593,9 @@ mod tests {
         }
 
         #[sqlx::test(fixtures("programs"))]
-        async fn filter_target_get_all(db: PgPool) {
+        // As this test does not use a client_id, it is mimicking the functionality
+        // when a BL client does the request.
+        async fn filter_target_get_all_bl_client(db: PgPool) {
             let repo: PgProgramStorage = db.into();
 
             let programs = repo
@@ -659,6 +681,150 @@ mod tests {
                 .unwrap();
             assert_eq!(programs.len(), 2);
         }
+
+        #[sqlx::test(fixtures("programs", "vens"))]
+        // As this test does use a client_id, it is mimicking the functionality
+        // when a VEN client does the request.
+        async fn filter_target_get_all_ven_client(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            // Has access to targets "group-1" and "private-value"
+            let ven_1: ClientId = "ven-1-client-id".parse().unwrap();
+
+            // Has access to targets "group-2"
+            let ven_2: ClientId = "ven-2-client-id".parse().unwrap();
+
+            // ven_1 has access to targets "group-1" and "private-value"
+            // which should allow access to program-1 and program-2, and program-3
+            let programs = repo
+                .retrieve_all(&QueryParams::default(), &Some(ven_1.clone()))
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 3);
+            assert_eq!(
+                programs,
+                vec![
+                    program_1(),
+                    without_targets(program_2(), ["group-2"]),
+                    program_3()
+                ]
+            );
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
+            assert_eq!(
+                programs,
+                vec![program_1(), without_targets(program_2(), ["group-2"])]
+            );
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "private-value".parse().unwrap(),
+                        ])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 1);
+            assert_eq!(programs, vec![program_1()]);
+
+            // filtering on "group-2" should not have any effect on the result
+            // compared to no filtering as ven_1 does not have access to "group-2"
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["group-2".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 3);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "group-2".parse().unwrap(),
+                        ])),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
+
+            // ven_2 has access to target "group-2" which matches program-2.
+            // Therefore, it should allow access to program-2 and program-3.
+            let programs = repo
+                .retrieve_all(&QueryParams::default(), &Some(ven_2.clone()))
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
+            assert_eq!(
+                programs,
+                vec![without_targets(program_2(), ["group-1"]), program_3()]
+            );
+
+            // filtering on "group-1" should not have any effect on the result
+            // compared to no filtering as ven_2 does not have access to "group-1"
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &Some(ven_2.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 2);
+        }
+    }
+
+    #[sqlx::test(fixtures("programs", "vens"))]
+    // Check that a client_id that can't be found returns all and only programs that don't have targets.
+    async fn filter_target_get_all_ven_not_found(db: PgPool) {
+        let repo: PgProgramStorage = db.into();
+
+        let ven: ClientId = "does-not-exist".parse().unwrap();
+        let programs = repo
+            .retrieve_all(&QueryParams::default(), &Some(ven.clone()))
+            .await
+            .unwrap();
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs, vec![program_3()]);
+    }
+
+    #[sqlx::test(fixtures("programs", "vens"))]
+    // Check that a client_id that matches a VEN without targets returns all and only programs that don't have targets.
+    async fn filter_target_get_all_ven_without_targets(db: PgPool) {
+        let repo: PgProgramStorage = db.into();
+
+        let ven: ClientId = "ven-has-no-targets-client-id".parse().unwrap();
+        let programs = repo
+            .retrieve_all(&QueryParams::default(), &Some(ven.clone()))
+            .await
+            .unwrap();
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs, vec![program_3()]);
     }
 
     mod get {
@@ -683,6 +849,68 @@ mod tests {
                 .await;
 
             assert!(matches!(program, Err(AppError::NotFound)));
+        }
+
+        #[sqlx::test(fixtures("programs", "vens"))]
+        async fn get_as_ven_client(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            // Has access to targets "group-2"
+            let ven_2: ClientId = "ven-2-client-id".parse().unwrap();
+
+            // ven_1 has access to target "group-2" and should therefore be able to
+            // access program-2 and program-3.
+            let err = repo
+                .retrieve(&"program-1".parse().unwrap(), &Some(ven_2.clone()))
+                .await;
+            assert!(matches!(err, Err(AppError::NotFound)));
+            let program = repo
+                .retrieve(&"program-2".parse().unwrap(), &Some(ven_2.clone()))
+                .await
+                .unwrap();
+            assert_eq!(program, without_targets(program_2(), ["group-1"]));
+            let program = repo
+                .retrieve(&"program-3".parse().unwrap(), &Some(ven_2.clone()))
+                .await
+                .unwrap();
+            assert_eq!(program, program_3());
+        }
+
+        #[sqlx::test(fixtures("programs", "vens"))]
+        async fn get_as_ven_without_targets(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            // Has access to no targets
+            let ven: ClientId = "ven-has-no-targets-client-id".parse().unwrap();
+
+            // ven has no access to any targets and therefore should be able to access program-3 only
+            let err = repo
+                .retrieve(&"program-2".parse().unwrap(), &Some(ven.clone()))
+                .await;
+            assert!(matches!(err, Err(AppError::NotFound)));
+            let event = repo
+                .retrieve(&"program-3".parse().unwrap(), &Some(ven.clone()))
+                .await
+                .unwrap();
+            assert_eq!(event, program_3());
+        }
+
+        #[sqlx::test(fixtures("programs", "vens"))]
+        async fn get_as_ven_not_found(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            let ven: ClientId = "ven-does-not-exist".parse().unwrap();
+
+            // VEN object does not exist and therefore should be able to access program-3 only
+            let err = repo
+                .retrieve(&"program-2".parse().unwrap(), &Some(ven.clone()))
+                .await;
+            assert!(matches!(err, Err(AppError::NotFound)));
+            let event = repo
+                .retrieve(&"program-3".parse().unwrap(), &Some(ven.clone()))
+                .await
+                .unwrap();
+            assert_eq!(event, program_3());
         }
     }
 

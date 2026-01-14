@@ -595,25 +595,29 @@ mod test {
                 ..default_content()
             };
 
-            let (state, mut programs) = state_with_programs(vec![content], db).await;
+            let (state, mut programs) = state_with_programs(vec![content.clone()], db).await;
             let program = programs.remove(0);
             let mut app = state.clone().into_router();
 
             let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
             let response = help_get(&mut app, &token, program.id.as_str()).await;
             assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let program: Program = serde_json::from_slice(&body).unwrap();
+            assert_eq!(program.content, content);
 
             let token = jwt_test_token(&state, "ven-2-client-id", vec![Scope::ReadTargets]);
             let response = help_get(&mut app, &token, program.id.as_str()).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-            let token = jwt_test_token(&state, "ven-3-client-id", vec![Scope::ReadTargets]);
-            let response = help_get(&mut app, &token, program.id.as_str()).await;
-            assert_eq!(response.status(), StatusCode::OK);
-
             let token = jwt_test_token(&state, "ven-4-client-id", vec![Scope::ReadTargets]);
             let response = help_get(&mut app, &token, program.id.as_str()).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let program: Program = serde_json::from_slice(&body).unwrap();
+            // Check "target hiding": the program has targets "group-1" and "private-value" assigned, but ven-4
+            // may only know of "group-1" as it isn't granted access to "private-value"
+            assert_eq!(program.content.targets, vec!["group-1".parse().unwrap()]);
         }
 
         #[sqlx::test(fixtures("users", "programs", "vens"))]
@@ -632,13 +636,13 @@ mod test {
             println!("{}", String::from_utf8_lossy(&body));
             assert_eq!(status, StatusCode::OK);
             let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(programs.len(), 2);
+            assert_eq!(programs.len(), 3);
             let mut names = programs
                 .into_iter()
                 .map(|p| p.content.program_name)
                 .collect::<Vec<_>>();
             names.sort();
-            assert_eq!(names, vec!["program-1", "program-3"]);
+            assert_eq!(names, vec!["program-1", "program-2", "program-3"]);
 
             let token = jwt_test_token(
                 &state,
@@ -655,18 +659,22 @@ mod test {
                 .map(|p| p.content.program_name)
                 .collect::<Vec<_>>();
             names.sort();
-            assert_eq!(names, vec!["program-1", "program-2"]);
+            assert_eq!(names, vec!["program-2", "program-3"]);
 
-            let token = jwt_test_token(
-                &state,
-                "ven-2-client-id".to_string(),
-                vec![Scope::ReadTargets],
-            );
-            let response = retrieve_all_with_filter_help(&mut app, "targets=ven-1", &token).await;
+            // Can filter based on targets the VEN has access to
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-2", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
-            assert!(programs.is_empty());
+            assert_eq!(programs.len(), 1);
+            assert_eq!(programs[0].content.program_name, "program-2");
+
+            // Filtering on targets the VEN doesn't have access to should not influence the result
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1", &token).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
+            assert_eq!(programs.len(), 2);
         }
 
         #[sqlx::test(fixtures("users", "programs", "vens"))]
