@@ -9,16 +9,15 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::{
-    program::{ProgramId, ProgramRequest},
-    Program,
-};
-use openleadr_wire::target::Target;
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::ProgramCrud,
     error::AppError,
     jwt::{Scope, User},
+};
+use openleadr_wire::{
+    program::{ProgramId, ProgramRequest},
+    Program,
 };
 
 pub async fn get_all(
@@ -140,8 +139,7 @@ pub async fn delete(
 #[derive(Deserialize, Validate, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
-    #[serde(default)]
-    pub(crate) targets: Option<Vec<Target>>,
+    pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
@@ -170,8 +168,8 @@ mod test {
         Router,
     };
     use http_body_util::BodyExt;
-    use reqwest::Method;
     use openleadr_wire::{problem::Problem, target::Target};
+    use reqwest::Method;
     use sqlx::PgPool;
     use tower::{Service, ServiceExt};
 
@@ -243,8 +241,8 @@ mod test {
                 .body(Body::empty())
                 .unwrap(),
         )
-            .await
-            .unwrap()
+        .await
+        .unwrap()
     }
 
     #[sqlx::test]
@@ -291,8 +289,7 @@ mod test {
         programs[1].program_name = "program1".to_string();
         programs[2].program_name = "program2".to_string();
 
-        let (state, programs) =
-            state_with_programs(programs, db).await;
+        let (state, programs) = state_with_programs(programs, db).await;
         let program_id = programs[1].id.clone();
         let token = jwt_test_token(
             &state,
@@ -334,7 +331,11 @@ mod test {
     async fn update(db: PgPool) {
         let (state, mut programs) = state_with_programs(vec![default_content()], db).await;
         let program = programs.remove(0);
-        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll, Scope::WritePrograms]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::ReadAll, Scope::WritePrograms],
+        );
         let app = state.into_router();
 
         let response = app
@@ -363,7 +364,11 @@ mod test {
         programs[1].program_name = "program1".to_string();
 
         let (state, mut programs) = state_with_programs(programs, db).await;
-        let token = jwt_test_token(&state, "test-client", vec![Scope::ReadAll, Scope::WritePrograms]);
+        let token = jwt_test_token(
+            &state,
+            "test-client",
+            vec![Scope::ReadAll, Scope::WritePrograms],
+        );
         let app = state.into_router();
 
         let mut updated = programs.remove(0);
@@ -529,9 +534,7 @@ mod test {
         let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
         assert_eq!(programs.len(), 0);
 
-        let response =
-            retrieve_all_with_filter_help(&mut app, "targets=group-1", &token)
-                .await;
+        let response = retrieve_all_with_filter_help(&mut app, "targets=group-1", &token).await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();

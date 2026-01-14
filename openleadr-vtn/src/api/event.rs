@@ -121,7 +121,6 @@ pub async fn delete(
 pub struct QueryParams {
     #[serde(rename = "programID")]
     pub(crate) program_id: Option<ProgramId>,
-    // #[serde(flatten)]
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
