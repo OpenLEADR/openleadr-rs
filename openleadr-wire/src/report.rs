@@ -205,8 +205,8 @@ fn pos_one() -> i32 {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(
     rename_all = "camelCase",
-    tag = "objectType",
-    rename = "REPORT_PAYLOAD_DESCRIPTOR"
+    // tag = "objectType",
+    // rename = "REPORT_PAYLOAD_DESCRIPTOR"
 )]
 pub struct ReportPayloadDescriptor {
     /// Represents the nature of values.

@@ -167,7 +167,7 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod tests {
-    use crate::{api::test::ApiTest};
+    use crate::{api::test::ApiTest, jwt::Scope};
     use axum::{body::Body, http::StatusCode};
     use openleadr_wire::{
         problem::Problem,
@@ -176,11 +176,10 @@ mod tests {
     };
     use reqwest::Method;
     use sqlx::PgPool;
-    use crate::jwt::Scope;
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_unfiltered(db: PgPool) {
-        let test = ApiTest::new(db, "test-client",vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let (status, mut vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
@@ -195,7 +194,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_filtered(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::ReadAll]).await;
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens?skip=1", Body::empty())
@@ -216,7 +215,7 @@ mod tests {
         assert_eq!(vens.len(), 1);
         assert_eq!(vens[0].id.as_str(), "ven-1");
 
-        let test = ApiTest::new(db, "ven-1-client-id",vec![Scope::ReadVenObjects]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
@@ -227,7 +226,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_ven_user(db: PgPool) {
-        let test = ApiTest::new(db, "ven-1-client-id",vec![Scope::ReadVenObjects]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, vens) = test
             .request::<Vec<Ven>>(Method::GET, "/vens", Body::empty())
@@ -240,7 +239,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_single(db: PgPool) {
-        let test = ApiTest::new(db, "test-client",vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let (status, ven) = test
             .request::<Ven>(Method::GET, "/vens/ven-1", Body::empty())
@@ -252,7 +251,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn add_edit_delete_ven(db: PgPool) {
-        let test = ApiTest::new(db, "test-client",vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let new_ven = r#"{"venName":"new-ven", "objectType": "VEN_VEN_REQUEST"}"#;
         let (status, ven) = test
@@ -300,7 +299,7 @@ mod tests {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, "test-client",vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let vens = [
             VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "".to_string(), None, vec![])),
