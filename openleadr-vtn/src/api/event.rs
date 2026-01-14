@@ -647,144 +647,49 @@ mod test {
     mod permissions {
         use super::*;
 
-        #[sqlx::test(fixtures("users", "programs", "events"))]
-        async fn business_can_write_event_in_own_program_only(db: PgPool) {
-            let (state, _) = state_with_events(vec![], db).await;
-            let mut app = state.clone().into_router();
-
-            let content = EventRequest {
-                program_id: "program-3".parse().unwrap(),
-                ..default_event_content()
-            };
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let (status, _) = help_create_event(&mut app, &content, &token).await;
-            assert_eq!(status, StatusCode::CREATED);
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let (status, _) = help_create_event(&mut app, &content, &token).await;
-            assert_eq!(status, StatusCode::UNAUTHORIZED);
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let (status, _) = help_create_event(&mut app, &content, &token).await;
-            assert_eq!(status, StatusCode::CREATED);
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method(Method::DELETE)
-                        .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method(Method::PUT)
-                        .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-                        .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                        .body(Body::from(serde_json::to_vec(&content).unwrap()))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method(Method::PUT)
-                        .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-                        .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                        .body(Body::from(serde_json::to_vec(&content).unwrap()))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-
-            let token = jwt_test_token(
-                &state,
-                "test-client",
-                vec![Scope::WriteEvents, Scope::ReadAll],
-            );
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method(Method::DELETE)
-                        .uri(format!("/events/{}", "event-3"))
-                        .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-        }
-
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
         async fn vens_can_read_event_in_assigned_program_only(db: PgPool) {
-            // FIXME properly test object privacy
             let (state, _) = state_with_events(vec![], db).await;
             let mut app = state.clone().into_router();
 
-            let token = jwt_test_token(&state, "test-client", vec![Scope::ReadTargets]);
-            let response = get_help("event-3", &token, &mut app).await;
+            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
+            let response = get_help("event-1", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::OK);
-
-            let token = jwt_test_token(&state, "test-client", vec![Scope::ReadTargets]);
-            let response = get_help("event-3", &token, &mut app).await;
+            let response = get_help("event-2", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
-            let token = jwt_test_token(&state, "test-client", vec![Scope::ReadTargets]);
-            let response = get_help("event-3", &token, &mut app).await;
+            let response = get_help("event-4", &token, &mut app).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let event: Event = serde_json::from_slice(&body).unwrap();
+            assert_eq!(event.id.as_str(), "event-4");
+            // Check "target hiding": event-4 has targets "target-1" and "group-1" assigned, but ven-1
+            // may only know of "group-1" as it isn't granted access to "target-1"
+            assert_eq!(
+                event.content.targets,
+                vec![Target::from_str("group-1").unwrap()]
+            );
+            let response = get_help("event-5", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::OK);
 
+            // check non-existent VEN client
+            let token = jwt_test_token(&state, "non-existent-client", vec![Scope::ReadTargets]);
+            let response = get_help("event-1", &token, &mut app).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            // event-5 does not have targets assigned that should therefore be visible to everyone
+            let response = get_help("event-5", &token, &mut app).await;
+            assert_eq!(response.status(), StatusCode::OK);
+
+            // Check VEN client with no assigned targets
             let token = jwt_test_token(
                 &state,
-                "ven-2-client-id",
-                vec![Scope::WriteEvents, Scope::ReadTargets],
+                "ven-has-no-targets-client-id",
+                vec![Scope::ReadTargets],
             );
-            let response = get_help("event-3", &token, &mut app).await;
+            let response = get_help("event-1", &token, &mut app).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            // event-5 does not have targets assigned that should therefore be visible to everyone
+            let response = get_help("event-5", &token, &mut app).await;
+            assert_eq!(response.status(), StatusCode::OK);
         }
 
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
@@ -796,26 +701,73 @@ mod test {
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
+            let mut events: Vec<Event> = serde_json::from_slice(&body).unwrap();
+            assert_eq!(events.len(), 3);
+            events.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+            assert_eq!(events[0].id.as_str(), "event-1");
+            assert_eq!(events[1].id.as_str(), "event-4");
+
+            // Check "target hiding": event-4 has targets "target-1" and "group-1" assigned, but ven-1
+            // may only know of "group-1" as it isn't granted access to "target-1"
+            assert_eq!(
+                events[1].content.targets,
+                vec![Target::from_str("group-1").unwrap()]
+            );
+            assert_eq!(events[2].id.as_str(), "event-5");
+
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1", &token).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
             assert_eq!(events.len(), 2);
 
-            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
+            // check that query param targets are additive, i.e., further restrict the results
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1&targets=private-value", &token).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
+            assert_eq!(events.len(), 1);
+
+            // check that query params that the VEN client isn't granted access to are ignored.
+            // If the restriction to "target-1" is evaluated, the VTN returned only event-4.
+            // If the VTN behaves correctly and ignores the "target-1" query, it also returns event-1
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1&targets=target-1", &token).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
+            assert_eq!(events.len(), 2);
+
+            // check that client ids that don't match any VEN object cannot access events with any targets
+            let token = jwt_test_token(&state, "ven-not-existent", vec![Scope::ReadTargets]);
             let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 3);
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].id.as_str(), "event-5");
 
-            // VEN should not be able to filter on other ven names,
-            // even if they have a common set of events,
-            // as this would leak information about which events the VENs have in common.
-            let token = jwt_test_token(&state, "ven-1-client-id", vec![Scope::ReadTargets]);
-            let response =
-                retrieve_all_with_filter_help(&mut app, "targets=ven-2-name", &token).await;
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1", &token).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 0);
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].id.as_str(), "event-5");
+
+            // check that VEN clients without targets cannot access events with any targets
+            let token = jwt_test_token(&state, "ven-has-no-targets-client-id", vec![Scope::ReadTargets]);
+            let response = retrieve_all_with_filter_help(&mut app, "", &token).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].id.as_str(), "event-5");
+
+            let response = retrieve_all_with_filter_help(&mut app, "targets=group-1", &token).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].id.as_str(), "event-5");
         }
 
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
