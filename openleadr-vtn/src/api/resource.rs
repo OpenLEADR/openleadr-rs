@@ -192,7 +192,7 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{api::test::ApiTest};
+    use crate::{api::test::ApiTest, jwt::Scope};
     use axum::body::Body;
     use openleadr_wire::{
         problem::Problem,
@@ -200,11 +200,10 @@ mod test {
     };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
-    use crate::jwt::Scope;
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn test_get_all(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
@@ -221,7 +220,12 @@ mod test {
         assert_eq!(resources.len(), 3);
 
         // test with ven user
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens, Scope::ReadTargets]).await;
+        let test = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteVens, Scope::ReadTargets],
+        )
+        .await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?venID=ven-1", Body::empty())
@@ -238,7 +242,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn get_all_filtered(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?skip=1", Body::empty())
@@ -271,7 +275,7 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn get_single_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client",vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -284,7 +288,12 @@ mod test {
         assert_eq!(resource.id.as_str(), "resource-1");
 
         // test with ven user
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadTargets, Scope::WriteVens]).await;
+        let test = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::ReadTargets, Scope::WriteVens],
+        )
+        .await;
 
         let (status, resource) = test
             .request::<Resource>(

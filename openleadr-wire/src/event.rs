@@ -197,8 +197,8 @@ impl From<Priority> for Option<i64> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(
     rename_all = "camelCase",
-    tag = "objectType",
-    rename = "EVENT_PAYLOAD_DESCRIPTOR"
+    // tag = "objectType",
+    // rename = "EVENT_PAYLOAD_DESCRIPTOR"
 )]
 pub struct EventPayloadDescriptor {
     /// Represents the nature of values.

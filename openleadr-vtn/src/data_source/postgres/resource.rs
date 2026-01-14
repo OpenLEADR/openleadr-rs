@@ -326,13 +326,19 @@ mod test {
         let repo = PgResourceStorage::from(db.clone());
 
         let resources = repo
-            .retrieve_all(&QueryParams::ven_id("ven-1"), &Some("ven-1-client-id".parse().unwrap()))
+            .retrieve_all(
+                &QueryParams::ven_id("ven-1"),
+                &Some("ven-1-client-id".parse().unwrap()),
+            )
             .await
             .unwrap();
         assert_eq!(resources.len(), 2);
 
         let resources = repo
-            .retrieve_all(&QueryParams::ven_id("ven-2"), &Some("ven-2-client-id".parse().unwrap()))
+            .retrieve_all(
+                &QueryParams::ven_id("ven-2"),
+                &Some("ven-2-client-id".parse().unwrap()),
+            )
             .await
             .unwrap();
         assert_eq!(resources.len(), 3);
@@ -343,13 +349,19 @@ mod test {
             ..Default::default()
         };
 
-        let resources = repo.retrieve_all(&filters, &Some("ven-1-client-id".parse().unwrap())).await.unwrap();
+        let resources = repo
+            .retrieve_all(&filters, &Some("ven-1-client-id".parse().unwrap()))
+            .await
+            .unwrap();
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].content.resource_name, "resource-1-name");
 
         // Ensure a client cannot see resources of another client
         let resources = repo
-            .retrieve_all(&QueryParams::ven_id("ven-2"), &Some("ven-1-client-id".parse().unwrap()))
+            .retrieve_all(
+                &QueryParams::ven_id("ven-2"),
+                &Some("ven-1-client-id".parse().unwrap()),
+            )
             .await
             .unwrap();
         assert_eq!(resources.len(), 0);

@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use crate::{error::AppError, state::AppState};
 use axum::{
     extract::{
@@ -12,6 +11,7 @@ use axum_extra::extract::{Query, QueryRejection};
 use openleadr_wire::target::Target;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
+use std::fmt::Debug;
 use validator::Validate;
 
 pub(crate) mod auth;
