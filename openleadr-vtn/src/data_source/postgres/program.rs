@@ -1,7 +1,7 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{to_json_value},
+        postgres::{get_ven_targets, intersection, to_json_value},
         Crud, ProgramCrud,
     },
     error::AppError,
@@ -160,75 +160,30 @@ impl Crud for PgProgramStorage {
         Ok(program)
     }
 
+    /// The `client_id` is set if the request has [`ReadTargets`](Scope::ReadTargets) scope (VEN clients).
+    /// The `client_id` is not set if the request has [`ReadAll`](Scope::ReadAll) scope (BL clients).
     async fn retrieve(
         &self,
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        unimplemented!();
-/*        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
-
-        Ok(sqlx::query_as!(
-            PostgresProgram,
-            r#"
-            SELECT p.id,
-                   p.created_date_time,
-                   p.modification_date_time,
-                   p.program_name,
-                   p.interval_period,
-                   p.program_descriptions,
-                   p.payload_descriptors,
-                   p.targets as  "targets:Vec<Target>",
-                   p.attributes
-            FROM program p
-            WHERE id = $1
-              AND p.targets @> $2
-            "#,
-            id.as_str(),
-            ven_targets as _
-        )
-        .fetch_one(&self.db)
-        .await?
-        .try_into()?)*/
+        match client_id {
+            None => self.retrieve_without_client_id(id).await,
+            Some(client_id) => self.retrieve_with_client_id(id, client_id).await,
+        }
     }
 
+    /// The `client_id` is set if the request has [`ReadTargets`](Scope::ReadTargets) scope (VEN clients).
+    /// The `client_id` is not set if the request has [`ReadAll`](Scope::ReadAll) scope (BL clients).
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
         client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        unimplemented!();
-/*        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
-
-        Ok(sqlx::query_as!(
-            PostgresProgram,
-            r#"
-            SELECT p.id,
-                   p.created_date_time,
-                   p.modification_date_time,
-                   p.program_name,
-                   p.interval_period,
-                   p.program_descriptions,
-                   p.payload_descriptors,
-                   p.targets as  "targets:Vec<Target>",
-                   p.attributes
-            FROM program p
-            WHERE ($1::text[] IS NULL OR p.targets @> $1)
-              AND p.targets @> $2
-            GROUP BY p.id, p.created_date_time
-            ORDER BY p.created_date_time DESC
-            OFFSET $3 LIMIT $4
-            "#,
-            filter.targets as _,
-            ven_targets as _,
-            filter.skip,
-            filter.limit,
-        )
-            .fetch_all(&self.db)
-            .await?
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()?)*/
+        match client_id {
+            None => self.retrieve_all_without_client_id(filter).await,
+            Some(client_id) => self.retrieve_all_with_client_id(filter, client_id).await,
+        }
     }
 
     async fn update(
@@ -302,11 +257,186 @@ impl Crud for PgProgramStorage {
     }
 }
 
+impl PgProgramStorage {
+    /// The `client_id` functions as a permission filter here.
+    /// It is provided if the request has [`ReadTargets`](Scope::ReadTargets) scope, which
+    /// is the case for VEN clients (aka. customer logic).
+    /// BL clients have a [`ReadAll`](Scope::ReadAll) scope, and therefore the API layer will
+    /// call the [`retrieve_all_without_client_id`](PgProgramStorage::retrieve_all_without_client_id) function.
+    async fn retrieve_all_with_client_id(
+        &self,
+        filter: &QueryParams,
+        client_id: &ClientId,
+    ) -> Result<Vec<Program>, AppError> {
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
+
+        let filter_targets = intersection(&ven_targets, filter.targets.as_deref());
+
+        sqlx::query_as!(
+            PostgresProgram,
+            r#"
+            SELECT p.id,
+                   p.created_date_time,
+                   p.modification_date_time,
+                   p.program_name,
+                   p.interval_period,
+                   p.program_descriptions,
+                   p.payload_descriptors,
+                   p.targets AS "targets:Vec<Target>",
+                   p.attributes
+            FROM program p
+            WHERE
+              -- according to the spec, we MUST only test query params
+              -- against the program that the VEN object (and its resources) have as targets.
+              -- Therefore, $1 is the intersection of the VEN targets and the filter targets.
+              ($1::text[] IS NULL OR p.targets @> $1)
+              AND (
+                  -- IF the ven targets have at least one target in common with the program
+                    p.targets && $2
+                        -- or IF the program targets are empty
+                        OR array_length(p.targets, 1) IS NULL
+                  )
+            ORDER BY created_date_time DESC
+            OFFSET $3 LIMIT $4
+            "#,
+            filter_targets as _,
+            ven_targets as _,
+            filter.skip,
+            filter.limit
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(|mut p| {
+            // Limit the targets displayed to the VEN to the targets the VEN has access to.
+            // Compare to the spec v3.1.1, Definition.md:
+            //      Target hiding: For program and event objects, a VTN will only include requested targets in a response. This prevents VENs from learning targets that have
+            //      not been explicitly assigned to them by BL. Target hiding is not performed on ven, resource, or subscription objects as these objects are read-able only by a specific VEN.
+            p.targets = intersection(&p.targets, &ven_targets)
+                .into_iter()
+                .cloned()
+                .collect();
+            p
+        })
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+    }
+
+    /// The `client_id` functions as a permission filter here.
+    /// It is provided if the request has [`ReadTargets`](Scope::ReadTargets) scope, which
+    /// is the case for VEN clients (aka. customer logic).
+    /// BL clients have a [`ReadAll`](Scope::ReadAll) scope, and therefore the API layer will
+    /// call the [`retrieve_without_client_id`](PgProgramStorage::retrieve_without_client_id) function.
+    async fn retrieve_with_client_id(
+        &self,
+        id: &ProgramId,
+        client_id: &ClientId,
+    ) -> Result<Program, AppError> {
+        let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
+
+        let mut pg_program = sqlx::query_as!(
+            PostgresProgram,
+            r#"
+            SELECT p.id,
+                   p.created_date_time,
+                   p.modification_date_time,
+                   p.program_name,
+                   p.interval_period,
+                   p.program_descriptions,
+                   p.payload_descriptors,
+                   p.targets AS "targets:Vec<Target>",
+                   p.attributes
+            FROM program p
+            WHERE p.id = $1
+              AND (
+                  -- IF the ven targets have at least one target in common with the program
+                    p.targets && $2
+                        -- or IF the program targets are empty
+                        OR array_length(p.targets, 1) IS NULL
+                  )
+            "#,
+            id.as_str(),
+            ven_targets as _,
+        )
+        .fetch_one(&self.db)
+        .await?;
+
+        // Limit the targets displayed to the VEN to the targets the VEN has access to.
+        // Compare to the spec v3.1.1, Definition.md:
+        //      Target hiding: For program and event objects, a VTN will only include requested targets in a response. This prevents VENs from learning targets that have
+        //      not been explicitly assigned to them by BL. Target hiding is not performed on ven, resource, or subscription objects as these objects are read-able only by a specific VEN.
+        pg_program.targets = intersection(&pg_program.targets, &ven_targets)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        pg_program.try_into()
+    }
+
+    async fn retrieve_all_without_client_id(
+        &self,
+        filter: &QueryParams,
+    ) -> Result<Vec<Program>, AppError> {
+        sqlx::query_as!(
+            PostgresProgram,
+            r#"
+            SELECT p.id,
+                   p.created_date_time,
+                   p.modification_date_time,
+                   p.program_name,
+                   p.interval_period,
+                   p.program_descriptions,
+                   p.payload_descriptors,
+                   p.targets AS "targets:Vec<Target>",
+                   p.attributes
+            FROM program p
+            WHERE
+              -- IF filter targets are empty, do not filter.
+              -- IF filter targets are not empty, filter only if they are in the program targets.
+              ($1::text[] IS NULL OR p.targets @> $1)
+            ORDER BY created_date_time DESC
+            OFFSET $2 LIMIT $3
+            "#,
+            filter.targets.as_deref() as _,
+            filter.skip,
+            filter.limit
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+    }
+
+    async fn retrieve_without_client_id(&self, id: &ProgramId) -> Result<Program, AppError> {
+        sqlx::query_as!(
+            PostgresProgram,
+            r#"
+            SELECT p.id,
+                   p.created_date_time,
+                   p.modification_date_time,
+                   p.program_name,
+                   p.interval_period,
+                   p.program_descriptions,
+                   p.payload_descriptors,
+                   p.targets AS "targets:Vec<Target>",
+                   p.attributes
+            FROM program p
+            WHERE p.id = $1
+            "#,
+            id.as_str(),
+        )
+        .fetch_one(&self.db)
+        .await?
+        .try_into()
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::{program::QueryParams},
+        api::{program::QueryParams, TargetQueryParams},
         data_source::{postgres::program::PgProgramStorage, Crud},
         error::AppError,
     };
@@ -323,7 +453,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
-                targets: None,
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
             }
@@ -392,10 +522,7 @@ mod tests {
         #[sqlx::test(fixtures("programs"))]
         async fn default_get_all(db: PgPool) {
             let repo: PgProgramStorage = db.into();
-            let mut programs = repo
-                .retrieve_all(&Default::default(), &None)
-                .await
-                .unwrap();
+            let mut programs = repo.retrieve_all(&Default::default(), &None).await.unwrap();
             assert_eq!(programs.len(), 3);
             programs.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
             assert_eq!(programs, vec![program_1(), program_2(), program_3()]);
@@ -452,7 +579,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: Some(vec!["group-1".parse().unwrap()]),
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &None,
@@ -464,7 +591,7 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: Some(vec!["not-existent".parse().unwrap()]),
+                        targets: TargetQueryParams(Some(vec!["not-existent".parse().unwrap()])),
                         ..Default::default()
                     },
                     &None,
@@ -481,37 +608,10 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: Some(vec![
+                        targets: TargetQueryParams(Some(vec![
                             "group-1".parse().unwrap(),
                             "group-2".parse().unwrap(),
-                        ]),
-                        ..Default::default()
-                    },
-                    &None,
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 2);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        targets: Some(vec![
-                            "group-1".parse().unwrap(),
-                            "group-not-existent".parse().unwrap(),
-                        ]),
-                        ..Default::default()
-                    },
-                    &None,
-                )
-                .await
-                .unwrap();
-            assert_eq!(programs.len(), 2);
-
-            let programs = repo
-                .retrieve_all(
-                    &QueryParams {
-                        targets: Some(vec!["group-2".parse().unwrap()]),
+                        ])),
                         ..Default::default()
                     },
                     &None,
@@ -523,7 +623,34 @@ mod tests {
             let programs = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: Some(vec!["group-1".parse().unwrap()]),
+                        targets: TargetQueryParams(Some(vec![
+                            "group-1".parse().unwrap(),
+                            "group-not-existent".parse().unwrap(),
+                        ])),
+                        ..Default::default()
+                    },
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 0);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["group-2".parse().unwrap()])),
+                        ..Default::default()
+                    },
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 1);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
                     &None,
@@ -542,10 +669,7 @@ mod tests {
             let repo: PgProgramStorage = db.into();
 
             let program = repo
-                .retrieve(
-                    &"program-1".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"program-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(program, program_1());
@@ -555,10 +679,7 @@ mod tests {
         async fn get_not_existent(db: PgPool) {
             let repo: PgProgramStorage = db.into();
             let program = repo
-                .retrieve(
-                    &"program-not-existent".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"program-not-existent".parse().unwrap(), &None)
                 .await;
 
             assert!(matches!(program, Err(AppError::NotFound)));
@@ -573,10 +694,7 @@ mod tests {
         async fn add(db: PgPool) {
             let repo: PgProgramStorage = db.into();
 
-            let program = repo
-                .create(program_1().content, &None)
-                .await
-                .unwrap();
+            let program = repo.create(program_1().content, &None).await.unwrap();
             assert!(program.created_date_time < Utc::now() + Duration::minutes(10));
             assert!(program.created_date_time > Utc::now() - Duration::minutes(10));
             assert!(program.modification_date_time < Utc::now() + Duration::minutes(10));
@@ -587,9 +705,7 @@ mod tests {
         async fn add_existing_name(db: PgPool) {
             let repo: PgProgramStorage = db.into();
 
-            let program = repo
-                .create(program_1().content, &None)
-                .await;
+            let program = repo.create(program_1().content, &None).await;
             assert!(matches!(program, Err(AppError::Conflict(_, _))));
         }
     }
@@ -602,11 +718,7 @@ mod tests {
         async fn updates_modify_time(db: PgPool) {
             let repo: PgProgramStorage = db.into();
             let program = repo
-                .update(
-                    &"program-1".parse().unwrap(),
-                    program_1().content,
-                    &None,
-                )
+                .update(&"program-1".parse().unwrap(), program_1().content, &None)
                 .await
                 .unwrap();
 
@@ -628,20 +740,13 @@ mod tests {
             updated.program_name = "updated_name".parse().unwrap();
 
             let program = repo
-                .update(
-                    &"program-1".parse().unwrap(),
-                    updated.clone(),
-                    &None,
-                )
+                .update(&"program-1".parse().unwrap(), updated.clone(), &None)
                 .await
                 .unwrap();
 
             assert_eq!(program.content, updated);
             let program = repo
-                .retrieve(
-                    &"program-1".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"program-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(program.content, updated);
@@ -655,27 +760,16 @@ mod tests {
         async fn delete_existing(db: PgPool) {
             let repo: PgProgramStorage = db.into();
             let program = repo
-                .delete(
-                    &"program-1".parse().unwrap(),
-                    &None,
-                )
+                .delete(&"program-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(program, program_1());
 
-            let program = repo
-                .retrieve(
-                    &"program-1".parse().unwrap(),
-                    &None,
-                )
-                .await;
+            let program = repo.retrieve(&"program-1".parse().unwrap(), &None).await;
             assert!(matches!(program, Err(AppError::NotFound)));
 
             let program = repo
-                .retrieve(
-                    &"program-2".parse().unwrap(),
-                    &None,
-                )
+                .retrieve(&"program-2".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(program, program_2());
@@ -685,10 +779,7 @@ mod tests {
         async fn delete_not_existing(db: PgPool) {
             let repo: PgProgramStorage = db.into();
             let program = repo
-                .delete(
-                    &"program-not-existing".parse().unwrap(),
-                    &None,
-                )
+                .delete(&"program-not-existing".parse().unwrap(), &None)
                 .await;
             assert!(matches!(program, Err(AppError::NotFound)));
         }

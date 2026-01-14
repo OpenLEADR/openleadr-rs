@@ -5,6 +5,7 @@ use crate::{
         Crud, EventCrud,
     },
     error::AppError,
+    jwt::Scope,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -164,6 +165,8 @@ impl Crud for PgEventStorage {
         )
     }
 
+    /// The `client_id` is set if the request has [`ReadTargets`](Scope::ReadTargets) scope (VEN clients).
+    /// The `client_id` is not set if the request has [`ReadAll`](Scope::ReadAll) scope (BL clients).
     async fn retrieve(
         &self,
         id: &Self::Id,
@@ -175,6 +178,8 @@ impl Crud for PgEventStorage {
         }
     }
 
+    /// The `client_id` is set if the request has [`ReadTargets`](Scope::ReadTargets) scope (VEN clients).
+    /// The `client_id` is not set if the request has [`ReadAll`](Scope::ReadAll) scope (BL clients).
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
@@ -271,6 +276,11 @@ impl Crud for PgEventStorage {
 }
 
 impl PgEventStorage {
+    /// The `client_id` functions as a permission filter here.
+    /// It is provided if the request has [`ReadTargets`](Scope::ReadTargets) scope, which
+    /// is the case for VEN clients (aka. customer logic).
+    /// BL clients have a [`ReadAll`](Scope::ReadAll) scope, and therefore the API layer will
+    /// call the [`retrieve_all_without_client_id`](PgEventStorage::retrieve_all_without_client_id) function.
     async fn retrieve_all_with_client_id(
         &self,
         filter: &QueryParams,
@@ -334,6 +344,11 @@ impl PgEventStorage {
         .collect::<Result<_, _>>()
     }
 
+    /// The `client_id` functions as a permission filter here.
+    /// It is provided if the request has [`ReadTargets`](Scope::ReadTargets) scope, which
+    /// is the case for VEN clients (aka. customer logic).
+    /// BL clients have a [`ReadAll`](Scope::ReadAll) scope, and therefore the API layer will
+    /// call the [`retrieve_without_client_id`](PgEventStorage::retrieve_without_client_id) function.
     async fn retrieve_with_client_id(
         &self,
         id: &EventId,
@@ -407,7 +422,6 @@ impl PgEventStorage {
               -- IF filter targets are empty, do not filter.
               -- IF filter targets are not empty, filter only if they are in the event targets.
               AND ($2::text[] IS NULL OR e.targets @> $2)
-            GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC, created_date_time DESC
             OFFSET $3 LIMIT $4
             "#,
