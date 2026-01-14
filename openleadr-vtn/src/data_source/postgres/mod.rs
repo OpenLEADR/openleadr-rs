@@ -118,10 +118,7 @@ fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>
 
 /// Returns the targets of the VEN associated with the given `client_id` and it's resources.
 /// If the VEN does not exist, returns an empty vector.
-async fn get_ven_targets(
-    db: PgPool,
-    client_id: &ClientId,
-) -> Result<Vec<Target>, AppError> {
+async fn get_ven_targets(db: PgPool, client_id: &ClientId) -> Result<Vec<Target>, AppError> {
     let ven_store: PgVenStorage = db.into();
     match ven_store.targets_by_client_id(client_id).await {
         Ok(t) => Ok(t),
@@ -131,5 +128,29 @@ async fn get_ven_targets(
         //      6. If the union of the targets of the VEN and its resources is empty, return objects that do not have targets and do not proceed to step 7.
         Err(AppError::NotFound) => Ok(Vec::new()),
         Err(err) => Err(err),
+    }
+}
+
+fn intersection<'a>(a: &'a [Target], b: &'a [Target]) -> Vec<&'a Target> {
+    a.iter().filter(|x| b.contains(x)).collect()
+}
+
+#[cfg(test)]
+mod test {
+    use openleadr_wire::target::Target;
+    use std::str::FromStr;
+
+    #[test]
+    fn intersection() {
+        let t1 = Target::from_str("t1").unwrap();
+        let t2 = Target::from_str("t2").unwrap();
+        let t3 = Target::from_str("t3").unwrap();
+        let t4 = Target::from_str("t4").unwrap();
+
+        let a = vec![t1, t2.clone(), t3.clone()];
+        let b = vec![t2.clone(), t3.clone(), t4];
+
+        let i = super::intersection(&a, &b);
+        assert_eq!(i, vec![&t2, &t3]);
     }
 }

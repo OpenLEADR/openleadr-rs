@@ -32,4 +32,11 @@ VALUES ('ven-1',
         'ven-4-name',
         NULL,
         ARRAY ['group-1', 'group-2']::text[],
-        'ven-4-client-id');
+        'ven-4-client-id'),
+       ('ven-has-no-targets',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-has-no-targets-name',
+        NULL,
+        ARRAY []::text[],
+        'ven-has-no-targets-client-id');
