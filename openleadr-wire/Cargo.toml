@@ -1,6 +1,6 @@
 [package]
 name = "openleadr-wire"
-description = "Encode and decode OpenADR 3.0 messages that go over the wire"
+description = "Encode and decode OpenADR 3.1 messages that go over the wire"
 readme = "../README.md"
 version.workspace = true
 edition.workspace = true
