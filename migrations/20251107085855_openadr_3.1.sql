@@ -64,3 +64,10 @@ CREATE TYPE scope AS ENUM (
     );
 
 ALTER TABLE "user" ADD COLUMN scopes scope[] NOT NULL DEFAULT '{}';
+
+-- TODO we should consider removing the client_id column from resource table
+--  if it turns out to always match the ven's client_id.
+--  See https://github.com/oadr3-org/specification/discussions/378
+ALTER TABLE resource
+    ADD CONSTRAINT resource_ven_client_id_fk
+        FOREIGN KEY (client_id) REFERENCES ven (client_id);

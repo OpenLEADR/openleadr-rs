@@ -125,7 +125,6 @@ pub struct QueryParams {
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
-    // TODO how to interpret limit = 0 and what is the default?
     #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
