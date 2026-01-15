@@ -219,7 +219,7 @@ impl PgAuthSource {
                    u.created,
                    u.modified,
                    u.scopes as "scope:Vec<Scope>",
-                   array_agg(DISTINCT c.client_id) FILTER ( WHERE c.client_id IS NOT NULL ) AS "client_ids!:Vec<ClientId>"
+                   coalesce(array_agg(DISTINCT c.client_id) FILTER ( WHERE c.client_id IS NOT NULL ), '{}'::text[]) AS "client_ids!:Vec<ClientId>"
             FROM "user" u
                      LEFT JOIN user_credentials c ON c.user_id = u.id
             WHERE u.id = $1
