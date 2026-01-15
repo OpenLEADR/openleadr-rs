@@ -114,6 +114,11 @@ pub async fn delete(
     User(user): User,
     Path(id): Path<ReportId>,
 ) -> AppResponse<Report> {
+    // The specification does only allow VEN clients to have write access to reports.
+    // Therefore, we can safely filter for the client_id, as there is no specified use-case
+    // where a BL client can delete a report.
+    // If a BL tried to delete a report, it would either fail by not having the `write_reports` scope or because it
+    // or because the BLs client_id does not match the reports client_id.
     let report = if user.scope.contains(Scope::WriteReports) {
         report_source.delete(&id, &Some(user.client_id()?)).await?
     } else {
@@ -135,8 +140,7 @@ pub struct QueryParams {
     pub(crate) client_name: Option<String>,
     #[serde(default)]
     pub(crate) skip: i64,
-    // TODO how to interpret limit = 0 and what is the default?
-    #[validate(range(max = 50))]
+    #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
 }
