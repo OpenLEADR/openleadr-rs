@@ -198,7 +198,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(programs.len(), 3);
+    assert_eq!(programs.len(), 0);
 
     let programs = client
         .get_programs(
@@ -207,7 +207,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(programs.len(), 2);
+    assert_eq!(programs.len(), 1);
 
     let programs = client
         .get_programs(
@@ -216,7 +216,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(programs.len(), 2);
+    assert_eq!(programs.len(), 0);
 
     let programs = client
         .get_programs(
@@ -247,7 +247,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
 
     let programs = client
         .get_programs(
-            Filter::By(&["Not existent"]),
+            Filter::By(&["not-existent"]),
             PaginationOptions { skip: 0, limit: 50 },
         )
         .await

@@ -80,13 +80,13 @@ jobs:
           docker compose up db --wait && \
           cargo install sqlx-cli --no-default-features --features rustls,postgres && \
           cargo sqlx migrate run --source openleadr-vtn/migrations && \
-          psql -U openadr -W openadr -h localhost openadr < fixtures/users.sql
+          psql -v ON_ERROR_STOP=1 postgresql://openadr:openadr@localhost:5432/openadr < fixtures/users.sql
 
       - name: cargo build
         run: cargo build ${{ matrix.features }}
 
-      - name: cargo test
-        run: cargo llvm-cov nextest --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
+      - name: Run tests
+        run: cargo llvm-cov test --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
         env:
           RUST_BACKTRACE: 1
 
