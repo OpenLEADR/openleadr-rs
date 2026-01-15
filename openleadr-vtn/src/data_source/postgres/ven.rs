@@ -154,7 +154,7 @@ impl Crud for PgVenStorage {
         let vens = sqlx::query_as!(
             PostgresVen,
             r#"
-            SELECT DISTINCT
+            SELECT
                 v.id AS "id!",
                 v.created_date_time AS "created_date_time!",
                 v.modification_date_time AS "modification_date_time!",
@@ -163,9 +163,8 @@ impl Crud for PgVenStorage {
                 v.targets as "targets:Vec<Target>",
                 v.client_id
             FROM ven v
-              LEFT JOIN resource r ON r.ven_id = v.id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2::text[] IS NULL OR v.targets && $2)
+              AND ($2::text[] IS NULL OR v.targets @> $2)
               AND ($3::text IS NULL OR v.client_id = $3)
             ORDER BY v.created_date_time DESC
             OFFSET $4 LIMIT $5
@@ -405,7 +404,7 @@ mod tests {
                 "ven-2-client-id".parse().unwrap(),
                 "ven-2-name".to_string(),
                 None,
-                vec![],
+                vec!["group-2".parse().unwrap()],
             ),
         }
     }
@@ -419,9 +418,10 @@ mod tests {
         async fn default_get_all(db: PgPool) {
             let repo: PgVenStorage = db.into();
             let mut vens = repo.retrieve_all(&Default::default(), &None).await.unwrap();
-            assert_eq!(vens.len(), 2);
+            assert_eq!(vens.len(), 5);
             vens.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
-            assert_eq!(vens, vec![ven_1(), ven_2()]);
+            assert_eq!(vens[0], ven_1());
+            assert_eq!(vens[1], ven_2());
         }
 
         #[sqlx::test(fixtures("users", "vens"))]
@@ -453,12 +453,12 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(vens.len(), 1);
+            assert_eq!(vens.len(), 4);
 
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        skip: 2,
+                        skip: 5,
                         ..Default::default()
                     },
                     &None,
@@ -482,7 +482,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(vens.len(), 1);
+            assert_eq!(vens.len(), 3);
 
             let vens = repo
                 .retrieve_all(

@@ -84,6 +84,24 @@ impl Crud for PgResourceStorage {
         new: Self::NewType,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let mut tx = self.db.begin().await?;
+
+        // Verify that the `client_id` matches the `ven_id`
+        let client_id = sqlx::query_scalar!(
+            r#"
+            SELECT client_id FROM ven WHERE id = $1
+            "#,
+            new.ven_id.as_str()
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if client_id != new.client_id.as_str() {
+            Err(Self::Error::BadRequest(
+                "`client_id` does not match `ven_id`",
+            ))?
+        }
+
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -114,9 +132,11 @@ impl Crud for PgResourceStorage {
             new.targets as _,
             new.client_id as _
         )
-        .fetch_one(&self.db)
+        .fetch_one(&mut *tx)
         .await?
         .try_into()?;
+
+        tx.commit().await?;
 
         Ok(resource)
     }
@@ -160,19 +180,19 @@ impl Crud for PgResourceStorage {
         let res = sqlx::query_as!(
             PostgresResource,
             r#"
-            SELECT DISTINCT
-                r.id AS "id!",
-                r.created_date_time AS "created_date_time!",
-                r.modification_date_time AS "modification_date_time!",
-                r.resource_name AS "resource_name!",
-                r.ven_id AS "ven_id!",
+            SELECT
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
                 r.attributes,
                 r.targets as "targets:Vec<Target>",
                 r.client_id
             FROM resource r
             WHERE ($1::text IS NULL OR r.ven_id = $1)
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3::text[] IS NULL OR r.targets && $3)
+                AND ($3::text[] IS NULL OR r.targets @> $3)
                 AND ($4::text IS NULL OR client_id = $4)
             ORDER BY r.created_date_time
             OFFSET $5 LIMIT $6
