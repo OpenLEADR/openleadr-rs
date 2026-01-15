@@ -171,26 +171,38 @@ mod test {
     use http_body_util::BodyExt;
     use sqlx::PgPool;
     use tower::ServiceExt;
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    fn user_1() -> UserDetails {
+    fn ven_client() -> UserDetails {
         UserDetails {
-            id: "user-1".to_string(),
-            reference: "user-1-ref".to_string(),
+            id: "ven-client".to_string(),
+            reference: "ven-client-ref".to_string(),
             description: Some("desc".to_string()),
-            scope: vec![],
-            client_ids: vec!["user-1-client-id".parse().unwrap()],
+            scope: vec![
+                Scope::ReadTargets,
+                Scope::ReadVenObjects,
+                Scope::WriteReports,
+                Scope::WriteSubscriptions,
+            ],
+            client_ids: vec!["ven-client-client-id".parse().unwrap()],
             created: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modified: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
         }
     }
 
-    fn admin() -> UserDetails {
+    fn bl_client() -> UserDetails {
         UserDetails {
-            id: "admin".to_string(),
-            reference: "admin-ref".to_string(),
+            id: "bl-client".to_string(),
+            reference: "bl-client-ref".to_string(),
             description: None,
-            scope: all_scopes(),
-            client_ids: vec!["admin".parse().unwrap()],
+            scope: vec![
+                Scope::ReadAll,
+                Scope::WritePrograms,
+                Scope::WriteEvents,
+                Scope::WriteVens,
+                Scope::WriteUsers,
+            ],
+            client_ids: vec!["bl-client".parse().unwrap()],
             created: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modified: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
         }
@@ -354,17 +366,17 @@ mod test {
         let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
-        let response = help_get(&mut app, &token, "admin").await;
+        let response = help_get(&mut app, &token, "bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let user = UserDetails::from(response).await;
-        assert_eq!(user, admin());
+        assert_eq!(user, bl_client());
 
-        let response = help_get(&mut app, &token, "user-1").await;
+        let response = help_get(&mut app, &token, "ven-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let user = UserDetails::from(response).await;
-        assert_eq!(user, user_1());
+        assert_eq!(user, ven_client());
     }
 
     #[sqlx::test(fixtures("users"))]
@@ -372,7 +384,7 @@ mod test {
         let state = state(db).await;
         let token = jwt_test_token(&state, "test-client-id", all_scopes());
         let mut app = state.into_router();
-        let response = help_get(&mut app, &token, "admin").await;
+        let response = help_get(&mut app, &token, "ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let response = help_get_all(&mut app, &token).await;
@@ -381,16 +393,17 @@ mod test {
         let response = help_add_user(&mut app, &token, &new_user()).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_edit_user(&mut app, &token, "admin", &new_user()).await;
+        let response = help_edit_user(&mut app, &token, "ven-client", &new_user()).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_add_credential(&mut app, &token, "admin", &Default::default()).await;
+        let response =
+            help_add_credential(&mut app, &token, "ven-client", &Default::default()).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_delete(&mut app, &token, "/users/admin/admin").await;
+        let response = help_delete(&mut app, &token, "/users/ven-client/ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_delete(&mut app, &token, "/users/admin").await;
+        let response = help_delete(&mut app, &token, "/users/ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
@@ -408,11 +421,16 @@ mod test {
         users.iter_mut().for_each(|user| user.scope.sort());
         users.sort_by(|a, b| a.id.cmp(&b.id));
 
-        assert_eq!(users, vec![admin(), user_1()]);
+        assert_eq!(users, vec![bl_client(), ven_client()]);
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
     pub async fn add(db: PgPool) {
+        tracing_subscriber::registry()
+            .with(fmt::layer().with_file(true).with_line_number(true))
+            .with(EnvFilter::from_default_env())
+            .init();
+
         let state = state(db).await;
         let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
@@ -452,7 +470,7 @@ mod test {
             },
         ];
         for new_user in new_users {
-            let response = help_edit_user(&mut app, &token, "admin", &new_user).await;
+            let response = help_edit_user(&mut app, &token, "bl-client", &new_user).await;
             assert_eq!(response.status(), StatusCode::OK);
 
             let user = UserDetails::from(response).await;
@@ -477,7 +495,7 @@ mod test {
             client_secret: "test".to_string(),
         };
 
-        let response = help_add_credential(&mut app, &token, "admin", &new_credential).await;
+        let response = help_add_credential(&mut app, &token, "bl-client", &new_credential).await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let user = UserDetails::from(response).await;
@@ -498,13 +516,13 @@ mod test {
         let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_delete(&mut app, &token, "/users/admin/admin").await;
+        let response = help_delete(&mut app, &token, "/users/bl-client/bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -514,13 +532,13 @@ mod test {
         let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_delete(&mut app, &token, "/users/admin").await;
+        let response = help_delete(&mut app, &token, "/users/bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
