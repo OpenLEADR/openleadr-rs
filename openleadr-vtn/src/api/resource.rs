@@ -702,14 +702,26 @@ mod test {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource.content.resource_name, "updated-resource");
         // VENs are not allowed to update the targets of their resources
-        assert_eq!(resource.content.targets, vec!["group-1".parse().unwrap(), "somewhere-in-the-nowhere".parse().unwrap()]);
+        assert_eq!(
+            resource.content.targets,
+            vec![
+                "group-1".parse().unwrap(),
+                "somewhere-in-the-nowhere".parse().unwrap()
+            ]
+        );
 
         let (status, resource) = test
             .request::<Resource>(Method::GET, "/resources/resource-1", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource.content.resource_name, "updated-resource");
-        assert_eq!(resource.content.targets, vec!["group-1".parse().unwrap(), "somewhere-in-the-nowhere".parse().unwrap()]);
+        assert_eq!(
+            resource.content.targets,
+            vec![
+                "group-1".parse().unwrap(),
+                "somewhere-in-the-nowhere".parse().unwrap()
+            ]
+        );
 
         // VEN clients are not allowed to update resources of other VENs
         let (status, _) = test
@@ -738,7 +750,7 @@ mod test {
             "ven-1-client-id",
             vec![Scope::WriteVens, Scope::ReadVenObjects],
         )
-            .await;
+        .await;
         let (status, _) = test
             .request::<Resource>(Method::DELETE, "/resources/resource-1", Body::empty())
             .await;
