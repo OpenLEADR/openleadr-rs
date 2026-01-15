@@ -289,12 +289,9 @@ impl AppState {
                 "/vens/{id}",
                 get(ven::get).put(ven::edit).delete(ven::delete),
             )
+            .route("/resources", get(resource::get_all).post(resource::add))
             .route(
-                "/vens/{ven_id}/resources",
-                get(resource::get_all).post(resource::add),
-            )
-            .route(
-                "/vens/{ven_id}/resources/{id}",
+                "/resources/{id}",
                 get(resource::get)
                     .put(resource::edit)
                     .delete(resource::delete),

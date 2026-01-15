@@ -10,11 +10,11 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    event::{EventContent, EventId, Priority},
-    target::TargetEntry,
+    event::{EventId, EventRequest, Priority},
+    target::Target,
     Event,
 };
-use sqlx::PgPool;
+use sqlx::{error::BoxDynError, PgPool};
 use std::str::FromStr;
 use tracing::error;
 
@@ -38,8 +38,9 @@ struct PostgresEvent {
     modification_date_time: DateTime<Utc>,
     program_id: String,
     event_name: Option<String>,
+    duration: Option<String>,
     priority: Priority,
-    targets: Option<serde_json::Value>,
+    targets: Vec<Target>,
     report_descriptors: Option<serde_json::Value>,
     payload_descriptors: Option<serde_json::Value>,
     interval_period: Option<serde_json::Value>,
@@ -51,15 +52,6 @@ impl TryFrom<PostgresEvent> for Event {
 
     #[tracing::instrument(name = "TryFrom<PostgresEvent> for Event")]
     fn try_from(value: PostgresEvent) -> Result<Self, Self::Error> {
-        let targets = match value.targets {
-            None => None,
-            Some(t) => serde_json::from_value(t)
-                .inspect_err(|err| {
-                    error!(?err, "Failed to deserialize JSON from DB to `TargetMap`")
-                })
-                .map_err(AppError::SerdeJsonInternalServerError)?,
-        };
-
         let report_descriptors = match value.report_descriptors {
             None => None,
             Some(t) => serde_json::from_value(t)
@@ -100,11 +92,20 @@ impl TryFrom<PostgresEvent> for Event {
             id: EventId::from_str(&value.id)?,
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
-            content: EventContent {
+            content: EventRequest {
                 program_id: value.program_id.parse()?,
                 event_name: value.event_name,
+                duration: value
+                    .duration
+                    .map(|d| FromStr::from_str(&d))
+                    .transpose()
+                    .map_err(|err| {
+                        AppError::Sql(sqlx::Error::Decode(BoxDynError::from(format!(
+                            "Failed to decode ISO8601 formatted duration stored in DB: {err:?}"
+                        ))))
+                    })?,
                 priority: value.priority,
-                targets,
+                targets: value.targets,
                 report_descriptors,
                 payload_descriptors,
                 interval_period,
@@ -144,7 +145,7 @@ async fn check_write_permission(
 impl Crud for PgEventStorage {
     type Type = Event;
     type Id = EventId;
-    type NewType = EventContent;
+    type NewType = EventRequest;
     type Error = AppError;
     type Filter = QueryParams;
     type PermissionFilter = User;
@@ -159,18 +160,31 @@ impl Crud for PgEventStorage {
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals)
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
+            INSERT INTO event (id, created_date_time, modification_date_time, program_id, event_name, priority, targets, report_descriptors, payload_descriptors, interval_period, intervals, duration)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                program_id,
+                event_name,
+                priority,
+                targets as "targets:Vec<Target>",
+                report_descriptors,
+                payload_descriptors,
+                interval_period,
+                intervals,
+                duration
             "#,
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            to_json_value(new.targets)?,
+            new.targets.as_slice() as &[Target],
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
             serde_json::to_value(&new.intervals).map_err(AppError::SerdeJsonBadRequest)?,
+            new.duration.map(|d| d.to_string()),
         )
             .fetch_one(&self.db)
             .await?
@@ -183,30 +197,28 @@ impl Crud for PgEventStorage {
         id: &Self::Id,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let business_ids = match user.business_ids() {
-            BusinessIds::Specific(ids) => Some(ids),
-            BusinessIds::Any => None,
-        };
+        let _ = user; // FIXME implement object privacy
 
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            SELECT e.*
+            SELECT e.id,
+                   e.created_date_time,
+                   e.modification_date_time,
+                   e.program_id,
+                   e.event_name,
+                   e.priority,
+                   e.targets as "targets:Vec<Target>",
+                   e.report_descriptors,
+                   e.payload_descriptors,
+                   e.interval_period,
+                   e.intervals,
+                   e.duration
             FROM event e
-              JOIN program p ON e.program_id = p.id
-              LEFT JOIN ven_program vp ON p.id = vp.program_id
+                     JOIN program p ON e.program_id = p.id
             WHERE e.id = $1
-              AND (
-                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3))) 
-                  OR 
-                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
-                  )
             "#,
             id.as_str(),
-            user.is_ven(),
-            &user.ven_ids_string(),
-            user.is_business(),
-            business_ids.as_deref(),
         )
         .fetch_one(&self.db)
         .await?
@@ -223,53 +235,42 @@ impl Crud for PgEventStorage {
             BusinessIds::Any => None,
         };
 
-        let target: Option<TargetEntry> = filter.targets.clone().into();
-        let target_values = target.as_ref().map(|t| t.values.clone());
-
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            SELECT e.*
+            SELECT e.id,
+                   e.created_date_time,
+                   e.modification_date_time,
+                   e.program_id,
+                   e.event_name,
+                   e.priority,
+                   e.targets as "targets:Vec<Target>",
+                   e.report_descriptors,
+                   e.payload_descriptors,
+                   e.interval_period,
+                   e.intervals,
+                   e.duration
             FROM event e
               JOIN program p on p.id = e.program_id
-              LEFT JOIN ven_program vp ON p.id = vp.program_id
-              LEFT JOIN LATERAL (
-                  
-                    SELECT targets.e_id,
-                           (t ->> 'type' = $2) AND
-                           (t -> 'values' ?| $3) AS target_test
-                    FROM (SELECT event.id                            AS e_id,
-                                 jsonb_array_elements(event.targets) AS t
-                          FROM event) AS targets
-                  
-                  )
-                  ON e.id = e_id
             WHERE ($1::text IS NULL OR e.program_id like $1)
-              AND ($2 IS NULL OR $3 IS NULL OR target_test)
-              AND (
-                  ($4 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($5)))
-                  OR 
-                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
-                  )
+              AND ($2::text[] IS NULL OR e.targets && $2) -- FIXME use @> for and rather than or filtering
+              AND ($3 AND ($4::text[] IS NULL OR p.business_id = ANY ($4)))
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC
-            OFFSET $8 LIMIT $9
+            OFFSET $5 LIMIT $6
             "#,
             filter.program_id.as_ref().map(|id| id.as_str()),
-            target.as_ref().map(|t| t.label.as_str()),
-            target_values.as_deref(),
-            user.is_ven(),
-            &user.ven_ids_string(),
+            filter.targets.targets.as_deref(),
             user.is_business(),
             business_ids.as_deref(),
             filter.skip,
             filter.limit
         )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()?)
+            .fetch_all(&self.db)
+            .await?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?)
     }
 
     async fn update(
@@ -304,19 +305,33 @@ impl Crud for PgEventStorage {
                 report_descriptors = $6,
                 payload_descriptors = $7,
                 interval_period = $8,
-                intervals = $9
+                intervals = $9,
+                duration = $10
             WHERE id = $1
-            RETURNING *
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                program_id,
+                event_name,
+                priority,
+                targets as "targets:Vec<Target>",
+                report_descriptors,
+                payload_descriptors,
+                interval_period,
+                intervals,
+                duration
             "#,
             id.as_str(),
             new.program_id.as_str(),
             new.event_name,
             Into::<Option<i64>>::into(new.priority),
-            to_json_value(new.targets)?,
+            new.targets.as_slice() as &[Target],
             to_json_value(new.report_descriptors)?,
             to_json_value(new.payload_descriptors)?,
             to_json_value(new.interval_period)?,
             serde_json::to_value(&new.intervals).map_err(AppError::SerdeJsonBadRequest)?,
+            new.duration.map(|d| d.to_string())
         )
         .fetch_one(&self.db)
         .await?
@@ -340,7 +355,22 @@ impl Crud for PgEventStorage {
         Ok(sqlx::query_as!(
             PostgresEvent,
             r#"
-            DELETE FROM event WHERE id = $1 RETURNING *
+            DELETE
+            FROM event
+            WHERE id = $1
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                program_id,
+                event_name,
+                priority,
+                targets as "targets:Vec<Target>",
+                report_descriptors,
+                payload_descriptors,
+                interval_period,
+                intervals,
+                duration
             "#,
             id.as_str()
         )
@@ -354,6 +384,7 @@ impl Crud for PgEventStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use sqlx::PgPool;
+    use std::str::FromStr;
 
     use crate::{
         api::{event::QueryParams, TargetQueryParams},
@@ -363,9 +394,9 @@ mod tests {
     };
     use chrono::{DateTime, Duration, Utc};
     use openleadr_wire::{
-        event::{EventContent, EventInterval, EventType, EventValuesMap},
+        event::{EventInterval, EventRequest, EventType, EventValuesMap},
         interval::IntervalPeriod,
-        target::{TargetEntry, TargetMap, TargetType},
+        target::Target,
         values_map::Value,
         Event,
     };
@@ -374,10 +405,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 program_id: None,
-                targets: TargetQueryParams {
-                    target_type: None,
-                    values: None,
-                },
+                targets: TargetQueryParams { targets: None },
                 skip: 0,
                 limit: 50,
             }
@@ -389,20 +417,15 @@ mod tests {
             id: "event-1".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: "program-1".parse().unwrap(),
                 event_name: Some("event-1-name".to_string()),
+                duration: None,
                 priority: Some(4).into(),
-                targets: Some(TargetMap(vec![
-                    TargetEntry {
-                        label: TargetType::Group,
-                        values: vec!["group-1".to_string()],
-                    },
-                    TargetEntry {
-                        label: TargetType::Private("PRIVATE_LABEL".to_string()),
-                        values: vec!["private value".to_string()],
-                    },
-                ])),
+                targets: vec![
+                    Target::from_str("group-1").unwrap(),
+                    Target::from_str("private-value").unwrap(),
+                ],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: Some(IntervalPeriod {
@@ -410,7 +433,7 @@ mod tests {
                     duration: Some("P0Y0M0DT1H0M0S".parse().unwrap()),
                     randomize_start: Some("P0Y0M0DT1H0M0S".parse().unwrap()),
                 }),
-                intervals: vec![EventInterval {
+                intervals: Some(vec![EventInterval {
                     id: 3,
                     interval_period: Some(IntervalPeriod {
                         start: "2023-06-15T09:30:00+00:00".parse().unwrap(),
@@ -421,7 +444,7 @@ mod tests {
                         value_type: EventType::Price,
                         values: vec![Value::Number(0.17)],
                     }],
-                }],
+                }]),
             },
         }
     }
@@ -431,25 +454,23 @@ mod tests {
             id: "event-2".parse().unwrap(),
             created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: "program-2".parse().unwrap(),
                 event_name: Some("event-2-name".to_string()),
+                duration: None,
                 priority: None.into(),
-                targets: Some(TargetMap(vec![TargetEntry {
-                    label: TargetType::Private("SOME_TARGET".to_string()),
-                    values: vec!["target-1".to_string()],
-                }])),
+                targets: vec![Target::from_str("target-1").unwrap()],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: None,
-                intervals: vec![EventInterval {
+                intervals: Some(vec![EventInterval {
                     id: 3,
                     interval_period: None,
                     payloads: vec![EventValuesMap {
                         value_type: EventType::Private("SOME_PAYLOAD".to_string()),
                         values: vec![Value::String("value".to_string())],
                     }],
-                }],
+                }]),
             },
         }
     }
@@ -457,7 +478,7 @@ mod tests {
     fn event_3() -> Event {
         Event {
             id: "event-3".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: "program-3".parse().unwrap(),
                 event_name: Some("event-3-name".to_string()),
                 ..event_2().content
@@ -527,15 +548,14 @@ mod tests {
         }
 
         #[sqlx::test(fixtures("programs", "events"))]
-        async fn filter_target_type_and_value_get_all(db: PgPool) {
+        async fn filter_target_get_all(db: PgPool) {
             let repo: PgEventStorage = db.into();
 
             let events = repo
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["group-1".to_string()]),
+                            targets: Some(vec!["group-1".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -550,8 +570,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Private("SOME_TARGET".to_string())),
-                            values: Some(vec!["target-1".to_string()]),
+                            targets: Some(vec!["target-1".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -567,38 +586,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["not-existent".to_string()]),
-                        },
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(events.len(), 0);
-
-            let events = repo
-                .retrieve_all(
-                    &QueryParams {
-                        targets: TargetQueryParams {
-                            target_type: Some(TargetType::Private("NOT_EXISTENT".to_string())),
-                            values: Some(vec!["target-1".to_string()]),
-                        },
-                        ..Default::default()
-                    },
-                    &User(Claims::any_business_user()),
-                )
-                .await
-                .unwrap();
-            assert_eq!(events.len(), 0);
-
-            let events = repo
-                .retrieve_all(
-                    &QueryParams {
-                        targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["target-1".to_string()]),
+                            targets: Some(vec!["not-existent".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -617,8 +605,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: Some(vec!["private value".to_string()]),
+                            targets: Some(vec!["private-value".to_string()]),
                         },
                         ..Default::default()
                     },
@@ -650,10 +637,7 @@ mod tests {
                 .retrieve_all(
                     &QueryParams {
                         program_id: Some("program-1".parse().unwrap()),
-                        targets: TargetQueryParams {
-                            target_type: Some(TargetType::Group),
-                            values: None,
-                        },
+                        targets: TargetQueryParams { targets: None },
                         ..Default::default()
                     },
                     &User(Claims::any_business_user()),
