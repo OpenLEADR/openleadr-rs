@@ -1,4 +1,4 @@
-use crate::common::{setup, TestContext};
+use crate::common::{setup, AuthRole, TestContext};
 use openleadr_client::{Filter, VirtualEndNode};
 use openleadr_wire::{
     target::Target,
@@ -13,7 +13,7 @@ mod common;
 #[tokio::test]
 #[serial]
 async fn crud() {
-    let ctx: TestContext<VirtualEndNode> = setup(AuthRole::VenManager).await;
+    let ctx: TestContext<VirtualEndNode> = setup(AuthRole::Bl).await;
 
     // cleanup potentially clashing VEN
     {

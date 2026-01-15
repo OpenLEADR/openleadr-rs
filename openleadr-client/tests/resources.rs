@@ -1,6 +1,5 @@
-use crate::common::setup;
+use crate::common::{setup, AuthRole};
 use openleadr_client::VirtualEndNode;
-use openleadr_vtn::jwt::AuthRole;
 use openleadr_wire::{
     target::Target,
     values_map::{Value, ValueType, ValuesMap},
@@ -14,7 +13,7 @@ mod common;
 #[tokio::test]
 #[serial]
 async fn crud() {
-    let ctx = setup::<VirtualEndNode>(AuthRole::VenManager).await;
+    let ctx = setup::<VirtualEndNode>(AuthRole::Bl).await;
 
     // create new VEN
     let new = VenVenRequest {

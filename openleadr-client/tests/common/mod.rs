@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use openleadr_client::{Client, ClientCredentials, ClientKind, HttpClient, ProgramClient};
-use openleadr_vtn::{data_source::PostgresStorage, jwt::AuthRole, state::AppState};
+use openleadr_vtn::{data_source::PostgresStorage, state::AppState};
 use openleadr_wire::program::ProgramRequest;
 use reqwest::{Method, RequestBuilder, Response};
 use sqlx::PgPool;
@@ -10,13 +10,15 @@ use std::{env::VarError, ops::Deref, sync::Arc};
 use tower::{Service, ServiceExt};
 use url::Url;
 
+pub enum AuthRole {
+    Bl,
+    Ven,
+}
+
 fn default_credentials(auth_role: AuthRole) -> ClientCredentials {
     let (id, secr) = match auth_role {
-        AuthRole::UserManager => ("user-manager", "user-manager"),
-        AuthRole::VenManager => ("ven-manager", "ven-manager"),
-        AuthRole::Business(_) => ("business-1", "business-1"),
-        AuthRole::AnyBusiness => ("any-business", "any-business"),
-        AuthRole::VEN(_) => ("ven-1", "ven-1"),
+        AuthRole::Bl => ("bl-client", "bl-client"),
+        AuthRole::Ven => ("ven-client", "ven-client"),
     };
 
     ClientCredentials::new(id.to_string(), secr.to_string())
