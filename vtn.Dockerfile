@@ -1,4 +1,4 @@
-FROM rust:1.90-alpine AS base
+FROM rust:1.92-alpine AS base
 
 # Install build dependencies
 RUN apk add --no-cache alpine-sdk openssl-dev openssl-libs-static

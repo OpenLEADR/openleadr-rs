@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND e.targets @> $2\n              -- TODO What should happen if the event has no targets set?\n              --  Shall all VENs have access to it or only those without any targets?\n              AND e.targets @> $3\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $4 LIMIT $5\n            ",
+  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              -- IF filter targets are empty, do not filter.\n              -- IF filter targets are not empty, filter only if they are in the event targets.\n              AND ($2::text[] IS NULL OR e.targets @> $2)\n            ORDER BY priority ASC, created_date_time DESC\n            OFFSET $3 LIMIT $4\n            ",
   "describe": {
     "columns": [
       {
@@ -68,7 +68,6 @@
       "Left": [
         "Text",
         "TextArray",
-        "TextArray",
         "Int8",
         "Int8"
       ]
@@ -88,5 +87,5 @@
       true
     ]
   },
-  "hash": "4fd2566b79ab84a499fbd4c21519baf0f0c7a4b9e2b6f7b59ad5d6db69ce0cce"
+  "hash": "6356bab066166231cd78aaa27ede327e3501cc85b1bd23f5614cd47863b7b5eb"
 }

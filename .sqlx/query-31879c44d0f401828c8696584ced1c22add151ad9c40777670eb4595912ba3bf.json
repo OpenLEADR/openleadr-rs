@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n            WHERE e.id = $1\n              AND e.targets @> $2\n            ",
+  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n            WHERE e.id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -66,8 +66,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "TextArray"
+        "Text"
       ]
     },
     "nullable": [
@@ -85,5 +84,5 @@
       true
     ]
   },
-  "hash": "b15d53c1aa7e0abce8facc0cd4a8e1f718ebc7dba9b3b3a487e8745c40b717d4"
+  "hash": "31879c44d0f401828c8696584ced1c22add151ad9c40777670eb4595912ba3bf"
 }
