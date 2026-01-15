@@ -1,6 +1,6 @@
 [package]
 name = "openleadr-vtn"
-description = "OpenADR 3.0 VTN server"
+description = "OpenADR 3.1 VTN server"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
