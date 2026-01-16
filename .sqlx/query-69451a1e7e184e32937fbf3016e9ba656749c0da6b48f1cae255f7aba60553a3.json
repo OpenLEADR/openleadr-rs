@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE id = $1\n            ",
+  "query": "\n            DELETE FROM program p\n                   WHERE id = $1\n            RETURNING p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets as  \"targets:Vec<Target>\",\n                   p.attributes\n            ",
   "describe": {
     "columns": [
       {
@@ -66,5 +66,5 @@
       true
     ]
   },
-  "hash": "3b27c436099508ab0bc3c2edf8a73539b979dfd49212e8e0168d5310a3e7ac7c"
+  "hash": "69451a1e7e184e32937fbf3016e9ba656749c0da6b48f1cae255f7aba60553a3"
 }

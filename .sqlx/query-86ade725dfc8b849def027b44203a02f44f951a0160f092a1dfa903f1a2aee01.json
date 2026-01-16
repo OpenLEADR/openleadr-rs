@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT r.*\n            FROM report r\n            WHERE r.id = $1\n            ",
+  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                ven_name,\n                attributes,\n                targets as \"targets:Vec<Target>\",\n                client_id\n            FROM ven\n            WHERE id = $1\n            AND ($2::text IS NULL OR client_id = $2)\n            ",
   "describe": {
     "columns": [
       {
@@ -20,37 +20,28 @@
       },
       {
         "ordinal": 3,
-        "name": "event_id",
+        "name": "ven_name",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "client_name",
-        "type_info": "Text"
+        "name": "attributes",
+        "type_info": "Jsonb"
       },
       {
         "ordinal": 5,
-        "name": "report_name",
-        "type_info": "Text"
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 6,
-        "name": "payload_descriptors",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 7,
-        "name": "resources",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 8,
         "name": "client_id",
         "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -59,12 +50,10 @@
       false,
       false,
       false,
-      false,
-      true,
       true,
       false,
       false
     ]
   },
-  "hash": "bc4014ffee2780006fa753a982bc3afe7048812e570bfe8a739e8ee2114d1d10"
+  "hash": "86ade725dfc8b849def027b44203a02f44f951a0160f092a1dfa903f1a2aee01"
 }

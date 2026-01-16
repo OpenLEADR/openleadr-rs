@@ -1,6 +1,6 @@
 [package]
 name = "openleadr-vtn"
-description = "OpenADR 3.0 VTN server"
+description = "OpenADR 3.1 VTN server"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
@@ -39,6 +39,8 @@ async-trait.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 
+derive_more.workspace = true
+
 sqlx = { workspace = true, optional = true }
 argon2 = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
@@ -46,6 +48,7 @@ dotenvy = { workspace = true, optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 serial_test.workspace = true
+serde_html_form = "0.4.0"
 
 [features]
 default = ["postgres", "live-db-test", "internal-oauth"]

@@ -1,8 +1,8 @@
 #![warn(missing_docs)]
 
-//! # OpenADR 3.0 VEN client
+//! # OpenADR 3.1 VEN client
 //!
-//! This is a client library to interact with an OpenADR 3.0 complaint VTN server.
+//! This is a client library to interact with an OpenADR 3.1 complaint VTN server.
 //! It mainly wraps the HTTP REST interface into an easy-to-use Rust API.
 //!
 //! Basic usage

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use openleadr_client::{Client, ClientCredentials, ClientKind, HttpClient, ProgramClient};
-use openleadr_vtn::{data_source::PostgresStorage, jwt::AuthRole, state::AppState};
+use openleadr_vtn::{data_source::PostgresStorage, state::AppState};
 use openleadr_wire::program::ProgramRequest;
 use reqwest::{Method, RequestBuilder, Response};
 use sqlx::PgPool;
@@ -10,13 +10,16 @@ use std::{env::VarError, ops::Deref, sync::Arc};
 use tower::{Service, ServiceExt};
 use url::Url;
 
+#[allow(dead_code)]
+pub enum AuthRole {
+    Bl,
+    Ven,
+}
+
 fn default_credentials(auth_role: AuthRole) -> ClientCredentials {
     let (id, secr) = match auth_role {
-        AuthRole::UserManager => ("user-manager", "user-manager"),
-        AuthRole::VenManager => ("ven-manager", "ven-manager"),
-        AuthRole::Business(_) => ("business-1", "business-1"),
-        AuthRole::AnyBusiness => ("any-business", "any-business"),
-        AuthRole::VEN(_) => ("ven-1", "ven-1"),
+        AuthRole::Bl => ("bl-client", "bl-client"),
+        AuthRole::Ven => ("ven-client", "ven-client"),
     };
 
     ClientCredentials::new(id.to_string(), secr.to_string())
@@ -115,7 +118,8 @@ async fn local_vtn_test_client<K: ClientKind>(db: PgPool, auth_role: AuthRole) -
 // FIXME make this function independent of the storage backend
 pub async fn setup_mock_client<K: ClientKind>(db: PgPool) -> Client<K> {
     // let auth_info = AuthInfo::bl_admin();
-    let client_credentials = ClientCredentials::new("admin".to_string(), "admin".to_string());
+    let client_credentials =
+        ClientCredentials::new("bl-client".to_string(), "bl-client".to_string());
 
     let storage = PostgresStorage::new(db).unwrap();
     // storage.auth.try_write().unwrap().push(auth_info);

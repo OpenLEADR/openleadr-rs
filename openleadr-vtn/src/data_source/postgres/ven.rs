@@ -1,16 +1,18 @@
 use crate::{
     api::ven::QueryParams,
-    data_source::{postgres::to_json_value, Crud, VenCrud, VenPermissions},
+    data_source::{postgres::to_json_value, Crud, VenCrud, VenObjectPrivacy},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     target::Target,
-    ven::{BlVenRequest, Ven, VenId, VenRequest},
+    ven::{BlVenRequest, Ven, VenId},
+    ClientId,
 };
 use sqlx::PgPool;
-use tracing::{error, trace};
+use std::collections::BTreeSet;
+use tracing::{error, trace, warn};
 
 #[async_trait]
 impl VenCrud for PgVenStorage {}
@@ -66,15 +68,15 @@ impl TryFrom<PostgresVen> for Ven {
 impl Crud for PgVenStorage {
     type Type = Ven;
     type Id = VenId;
-    type NewType = VenRequest;
+    type NewType = BlVenRequest;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = VenPermissions;
+    type PermissionFilter = Option<ClientId>;
 
     async fn create(
         &self,
         new: Self::NewType,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
@@ -98,13 +100,10 @@ impl Crud for PgVenStorage {
                 targets as "targets:Vec<Target>",
                 client_id
             "#,
-            new.ven_name(),
-            to_json_value(new.attributes())?,
-            new.targets() as &[Target],
-            // FIXME object privacy
-            new.client_id()
-                .map(|id| id.as_str())
-                .unwrap_or("FIXME-object-privacy")
+            new.ven_name,
+            to_json_value(new.attributes)?,
+            new.targets as _,
+            new.client_id as _
         )
         .fetch_one(&self.db)
         .await?
@@ -118,10 +117,8 @@ impl Crud for PgVenStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        permissions: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let ids = permissions.as_value();
-
         let ven: Ven = sqlx::query_as!(
             PostgresVen,
             r#"
@@ -135,10 +132,10 @@ impl Crud for PgVenStorage {
                 client_id
             FROM ven
             WHERE id = $1
-            AND ($2::text[] IS NULL OR id = ANY($2))
+            AND ($2::text IS NULL OR client_id = $2)
             "#,
             id.as_str(),
-            ids.as_deref(),
+            client_id as _,
         )
         .fetch_one(&self.db)
         .await?
@@ -152,14 +149,12 @@ impl Crud for PgVenStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        permissions: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let ids = permissions.as_value();
-
         let vens = sqlx::query_as!(
             PostgresVen,
             r#"
-            SELECT DISTINCT
+            SELECT
                 v.id AS "id!",
                 v.created_date_time AS "created_date_time!",
                 v.modification_date_time AS "modification_date_time!",
@@ -168,16 +163,15 @@ impl Crud for PgVenStorage {
                 v.targets as "targets:Vec<Target>",
                 v.client_id
             FROM ven v
-              LEFT JOIN resource r ON r.ven_id = v.id
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2::text[] IS NULL OR v.targets && $2)
-              AND ($3::text[] IS NULL OR v.id = ANY($3))
+              AND ($2::text[] IS NULL OR v.targets @> $2)
+              AND ($3::text IS NULL OR v.client_id = $3)
             ORDER BY v.created_date_time DESC
             OFFSET $4 LIMIT $5
             "#,
             filter.ven_name,
-            filter.targets.targets.as_deref(),
-            ids.as_deref(),
+            filter.targets.as_deref() as _,
+            client_id as _,
             filter.skip,
             filter.limit,
         )
@@ -196,7 +190,7 @@ impl Crud for PgVenStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
@@ -209,15 +203,29 @@ impl Crud for PgVenStorage {
         .fetch_one(&mut *tx)
         .await?;
 
-        if let Some(new_client_id) = new.client_id() {
-            if old.client_id != new_client_id.as_str() {
-                let error = "Tried to update `client_id` of VEN. \
+        // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
+        //  See also https://github.com/oadr3-org/specification/discussions/371
+        // match client_id {
+        //     Some(client_id) => {
+        //         if old.client_id != client_id.as_str() {
+        //             warn!(
+        //                 client_id = ?client_id,
+        //                 ven_id = id.as_str(),
+        //                 "Client tried to update VEN it does not own"
+        //             );
+        //             return Err(Self::Error::NotFound);
+        //         }
+        //     }
+        //     _ => {}
+        // }
+
+        if old.client_id != new.client_id.as_str() {
+            let error = "Tried to update `client_id` of VEN. \
                 This is not allowed in the current version of openLEADR as the specification is not quite \
                 clear about if that should be allowed. If you disagree with that interpretation, please open \
                 an issue on GitHub.";
-                error!(ven_id = id.as_str(), "{}", error);
-                return Err(Self::Error::BadRequest(error));
-            }
+            error!(ven_id = id.as_str(), "{}", error);
+            return Err(Self::Error::BadRequest(error));
         }
 
         let ven: Ven = sqlx::query_as!(
@@ -239,9 +247,9 @@ impl Crud for PgVenStorage {
                 client_id
             "#,
             id.as_str(),
-            new.ven_name(),
-            to_json_value(new.attributes())?,
-            new.targets() as &[Target],
+            new.ven_name,
+            to_json_value(new.attributes)?,
+            new.targets as _,
         )
         .fetch_one(&mut *tx)
         .await?
@@ -256,7 +264,7 @@ impl Crud for PgVenStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
@@ -303,6 +311,47 @@ impl Crud for PgVenStorage {
     }
 }
 
+#[async_trait]
+impl VenObjectPrivacy for PgVenStorage {
+    async fn targets_by_client_id(&self, client_id: &ClientId) -> Result<Vec<Target>, AppError> {
+        // According to the spec, a client_id MUST match at most one VEN object, see also https://github.com/oadr3-org/specification/discussions/372
+        let ven_targets = sqlx::query_scalar!(
+            r#"
+            SELECT targets FROM ven WHERE ven.client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_one(&self.db)
+        .await?
+        .into_iter()
+        .map(|id| id.parse())
+        .collect::<Result<BTreeSet<_>, _>>()?;
+
+        let full_targets: Result<_, AppError> = sqlx::query_scalar!(
+            r#"
+            SELECT resource.targets
+            FROM ven
+                     JOIN resource ON ven.id = resource.ven_id
+            WHERE ven.client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .try_fold(ven_targets, |mut set, resource_targets| {
+            let mut resource_set = resource_targets
+                .into_iter()
+                .map(|target| target.parse())
+                .collect::<Result<BTreeSet<Target>, _>>()?;
+            set.append(&mut resource_set);
+            Ok(set)
+        });
+
+        Ok(full_targets?.into_iter().collect())
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod tests {
@@ -322,7 +371,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 ven_name: None,
-                targets: TargetQueryParams { targets: None },
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
             }
@@ -355,26 +404,24 @@ mod tests {
                 "ven-2-client-id".parse().unwrap(),
                 "ven-2-name".to_string(),
                 None,
-                vec![],
+                vec!["group-2".parse().unwrap()],
             ),
         }
     }
 
     mod get_all {
-        use crate::data_source::postgres::ven::{PgVenStorage, VenPermissions};
+        use crate::data_source::postgres::ven::PgVenStorage;
 
         use super::*;
 
         #[sqlx::test(fixtures("users", "vens"))]
         async fn default_get_all(db: PgPool) {
             let repo: PgVenStorage = db.into();
-            let mut vens = repo
-                .retrieve_all(&Default::default(), &VenPermissions::AllAllowed)
-                .await
-                .unwrap();
-            assert_eq!(vens.len(), 2);
+            let mut vens = repo.retrieve_all(&Default::default(), &None).await.unwrap();
+            assert_eq!(vens.len(), 5);
             vens.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
-            assert_eq!(vens, vec![ven_1(), ven_2()]);
+            assert_eq!(vens[0], ven_1());
+            assert_eq!(vens[1], ven_2());
         }
 
         #[sqlx::test(fixtures("users", "vens"))]
@@ -386,7 +433,7 @@ mod tests {
                         limit: 1,
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -402,19 +449,19 @@ mod tests {
                         skip: 1,
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
                 )
                 .await
                 .unwrap();
-            assert_eq!(vens.len(), 1);
+            assert_eq!(vens.len(), 4);
 
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        skip: 2,
+                        skip: 5,
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -428,26 +475,22 @@ mod tests {
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["group-1".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
                 )
                 .await
                 .unwrap();
-            assert_eq!(vens.len(), 1);
+            assert_eq!(vens.len(), 3);
 
             let vens = repo
                 .retrieve_all(
                     &QueryParams {
-                        targets: TargetQueryParams {
-                            targets: Some(vec!["not-existent".to_string()]),
-                        },
+                        targets: TargetQueryParams(Some(vec!["not-existent".parse().unwrap()])),
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -459,7 +502,7 @@ mod tests {
                         ven_name: Some("ven-2-name".to_string()),
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
                 )
                 .await
                 .unwrap();
@@ -472,7 +515,35 @@ mod tests {
                         ven_name: Some("ven-not-existent".to_string()),
                         ..Default::default()
                     },
-                    &VenPermissions::AllAllowed,
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(vens.len(), 0);
+        }
+
+        #[sqlx::test(fixtures("users", "vens"))]
+        async fn filter_client_id_get_all(db: PgPool) {
+            let repo: PgVenStorage = db.into();
+
+            let vens = repo
+                .retrieve_all(
+                    &QueryParams {
+                        ..Default::default()
+                    },
+                    &Some("ven-1-client-id".parse().unwrap()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(vens.len(), 1);
+            assert_eq!(vens, vec![ven_1()]);
+
+            let vens = repo
+                .retrieve_all(
+                    &QueryParams {
+                        ..Default::default()
+                    },
+                    &Some("ven-not-existent-client-id".parse().unwrap()),
                 )
                 .await
                 .unwrap();
@@ -481,8 +552,6 @@ mod tests {
     }
 
     mod get {
-        use crate::data_source::postgres::ven::VenPermissions;
-
         use super::*;
 
         #[sqlx::test(fixtures("users", "vens"))]
@@ -490,7 +559,7 @@ mod tests {
             let repo: PgVenStorage = db.into();
 
             let ven = repo
-                .retrieve(&"ven-1".parse().unwrap(), &VenPermissions::AllAllowed)
+                .retrieve(&"ven-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(ven, ven_1());
@@ -500,10 +569,7 @@ mod tests {
         async fn get_not_existent(db: PgPool) {
             let repo: PgVenStorage = db.into();
             let ven = repo
-                .retrieve(
-                    &"ven-not-existent".parse().unwrap(),
-                    &VenPermissions::AllAllowed,
-                )
+                .retrieve(&"ven-not-existent".parse().unwrap(), &None)
                 .await;
 
             assert!(matches!(ven, Err(AppError::NotFound)));
@@ -511,23 +577,14 @@ mod tests {
     }
 
     mod add {
-        use crate::data_source::postgres::ven::VenPermissions;
-
         use super::*;
         use chrono::{Duration, Utc};
-        use openleadr_wire::ven::VenRequest;
 
         #[sqlx::test]
         async fn add(db: PgPool) {
             let repo: PgVenStorage = db.into();
 
-            let ven = repo
-                .create(
-                    VenRequest::BlVenRequest(ven_1().content),
-                    &VenPermissions::AllAllowed,
-                )
-                .await
-                .unwrap();
+            let ven = repo.create(ven_1().content, &None).await.unwrap();
             assert!(ven.created_date_time < Utc::now() + Duration::minutes(10));
             assert!(ven.created_date_time > Utc::now() - Duration::minutes(10));
             assert!(ven.modification_date_time < Utc::now() + Duration::minutes(10));
@@ -538,32 +595,20 @@ mod tests {
         async fn add_existing_name(db: PgPool) {
             let repo: PgVenStorage = db.into();
 
-            let ven = repo
-                .create(
-                    VenRequest::BlVenRequest(ven_1().content),
-                    &VenPermissions::AllAllowed,
-                )
-                .await;
+            let ven = repo.create(ven_1().content, &None).await;
             assert!(matches!(ven, Err(AppError::Conflict(_, _))));
         }
     }
 
     mod modify {
-        use crate::data_source::postgres::ven::VenPermissions;
-
         use super::*;
         use chrono::{DateTime, Duration, Utc};
-        use openleadr_wire::ven::VenRequest;
 
         #[sqlx::test(fixtures("users", "vens"))]
         async fn updates_modify_time(db: PgPool) {
             let repo: PgVenStorage = db.into();
             let ven = repo
-                .update(
-                    &"ven-1".parse().unwrap(),
-                    VenRequest::BlVenRequest(ven_1().content),
-                    &VenPermissions::AllAllowed,
-                )
+                .update(&"ven-1".parse().unwrap(), ven_1().content, &None)
                 .await
                 .unwrap();
 
@@ -586,17 +631,13 @@ mod tests {
             updated.ven_name = "updated_name".parse().unwrap();
 
             let ven = repo
-                .update(
-                    &"ven-1".parse().unwrap(),
-                    VenRequest::BlVenRequest(updated.clone()),
-                    &VenPermissions::AllAllowed,
-                )
+                .update(&"ven-1".parse().unwrap(), updated.clone(), &None)
                 .await
                 .unwrap();
 
             assert_eq!(ven.content, updated);
             let ven = repo
-                .retrieve(&"ven-1".parse().unwrap(), &VenPermissions::AllAllowed)
+                .retrieve(&"ven-1".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(ven.content, updated);
@@ -604,26 +645,19 @@ mod tests {
     }
 
     mod delete {
-        use crate::data_source::postgres::ven::VenPermissions;
-
         use super::*;
 
         #[sqlx::test(fixtures("users", "vens"))]
         async fn delete_existing(db: PgPool) {
             let repo: PgVenStorage = db.into();
-            let ven = repo
-                .delete(&"ven-1".parse().unwrap(), &VenPermissions::AllAllowed)
-                .await
-                .unwrap();
+            let ven = repo.delete(&"ven-1".parse().unwrap(), &None).await.unwrap();
             assert_eq!(ven, ven_1());
 
-            let ven = repo
-                .retrieve(&"ven-1".parse().unwrap(), &VenPermissions::AllAllowed)
-                .await;
+            let ven = repo.retrieve(&"ven-1".parse().unwrap(), &None).await;
             assert!(matches!(ven, Err(AppError::NotFound)));
 
             let ven = repo
-                .retrieve(&"ven-2".parse().unwrap(), &VenPermissions::AllAllowed)
+                .retrieve(&"ven-2".parse().unwrap(), &None)
                 .await
                 .unwrap();
             assert_eq!(ven, ven_2());
@@ -633,10 +667,7 @@ mod tests {
         async fn delete_not_existing(db: PgPool) {
             let repo: PgVenStorage = db.into();
             let ven = repo
-                .delete(
-                    &"ven-not-existing".parse().unwrap(),
-                    &VenPermissions::AllAllowed,
-                )
+                .delete(&"ven-not-existing".parse().unwrap(), &None)
                 .await;
             assert!(matches!(ven, Err(AppError::NotFound)));
         }

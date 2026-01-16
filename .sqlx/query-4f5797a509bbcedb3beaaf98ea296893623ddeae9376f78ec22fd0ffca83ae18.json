@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT r.*\n            FROM report r\n                JOIN event e ON e.id = r.event_id\n            WHERE ($1::text IS NULL OR $1 like e.program_id)\n              AND ($2::text IS NULL OR $2 like r.event_id)\n              AND ($3::text IS NULL OR $3 like r.client_name)\n            ORDER BY r.created_date_time DESC\n            OFFSET $4 LIMIT $5\n            ",
+  "query": "\n            SELECT r.*\n            FROM report r\n            WHERE r.id = $1\n              AND ($2::text IS NULL OR r.client_id = $2)\n            ",
   "describe": {
     "columns": [
       {
@@ -52,10 +52,7 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text",
-        "Text",
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -70,5 +67,5 @@
       false
     ]
   },
-  "hash": "bd03453dd07b57f53b9e73be5dc5d907827cebecf1bb411b060887a149ae6fb2"
+  "hash": "4f5797a509bbcedb3beaaf98ea296893623ddeae9376f78ec22fd0ffca83ae18"
 }
