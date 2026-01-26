@@ -47,7 +47,7 @@ uuid = { version = "1.8.0", features = ["v4"] }
 url = "2.5.0"
 http = "^1.0.0"
 mime = "0.3"
-tower-http = { version = "0.6.1", features = ["trace"] }
+tower-http = { version = "0.6.1", default-features = false, features = ["trace"] }
 http-body-util = "0.1.0"
 jsonwebtoken = { version = "10.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 base64 = "0.22.1"

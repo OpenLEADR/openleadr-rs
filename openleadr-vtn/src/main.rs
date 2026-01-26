@@ -30,7 +30,17 @@ async fn main() {
     }
 
     let state = AppState::new(storage).await;
-    if let Err(e) = axum::serve(listener, state.into_router())
+    let router = state.into_router();
+
+    #[cfg(any(
+        feature = "compression-br",
+        feature = "compression-deflate",
+        feature = "compression-gzip",
+        feature = "compression-zstd"
+    ))]
+    let router = router.layer(tower_http::compression::CompressionLayer::new());
+
+    if let Err(e) = axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await
     {
