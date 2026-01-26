@@ -195,11 +195,7 @@ impl From<Priority> for Option<i64> {
 /// currency.
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(
-    rename_all = "camelCase",
-    // tag = "objectType",
-    // rename = "EVENT_PAYLOAD_DESCRIPTOR"
-)]
+#[serde(rename_all = "camelCase")]
 pub struct EventPayloadDescriptor {
     /// Represents the nature of values.
     ///
