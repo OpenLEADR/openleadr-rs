@@ -678,6 +678,42 @@ mod test {
             assert_eq!(status, StatusCode::FORBIDDEN);
         }
 
+        #[sqlx::test(fixtures("programs"))]
+        async fn cannot_read_event_without_read_scope(db: PgPool) {
+            let (state, _) = state_with_events(vec![], db.clone()).await;
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::ReadAll && *s != Scope::ReadTargets)
+                    .collect(),
+            );
+
+            let mut app = state.into_router();
+
+            let resp = get_help("event-1", &token, &mut app).await;
+            assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        }
+
+        #[sqlx::test(fixtures("programs"))]
+        async fn cannot_read_events_without_read_scope(db: PgPool) {
+            let (state, _) = state_with_events(vec![], db.clone()).await;
+            let token = jwt_test_token(
+                &state,
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::ReadAll && *s != Scope::ReadTargets)
+                    .collect(),
+            );
+
+            let mut app = state.into_router();
+
+            let resp = retrieve_all_with_filter_help(&mut app, "", &token).await;
+            assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        }
+
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]
         async fn vens_can_read_assigned_events_only(db: PgPool) {
             let (state, _) = state_with_events(vec![], db).await;

@@ -375,6 +375,7 @@ impl ClientId {
 #[cfg(test)]
 mod tests {
     use crate::{Attribute, DataQuality, Identifier, OperatingState, Unit};
+    use chrono::{DateTime, Utc};
 
     #[test]
     fn test_operating_state_serialization() {
@@ -539,5 +540,59 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("string length 0 outside of allowed range 1..=128"));
+    }
+
+    #[test]
+    fn deserialize_datetime() {
+        use serde::Deserialize;
+        // Thanks to https://tc39.es/proposal-uniform-interchange-date-parsing/cases.html
+
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct Test(#[serde(with = "super::serde_rfc3339")] DateTime<Utc>);
+
+        let valid_dates = [
+            "1972-06-30T23:59:60Z",
+            "2019-03-26T14:00:00.9Z",
+            "2019-03-26T14:00:00.4999Z",
+            "1969-03-26T14:00:00.4999Z",
+        ];
+
+        for valid in valid_dates {
+            assert_eq!(
+                serde_json::from_str::<Test>(&format!("\"{valid}\"")).unwrap(),
+                Test(valid.parse().unwrap())
+            );
+        }
+
+        let invalid_dates = [
+            "2019-03-26T14:00:00,999Z",
+            "2019-03-26T10:00-04",
+            "2019-03-26T14:00.9Z",
+            "20190326T1400Z",
+            "2019-02-30",
+            "2019-03-25T24:01Z",
+            "2019-03-26T14:00+24:00",
+            "2019-03-26Z",
+            "2019-03-26+01:00",
+            "2019-03-26-04:00",
+            "2019-03-26T10:00-0400",
+            "+0002019-03-26T14:00Z",
+            "+2019-03-26T14:00Z",
+            "002019-03-26T14:00Z",
+            "019-03-26T14:00Z",
+            "2019-03-26T10:00Q",
+            "2019-03-26T10:00T",
+            "2019-03-26Q",
+            "2019-03-26T",
+            "2019-03-26 14:00Z",
+            "2019-03-26T14:00:00.",
+        ];
+
+        for invalid in invalid_dates {
+            assert!(serde_json::from_str::<Test>(&format!("\"{invalid}\""))
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid RFC3339 string"));
+        }
     }
 }

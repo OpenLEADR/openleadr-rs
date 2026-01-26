@@ -119,12 +119,10 @@ async fn local_vtn_test_client<K: ClientKind>(db: PgPool, auth_role: AuthRole) -
 
 // FIXME make this function independent of the storage backend
 pub async fn setup_mock_client<K: ClientKind>(db: PgPool) -> Client<K> {
-    // let auth_info = AuthInfo::bl_admin();
     let client_credentials =
         ClientCredentials::new("bl-client".to_string(), "bl-client".to_string());
 
     let storage = PostgresStorage::new(db).unwrap();
-    // storage.auth.try_write().unwrap().push(auth_info);
 
     let app_state = AppState::new(storage).await;
 

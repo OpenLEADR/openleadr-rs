@@ -71,6 +71,8 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "${{matrix.rust}}-${{matrix.target}}"
+          cache-on-failure: true
+          prefix-key: 'checks'
 
       - name: Install Nextest
         run: cargo install --locked cargo-nextest

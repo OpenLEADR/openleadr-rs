@@ -528,7 +528,10 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::jwt::Scope;
+    use crate::{api::test::ApiTest, jwt::Scope};
+    use axum::{body::Body, http::Method};
+    use openleadr_wire::problem::Problem;
+    use sqlx::PgPool;
 
     impl Scope {
         pub fn all() -> Vec<Scope> {
@@ -544,5 +547,20 @@ mod test {
                 Scope::WriteUsers,
             ]
         }
+    }
+
+    #[sqlx::test]
+    async fn sub_deserialization(db: PgPool) {
+        let test = ApiTest::new(
+            db,
+            "This is not a valid client ID",
+            vec![Scope::ReadVenObjects],
+        )
+        .await;
+        let (status_code, problem) = test
+            .request::<Problem>(Method::GET, "/vens", Body::empty())
+            .await;
+        assert_eq!(problem.detail, Some("OAuth2 subject cannot be parsed as OpenADR clientId: identifier contains characters besides [a-zA-Z0-9_-]: This is not a valid client ID".to_string()));
+        assert_eq!(status_code, 401);
     }
 }

@@ -63,23 +63,6 @@ impl ResourceRequest {
             ResourceRequest::VenResourceRequest(r) => r.attributes.as_deref(),
         }
     }
-
-    pub fn targets(&self) -> &[Target] {
-        match self {
-            ResourceRequest::BlResourceRequest(r) => &r.targets,
-            ResourceRequest::VenResourceRequest(_) => {
-                // FIXME object privacy
-                &[]
-            }
-        }
-    }
-
-    pub fn client_id(&self) -> Option<&ClientId> {
-        match self {
-            ResourceRequest::BlResourceRequest(r) => Some(&r.client_id),
-            ResourceRequest::VenResourceRequest(_) => None,
-        }
-    }
 }
 
 #[skip_serializing_none]
