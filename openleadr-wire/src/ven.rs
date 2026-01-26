@@ -43,13 +43,6 @@ impl Validate for VenRequest {
 }
 
 impl VenRequest {
-    pub fn client_id(&self) -> Option<&ClientId> {
-        match self {
-            VenRequest::BlVenRequest(r) => Some(&r.client_id),
-            VenRequest::VenVenRequest(_) => None,
-        }
-    }
-
     pub fn ven_name(&self) -> &str {
         match self {
             VenRequest::BlVenRequest(r) => &r.ven_name,
@@ -61,16 +54,6 @@ impl VenRequest {
         match self {
             VenRequest::BlVenRequest(r) => r.attributes.as_deref(),
             VenRequest::VenVenRequest(r) => r.attributes.as_deref(),
-        }
-    }
-
-    pub fn targets(&self) -> &[Target] {
-        match self {
-            VenRequest::BlVenRequest(r) => &r.targets,
-            VenRequest::VenVenRequest(_) => {
-                // FIXME object privacy
-                &[]
-            }
         }
     }
 }

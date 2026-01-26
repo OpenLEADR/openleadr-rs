@@ -176,6 +176,127 @@ mod tests {
     use reqwest::Method;
     use sqlx::PgPool;
 
+    mod permissions {
+        use super::*;
+
+        #[sqlx::test(fixtures("vens"))]
+        async fn cannot_read_vens_without_correct_scope(db: PgPool) {
+            let test = ApiTest::new(
+                db.clone(),
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::ReadAll && *s != Scope::ReadVenObjects)
+                    .collect(),
+            )
+            .await;
+
+            let (status, _) = test
+                .request::<Problem>(Method::GET, "/vens", Body::empty())
+                .await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+
+        #[sqlx::test(fixtures("vens"))]
+        async fn cannot_read_ven_without_correct_scope(db: PgPool) {
+            let test = ApiTest::new(
+                db.clone(),
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::ReadAll && *s != Scope::ReadVenObjects)
+                    .collect(),
+            )
+            .await;
+
+            let (status, _) = test
+                .request::<Problem>(Method::GET, "/vens/ven-1", Body::empty())
+                .await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+
+        #[sqlx::test(fixtures("vens"))]
+        async fn cannot_add_ven_without_correct_scope(db: PgPool) {
+            let test = ApiTest::new(
+                db.clone(),
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::WriteVens)
+                    .collect(),
+            )
+            .await;
+
+            let (status, _) = test
+                .request::<Problem>(
+                    Method::POST,
+                    "/vens",
+                    Body::from(
+                        r#"
+                        {
+                          "objectType": "BL_VEN_REQUEST",
+                          "clientID": "new-ven-client-id",
+                          "venName": "new-ven-name"
+                        }"#,
+                    ),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+
+        #[sqlx::test(fixtures("vens"))]
+        async fn cannot_edit_vev_without_correct_scope(db: PgPool) {
+            let test = ApiTest::new(
+                db.clone(),
+                "ven-1-client-id",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::WriteVens)
+                    .collect(),
+            )
+            .await;
+
+            let (status, _) = test
+                .request::<Problem>(
+                    Method::PUT,
+                    "/vens/ven-1",
+                    Body::from(
+                        r#"
+                        {
+                          "objectType": "BL_VEN_REQUEST",
+                          "clientID": "ven-1-client-id",
+                          "venName": "ven-1-name"
+                        }"#,
+                    ),
+                )
+                .await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+
+        #[sqlx::test(fixtures("vens"))]
+        async fn cannot_delete_resource_without_correct_scope(db: PgPool) {
+            let test = ApiTest::new(
+                db.clone(),
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|s| *s != Scope::WriteVens)
+                    .collect(),
+            )
+            .await;
+
+            let (status, _) = test
+                .request::<Problem>(Method::DELETE, "/vens/ven-1", Body::empty())
+                .await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+    }
+
     #[sqlx::test(fixtures("users", "vens"))]
     async fn get_all_unfiltered(db: PgPool) {
         let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;

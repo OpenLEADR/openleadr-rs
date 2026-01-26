@@ -216,20 +216,6 @@ async fn retrieve_all_with_filter(db: PgPool) {
         .unwrap();
     assert_eq!(events.len(), 0);
 
-    // FIXME
-    // let err = client
-    //     .get_events_request(Filter::By(&[""]), PaginationOptions { skip: 0, limit: 2 })
-    //     .await
-    //     .unwrap_err();
-    // let Error::Problem(problem) = err else {
-    //     unreachable!()
-    // };
-    // assert_eq!(
-    //     problem.status,
-    //     StatusCode::BAD_REQUEST,
-    //     "Do return BAD_REQUEST on empty targets"
-    // );
-
     let events = client
         .get_events_request(
             Filter::By(&["group-1", "group-2"]),
