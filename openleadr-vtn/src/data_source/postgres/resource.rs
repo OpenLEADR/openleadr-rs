@@ -34,7 +34,6 @@ pub(crate) struct PostgresResource {
     resource_name: String,
     attributes: Option<serde_json::Value>,
     targets: Vec<Target>,
-    client_id: String,
     ven_id: String,
 }
 
@@ -60,7 +59,6 @@ impl TryFrom<PostgresResource> for Resource {
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             content: BlResourceRequest {
-                client_id: value.client_id.parse()?,
                 resource_name: value.resource_name,
                 ven_id: value.ven_id.parse()?,
                 attributes,
@@ -84,24 +82,6 @@ impl Crud for PgResourceStorage {
         new: Self::NewType,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let mut tx = self.db.begin().await?;
-
-        // Verify that the `client_id` matches the `ven_id`
-        let client_id = sqlx::query_scalar!(
-            r#"
-            SELECT client_id FROM ven WHERE id = $1
-            "#,
-            new.ven_id.as_str()
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if client_id != new.client_id.as_str() {
-            Err(Self::Error::BadRequest(
-                "`client_id` does not match `ven_id`",
-            ))?
-        }
-
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
@@ -112,10 +92,9 @@ impl Crud for PgResourceStorage {
                 resource_name,
                 ven_id,
                 attributes,
-                targets,
-                client_id
+                targets
             )
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
             RETURNING
                 id,
                 created_date_time,
@@ -123,20 +102,16 @@ impl Crud for PgResourceStorage {
                 resource_name,
                 ven_id,
                 attributes,
-                targets as "targets:Vec<Target>",
-                client_id
+                targets as "targets:Vec<Target>"
             "#,
             new.resource_name,
             new.ven_id.as_str(),
             to_json_value(new.attributes)?,
             new.targets as _,
-            new.client_id as _
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.db)
         .await?
         .try_into()?;
-
-        tx.commit().await?;
 
         Ok(resource)
     }
@@ -150,17 +125,17 @@ impl Crud for PgResourceStorage {
             PostgresResource,
             r#"
             SELECT
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets as "targets:Vec<Target>",
-                client_id
-            FROM resource
-            WHERE id = $1
-              AND ($2::text IS NULL OR client_id = $2)
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
+                r.attributes,
+                r.targets as "targets:Vec<Target>"
+            FROM resource r
+                JOIN ven v on r.ven_id = v.id
+            WHERE r.id = $1
+              AND ($2::text IS NULL OR v.client_id = $2)
             "#,
             id.as_str(),
             client_id as _
@@ -187,13 +162,13 @@ impl Crud for PgResourceStorage {
                 r.resource_name,
                 r.ven_id,
                 r.attributes,
-                r.targets as "targets:Vec<Target>",
-                r.client_id
+                r.targets as "targets:Vec<Target>"
             FROM resource r
+                JOIN ven v on r.ven_id = v.id
             WHERE ($1::text IS NULL OR r.ven_id = $1)
                 AND ($2::text IS NULL OR r.resource_name = $2)
                 AND ($3::text[] IS NULL OR r.targets @> $3)
-                AND ($4::text IS NULL OR client_id = $4)
+                AND ($4::text IS NULL OR v.client_id = $4)
             ORDER BY r.created_date_time
             OFFSET $5 LIMIT $6
             "#,
@@ -219,20 +194,20 @@ impl Crud for PgResourceStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
-        let old = sqlx::query!(
+        let old_ven_id = sqlx::query_scalar!(
             r#"
-            SELECT ven_id, client_id FROM resource WHERE id = $1
+            SELECT ven_id FROM resource WHERE id = $1
             "#,
             id.as_str()
         )
         .fetch_one(&mut *tx)
         .await?;
 
-        if old.ven_id != new.ven_id.as_str() {
+        if old_ven_id != new.ven_id.as_str() {
             let error = "Tried to update `ven_id` of resource. \
             This is not allowed in the current version of openLEADR as the specification is not quite \
             clear about if that should be allowed. If you disagree with that interpretation, please open \
@@ -241,38 +216,32 @@ impl Crud for PgResourceStorage {
             return Err(Self::Error::BadRequest(error));
         }
 
-        if old.client_id != new.client_id.as_str() {
-            let error = "Tried to update `client_id` of resource. \
-                This is not allowed in the current version of openLEADR as the specification is not quite \
-                clear about if that should be allowed. If you disagree with that interpretation, please open \
-                an issue on GitHub.";
-            error!(resource_id = id.as_str(), "{}", error);
-            return Err(Self::Error::BadRequest(error));
-        }
-
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
-            UPDATE resource
+            UPDATE resource r
             SET modification_date_time = now(),
                 resource_name = $2,
                 attributes = $3,
                 targets = $4
-            WHERE id = $1
+            FROM ven v
+            WHERE r.ven_id = v.id
+              AND r.id = $1
+              AND ($5::text IS NULL OR v.client_id = $5)
             RETURNING
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets as "targets:Vec<Target>",
-                client_id
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
+                r.attributes,
+                r.targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
             new.resource_name,
             to_json_value(new.attributes)?,
             new.targets as _,
+            client_id as _
         )
         .fetch_one(&mut *tx)
         .await?
@@ -286,24 +255,27 @@ impl Crud for PgResourceStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         Ok(sqlx::query_as!(
             PostgresResource,
             r#"
             DELETE FROM resource r
-            WHERE r.id = $1
+                   USING ven v
+            WHERE r.ven_id = v.id
+              AND r.id = $1
+              AND ($2::text IS NULL OR v.client_id = $2)
             RETURNING
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets as "targets:Vec<Target>",
-                client_id
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
+                r.attributes,
+                r.targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
+            client_id as _
         )
         .fetch_one(&self.db)
         .await?

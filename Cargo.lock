@@ -1633,7 +1633,6 @@ dependencies = [
  "tokio-test",
  "tower",
  "tracing",
- "tracing-subscriber",
  "url",
  "uuid",
 ]

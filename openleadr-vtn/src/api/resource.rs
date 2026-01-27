@@ -14,7 +14,7 @@ use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, Resource
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
-    data_source::ResourceCrud,
+    data_source::{ResourceCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -76,25 +76,40 @@ pub async fn get(
 
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     User(user): User,
     ValidatedJson(new_resource): ValidatedJson<ResourceRequest>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
     // FIXME: how to restrict client logics (aka VENs) from creating resources for other vens?
     //  See also https://github.com/oadr3-org/specification/discussions/371
+    let client_id = match new_resource {
+        ResourceRequest::BlResourceRequest(_) => None,
+        ResourceRequest::VenResourceRequest(_) => Some(user.client_id()?),
+    };
+
     let new_resource = match new_resource {
         ResourceRequest::BlResourceRequest(new_resource) => new_resource,
-        ResourceRequest::VenResourceRequest(new_resource) => BlResourceRequest {
-            client_id: user.client_id()?,
-            // VEN clients are not allowed to specify the targets of their resources
-            targets: vec![],
-            resource_name: new_resource.resource_name,
-            ven_id: new_resource.ven_id,
-            attributes: new_resource.attributes,
-        },
+        ResourceRequest::VenResourceRequest(new_resource) => {
+            let Some(ven_id) = object_privacy
+                .ven_id_by_client_id(&user.client_id()?)
+                .await?
+            else {
+                return Err(AppError::Forbidden(
+                    "No VEN object associated with this clientID",
+                ));
+            };
+            BlResourceRequest {
+                // VEN clients are not allowed to specify the targets of their resources
+                targets: vec![],
+                resource_name: new_resource.resource_name,
+                ven_id,
+                attributes: new_resource.attributes,
+            }
+        }
     };
 
     let resource = if user.scope.contains(Scope::WriteVens) {
-        resource_source.create(new_resource, &None).await?
+        resource_source.create(new_resource, &client_id).await?
     } else {
         return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     };
@@ -111,32 +126,50 @@ pub async fn add(
 
 pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
+    State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<ResourceId>,
     User(user): User,
     ValidatedJson(update): ValidatedJson<ResourceRequest>,
 ) -> AppResponse<Resource> {
     // FIXME: how to restrict client logics (aka VENs) from creating resources for other vens?
     //  See also https://github.com/oadr3-org/specification/discussions/371
+    let client_id = match update {
+        ResourceRequest::BlResourceRequest(_) => None,
+        ResourceRequest::VenResourceRequest(_) => Some(user.client_id()?),
+    };
+
     let update = match update {
         ResourceRequest::BlResourceRequest(update) => update,
         ResourceRequest::VenResourceRequest(update) => {
-            let org_resource = resource_source
+            let Some(ven_id) = object_privacy
+                .ven_id_by_client_id(&user.client_id()?)
+                .await?
+            else {
+                return Err(AppError::Forbidden(
+                    "No VEN object associated with this clientID",
+                ));
+            };
+
+            let orig_resource = resource_source
                 .retrieve(&id, &Some(user.client_id()?))
                 .await?;
 
+            if ven_id != orig_resource.content.ven_id {
+                return Err(AppError::Forbidden("Cannot edit resource of another VEN"));
+            }
+
             BlResourceRequest {
-                client_id: org_resource.content.client_id,
                 // VEN clients are not allowed to edit the targets of their resources
-                targets: org_resource.content.targets,
+                targets: orig_resource.content.targets,
                 resource_name: update.resource_name,
-                ven_id: update.ven_id,
+                ven_id,
                 attributes: update.attributes,
             }
         }
     };
 
     let resource = if user.scope.contains(Scope::WriteVens) {
-        resource_source.update(&id, update, &None).await?
+        resource_source.update(&id, update, &client_id).await?
     } else {
         return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     };
@@ -496,32 +529,6 @@ mod test {
         assert_eq!(resource.content.resource_name, "new-resource");
     }
 
-    #[sqlx::test(fixtures("vens"))]
-    async fn add_ven_id_does_not_match_client_id(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
-
-        let (status, problem) = test
-            .request::<Problem>(
-                Method::POST,
-                "/resources",
-                Body::from(
-                    r#"
-                  {
-                    "resourceName":"new-resource",
-                    "venID": "ven-2",
-                    "clientID": "ven-1-client-id",
-                    "objectType": "BL_RESOURCE_REQUEST"
-                  }"#,
-                ),
-            )
-            .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(problem
-            .detail
-            .unwrap()
-            .contains("`client_id` does not match `ven_id`"));
-    }
-
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_update_resource(db: PgPool) {
         let test = ApiTest::new(
@@ -583,29 +590,6 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]
-    async fn cannot_update_client_id(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
-
-        let (status, problem) = test
-            .request::<Problem>(
-                Method::PUT,
-                "/resources/resource-1",
-                Body::from(
-                    r#"
-                  {
-                    "resourceName":"resource-1-name",
-                    "venID": "ven-1",
-                    "clientID": "ven-2-client-id",
-                    "objectType": "BL_RESOURCE_REQUEST"
-                  }"#,
-                ),
-            )
-            .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(problem.detail.unwrap().contains("client_id"));
-    }
-
-    #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_delete_resource(db: PgPool) {
         let test = ApiTest::new(
             db.clone(),
@@ -639,7 +623,6 @@ mod test {
                     r#"
                   {
                     "resourceName":"new-resource",
-                    "venID": "ven-1",
                     "objectType": "VEN_RESOURCE_REQUEST"
                   }"#,
                 ),
@@ -653,8 +636,8 @@ mod test {
     async fn ven_cannot_add_resource_to_other_ven(db: PgPool) {
         let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVens]).await;
 
-        let (status, problem) = test
-            .request::<Problem>(
+        let (status, resource) = test
+            .request::<Resource>(
                 Method::POST,
                 "/resources",
                 Body::from(
@@ -667,11 +650,8 @@ mod test {
                 ),
             )
             .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(problem
-            .detail
-            .unwrap()
-            .contains("`client_id` does not match `ven_id`"));
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(resource.content.ven_id.as_str(), "ven-1");
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]
@@ -691,8 +671,6 @@ mod test {
                     r#"
                   {
                     "resourceName":"updated-resource",
-                    "venID": "ven-1",
-                    "clientID": "ven-1-client-id",
                     "targets": ["group-3"],
                     "objectType": "VEN_RESOURCE_REQUEST"
                   }"#,
@@ -732,8 +710,6 @@ mod test {
                     r#"
                   {
                     "resourceName":"updated-resource",
-                    "venID": "ven-2",
-                    "clientID": "ven-2-client-id",
                     "targets": ["group-3"],
                     "objectType": "VEN_RESOURCE_REQUEST"
                   }"#,
@@ -762,6 +738,21 @@ mod test {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
+    #[sqlx::test(fixtures("vens", "resources"))]
+    #[ignore = "Missing clear specification. See https://github.com/oadr3-org/specification/discussions/371"]
+    async fn ven_cannot_delete_resource_of_other_ven(db: PgPool) {
+        let test = ApiTest::new(
+            db.clone(),
+            "ven-1-client-id",
+            vec![Scope::WriteVens, Scope::ReadVenObjects],
+        )
+        .await;
+        let (status, _) = test
+            .request::<Problem>(Method::DELETE, "/resources/resource-2", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
     #[sqlx::test(fixtures("users", "vens"))]
     async fn name_constraint_validation(db: PgPool) {
         let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll, Scope::WriteVens]).await;
@@ -769,7 +760,6 @@ mod test {
         let resources = [
             ResourceRequest::VenResourceRequest(VenResourceRequest {
                 resource_name: "".to_string(),
-                ven_id: "ven-1".parse().unwrap(),
                 attributes: None,
             }),
             ResourceRequest::VenResourceRequest(VenResourceRequest {
@@ -777,7 +767,6 @@ mod test {
                                 rejected This is more than \
                                 128 characters long and should be rejected asdfasd"
                     .to_string(),
-                ven_id: "ven-1".parse().unwrap(),
                 attributes: None,
             }),
         ];

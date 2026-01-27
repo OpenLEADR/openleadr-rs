@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO resource (\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_name,\n                ven_id,\n                attributes,\n                targets,\n                client_id\n            )\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_name,\n                ven_id,\n                attributes,\n                targets as \"targets:Vec<Target>\",\n                client_id\n            ",
+  "query": "\n            DELETE FROM resource r\n                   USING ven v\n            WHERE r.ven_id = v.id\n              AND r.id = $1\n              AND ($2::text IS NULL OR v.client_id = $2)\n            RETURNING\n                r.id,\n                r.created_date_time,\n                r.modification_date_time,\n                r.resource_name,\n                r.ven_id,\n                r.attributes,\n                r.targets as \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -37,19 +37,11 @@
         "ordinal": 6,
         "name": "targets:Vec<Target>",
         "type_info": "TextArray"
-      },
-      {
-        "ordinal": 7,
-        "name": "client_id",
-        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Text",
-        "Jsonb",
-        "TextArray",
         "Text"
       ]
     },
@@ -60,9 +52,8 @@
       false,
       false,
       true,
-      false,
       false
     ]
   },
-  "hash": "b5742f49a6df0f41c15daaf8628c8fdf8f633992a5b6b9b886e325f190af6c79"
+  "hash": "5c27c3e4794ffd65732a2a3149e323641a72ed788c20374624d93ec9a083af01"
 }
