@@ -44,8 +44,8 @@ rangemap = "1.5.1"
 thiserror = "2.0.3"
 validator = { version = "0.20.0", features = ["derive"] }
 uuid = { version = "1.8.0", features = ["v4"] }
-url = "2.5.0"
-http = "^1.0.0"
+url = { version = "2.5.0", features = ["serde"] }
+http = { version = "1.4.0" }
 mime = "0.3"
 tower-http = { version = "0.6.1", default-features = false, features = ["trace"] }
 http-body-util = "0.1.0"
