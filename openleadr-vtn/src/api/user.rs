@@ -171,7 +171,6 @@ mod test {
     use http_body_util::BodyExt;
     use sqlx::PgPool;
     use tower::ServiceExt;
-    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     fn ven_client() -> UserDetails {
         UserDetails {
@@ -426,11 +425,6 @@ mod test {
 
     #[sqlx::test(fixtures("users", "vens"))]
     pub async fn add(db: PgPool) {
-        tracing_subscriber::registry()
-            .with(fmt::layer().with_file(true).with_line_number(true))
-            .with(EnvFilter::from_default_env())
-            .init();
-
         let state = state(db).await;
         let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();

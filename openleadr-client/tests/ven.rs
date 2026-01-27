@@ -112,7 +112,7 @@ async fn resource_crud() {
 
     // Create
     let created_resource = ven
-        .create_resource("test-resource", None, client_id.clone(), vec![])
+        .create_resource("test-resource", None, vec![])
         .await
         .unwrap();
     assert_eq!(created_resource.content().resource_name, "test-resource");
@@ -120,7 +120,7 @@ async fn resource_crud() {
     // Create with the same name fails for the same ven
     {
         let err = ven
-            .create_resource("test-resource", None, client_id.clone(), vec![])
+            .create_resource("test-resource", None, vec![])
             .await
             .unwrap_err();
         assert!(err.is_conflict());
@@ -138,7 +138,7 @@ async fn resource_crud() {
         let ven2 = ctx.create_ven(new_ven2).await.unwrap();
 
         let resource = ven2
-            .create_resource("test-resource", None, client_id, vec![])
+            .create_resource("test-resource", None, vec![])
             .await
             .unwrap();
 
@@ -158,7 +158,7 @@ async fn resource_crud() {
     // Retrieve one by name
     {
         let resource2 = ven
-            .create_resource("test-resource2".to_string(), None, client_id, vec![])
+            .create_resource("test-resource2".to_string(), None, vec![])
             .await
             .unwrap();
         let get_resource = ven.get_resource_by_name("test-resource").await.unwrap();

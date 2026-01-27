@@ -4,9 +4,7 @@ use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{
-    target::Target, values_map::ValuesMap, ven::VenId, ClientId, Identifier, IdentifierError,
-};
+use crate::{target::Target, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
@@ -50,13 +48,6 @@ impl ResourceRequest {
         }
     }
 
-    pub fn ven_id(&self) -> &VenId {
-        match self {
-            ResourceRequest::BlResourceRequest(r) => &r.ven_id,
-            ResourceRequest::VenResourceRequest(r) => &r.ven_id,
-        }
-    }
-
     pub fn attributes(&self) -> Option<&[ValuesMap]> {
         match self {
             ResourceRequest::BlResourceRequest(r) => r.attributes.as_deref(),
@@ -70,8 +61,6 @@ impl ResourceRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct BlResourceRequest {
-    #[serde(rename = "clientID")]
-    pub client_id: ClientId,
     /// A list of targets.
     #[serde(default)]
     #[serde_as(deserialize_as = "DefaultOnNull")]
@@ -94,9 +83,6 @@ pub struct VenResourceRequest {
     /// User generated identifier, resource may be configured with identifier out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub resource_name: String,
-    /// VTN provisioned on object creation based on the path, e.g., POST <>/ven/{venID}/resources.
-    #[serde(rename = "venID")]
-    pub ven_id: VenId,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
 }
@@ -131,7 +117,7 @@ impl FromStr for ResourceId {
 #[cfg(test)]
 mod test {
     use super::{BlResourceRequest, Resource, ResourceId, ResourceRequest, VenResourceRequest};
-    use crate::{ven::VenId, ClientId};
+    use crate::ven::VenId;
 
     #[test]
     fn example_roundtrip() {
@@ -156,7 +142,6 @@ mod test {
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             content: BlResourceRequest {
-                client_id: ClientId("ven_client".parse().unwrap()),
                 attributes: None,
                 targets: vec!["resource_0999".parse().unwrap()],
                 resource_name: "RESOURCE_0999".to_string(),
@@ -199,7 +184,6 @@ mod test {
             parsed_ven_request,
             ResourceRequest::VenResourceRequest(VenResourceRequest {
                 resource_name: "RESOURCE_0999".to_string(),
-                ven_id: VenId("0".parse().unwrap()),
                 attributes: None,
             })
         );
@@ -217,7 +201,6 @@ mod test {
         assert_eq!(
             parsed_bl_request,
             ResourceRequest::BlResourceRequest(BlResourceRequest {
-                client_id: ClientId("ven_client".parse().unwrap()),
                 targets: vec![],
                 resource_name: "RESOURCE_0999".to_string(),
                 ven_id: VenId("0".parse().unwrap()),
@@ -240,7 +223,6 @@ mod test {
             parsed_ven_request_with_bl_fields,
             ResourceRequest::VenResourceRequest(VenResourceRequest {
                 resource_name: "RESOURCE_0999".to_string(),
-                ven_id: VenId("0".parse().unwrap()),
                 attributes: None,
             })
         );

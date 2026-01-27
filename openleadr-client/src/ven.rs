@@ -7,7 +7,7 @@ use openleadr_wire::{
     target::Target,
     values_map::ValuesMap,
     ven::{BlVenRequest, VenId, VenRequest},
-    ClientId, Ven,
+    Ven,
 };
 use std::{fmt::Display, sync::Arc};
 
@@ -24,7 +24,6 @@ impl VenClient<BusinessLogic> {
         &self,
         name: S,
         attributes: Option<Vec<ValuesMap>>,
-        client_id: ClientId,
         targets: Vec<Target>,
     ) -> Result<ResourceClient<BusinessLogic>> {
         let resource = self
@@ -32,7 +31,6 @@ impl VenClient<BusinessLogic> {
             .post(
                 "resources",
                 &ResourceRequest::BlResourceRequest(BlResourceRequest {
-                    client_id,
                     targets,
                     resource_name: name.to_string(),
                     ven_id: self.data.id.clone(),
@@ -60,7 +58,6 @@ impl VenClient<VirtualEndNode> {
                 "resources",
                 &ResourceRequest::VenResourceRequest(VenResourceRequest {
                     resource_name: name.to_string(),
-                    ven_id: self.data.id.clone(),
                     attributes,
                 }),
             )

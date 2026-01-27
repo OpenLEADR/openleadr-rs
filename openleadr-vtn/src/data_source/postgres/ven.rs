@@ -350,6 +350,19 @@ impl VenObjectPrivacy for PgVenStorage {
 
         Ok(full_targets?.into_iter().collect())
     }
+
+    async fn ven_id_by_client_id(&self, client_id: &ClientId) -> Result<Option<VenId>, AppError> {
+        Ok(sqlx::query_scalar!(
+            r#"
+            SELECT id FROM ven WHERE client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_optional(&self.db)
+        .await?
+        .map(|id| id.parse())
+        .transpose()?)
+    }
 }
 
 #[cfg(test)]

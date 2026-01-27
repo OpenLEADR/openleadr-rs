@@ -109,8 +109,6 @@ async fn local_vtn_test_client<K: ClientKind>(db: PgPool, auth_role: AuthRole) -
     let cred = default_credentials(auth_role);
     let storage = PostgresStorage::new(db).unwrap();
 
-    tracing_subscriber::fmt::init();
-
     let router = AppState::new(storage).await.into_router();
     TestContext {
         client: MockClientRef::new(router).into_client(Some(cred)),
