@@ -2,7 +2,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9656/badge)](https://www.bestpractices.dev/projects/9656)
 [![LFX Health Score](https://img.shields.io/static/v1?label=Health%20Score&message=Stable&color=0094FF&logo=linuxfoundation&logoColor=white&style=flat)](https://insights.linuxfoundation.org/project/openleadr/repository/openleadr-openleadr-rs)
 ![codecov](https://codecov.io/gh/OpenLEADR/openleadr-rs/graph/badge.svg?token=BKQ0QW9G8H)
-![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg?branch=main)
+[![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg)](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml)
 
 # OpenADR 3.0 and 3.1 in Rust
 
