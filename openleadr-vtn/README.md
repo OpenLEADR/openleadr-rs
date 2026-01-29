@@ -64,8 +64,9 @@ The OAuth configuration of the VTN is done via the following environment variabl
 - `OAUTH_PEM` (path to a PEM encoded public key file. Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
 - `OAUTH_JWKS_LOCATION` (path to the OAUTH server well known JWKS endpoint.  Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
 - `OAUTH_VALID_AUDIENCES` (specifies the list of valid audiences for token validation, ensuring that the token is intended for the correct recipient. Required when `OAUTH_TYPE` is `EXTERNAL`. Optional and defaults to an empty list when `OAUTH_TYPE` is `INTERNAL`, which will fail validation if an `aud` claim is present in the decoded access token.)
+- `OAUTH_TOKEN_URL` (URL to the OAUTH server token endpoint. For example `https://localhost:3000/auth/token` when using the internal OAuth provider. Required)
 
-The internal OAuth provider does only support `HMAC`.
+The internal OAuth provider does only support `HMAC` keys.
 
 **During compiletime**
 If you already know that you don't need the internal OAuth feature,

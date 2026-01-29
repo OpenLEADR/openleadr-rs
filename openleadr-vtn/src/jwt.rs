@@ -20,6 +20,7 @@ use tracing::{trace, warn};
 
 use derive_more::AsRef;
 use openleadr_wire::ClientId;
+use reqwest::Url;
 use serde::{
     de,
     de::{DeserializeOwned, Visitor},
@@ -32,6 +33,7 @@ pub struct JwtManager {
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
     validation: Validation,
+    token_url: Url,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -267,6 +269,7 @@ impl JwtManager {
         encoding_key: Option<EncodingKey>,
         decoding_key: Option<DecodingKey>,
         validation: Validation,
+        token_url: Url,
     ) -> Self {
         if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
             panic!("You should not provide a JWT encoding key as the 'internal-oauth' feature is disabled. \
@@ -278,6 +281,7 @@ impl JwtManager {
                 encoding_key,
                 decoding_key,
                 validation,
+                token_url,
             }
         }
         #[cfg(not(feature = "internal-oauth"))]
@@ -285,8 +289,13 @@ impl JwtManager {
             Self {
                 decoding_key,
                 validation,
+                token_url,
             }
         }
+    }
+
+    pub fn token_url(&self) -> &Url {
+        &self.token_url
     }
 
     /// Create a new JWT token with the given claims and expiration time

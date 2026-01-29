@@ -1685,6 +1685,7 @@ dependencies = [
  "serde_with",
  "sqlx",
  "thiserror 2.0.18",
+ "url",
  "validator",
 ]
 
@@ -3196,6 +3197,7 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]
