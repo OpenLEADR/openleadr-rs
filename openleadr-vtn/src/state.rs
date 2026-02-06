@@ -6,7 +6,7 @@ use crate::{api::user, data_source::AuthSource};
 use axum::routing::{delete, post};
 
 use crate::{
-    api::{event, healthcheck, program, report, resource, ven},
+    api::{event, healthcheck, program, report, resource, subscription, ven},
     data_source::{
         DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud, VenObjectPrivacy,
     },
@@ -45,6 +45,7 @@ use tracing::{info, warn};
 pub struct AppState {
     pub storage: Arc<dyn DataSource>,
     pub jwt_manager: Arc<JwtManager>,
+    pub(crate) notifier: Arc<subscription::State>,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -277,6 +278,7 @@ impl AppState {
         Self {
             storage: Arc::new(storage),
             jwt_manager: Arc::new(jwt_manager),
+            notifier: Arc::new(subscription::State::new()),
         }
     }
 
@@ -311,7 +313,9 @@ impl AppState {
                     .put(resource::edit)
                     .delete(resource::delete),
             )
-            .route("/auth/server", get(auth_server_handler));
+            .route("/auth/server", get(auth_server_handler))
+            .route("/notifiers", get(subscription::notifier_get))
+            .route("/notifiers/ws", get(subscription::notifier_websocket_get));
         #[cfg(feature = "internal-oauth")]
         {
             router = router

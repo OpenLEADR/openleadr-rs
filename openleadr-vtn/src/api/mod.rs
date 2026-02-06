@@ -19,6 +19,7 @@ pub(crate) mod event;
 pub(crate) mod program;
 pub(crate) mod report;
 pub(crate) mod resource;
+pub(crate) mod subscription;
 #[cfg(feature = "internal-oauth")]
 pub(crate) mod user;
 pub(crate) mod ven;
