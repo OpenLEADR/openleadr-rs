@@ -18,6 +18,7 @@ pub mod problem;
 pub mod program;
 pub mod report;
 pub mod resource;
+pub mod subscription;
 pub mod target;
 pub mod values_map;
 pub mod ven;
@@ -136,6 +137,17 @@ impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ObjectType {
+    Program,
+    Event,
+    Report,
+    Subscription,
+    Ven,
+    Resource,
 }
 
 /// An ISO 8601 formatted duration
