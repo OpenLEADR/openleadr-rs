@@ -1,12 +1,13 @@
 #[cfg(feature = "internal-oauth")]
 use crate::api::auth;
+use crate::data_source::SubscriptionCrud;
 #[cfg(feature = "internal-oauth")]
 use crate::{api::user, data_source::AuthSource};
 #[cfg(feature = "internal-oauth")]
 use axum::routing::{delete, post};
 
 use crate::{
-    api::{event, healthcheck, program, report, resource, ven},
+    api::{event, healthcheck, program, report, resource, subscription, ven},
     data_source::{
         DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud, VenObjectPrivacy,
     },
@@ -45,6 +46,7 @@ use tracing::{info, warn};
 pub struct AppState {
     pub storage: Arc<dyn DataSource>,
     pub jwt_manager: Arc<JwtManager>,
+    pub(crate) notifier: Arc<subscription::NotifierState>,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -274,9 +276,14 @@ impl AppState {
             OAuthType::External => external_oauth_from_env(key_type).await,
         };
 
+        let notifier = subscription::NotifierState::load_from_storage(&*storage.subscriptions())
+            .await
+            .expect("failed to retrieve subscriptions from database");
+
         Self {
             storage: Arc::new(storage),
             jwt_manager: Arc::new(jwt_manager),
+            notifier: Arc::new(notifier),
         }
     }
 
@@ -310,6 +317,16 @@ impl AppState {
                 get(resource::get)
                     .put(resource::edit)
                     .delete(resource::delete),
+            )
+            .route(
+                "/subscriptions",
+                get(subscription::get_all).post(subscription::add),
+            )
+            .route(
+                "/subscriptions/{id}",
+                get(subscription::get)
+                    .put(subscription::edit)
+                    .delete(subscription::delete),
             )
             .route("/auth/server", get(auth_server_handler));
         #[cfg(feature = "internal-oauth")]
@@ -403,6 +420,12 @@ impl FromRef<AppState> for Arc<dyn ResourceCrud> {
     }
 }
 
+impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
+    fn from_ref(state: &AppState) -> Self {
+        state.storage.subscriptions()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -430,6 +453,10 @@ mod test {
         }
 
         fn resources(&self) -> Arc<dyn ResourceCrud> {
+            unimplemented!()
+        }
+
+        fn subscriptions(&self) -> Arc<dyn SubscriptionCrud> {
             unimplemented!()
         }
 

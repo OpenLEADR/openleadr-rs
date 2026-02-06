@@ -6,7 +6,7 @@ use crate::{
     data_source::{
         postgres::{
             event::PgEventStorage, program::PgProgramStorage, report::PgReportStorage,
-            ven::PgVenStorage,
+            subscription::PgSubscriptionStorage, ven::PgVenStorage,
         },
         DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
@@ -25,6 +25,7 @@ mod event;
 mod program;
 mod report;
 mod resource;
+mod subscription;
 #[cfg(feature = "internal-oauth")]
 mod user;
 mod ven;
@@ -57,6 +58,10 @@ impl DataSource for PostgresStorage {
 
     fn resources(&self) -> Arc<dyn ResourceCrud> {
         Arc::<PgResourceStorage>::new(self.db.clone().into())
+    }
+
+    fn subscriptions(&self) -> Arc<dyn super::SubscriptionCrud> {
+        Arc::<PgSubscriptionStorage>::new(self.db.clone().into())
     }
 
     #[cfg(feature = "internal-oauth")]
