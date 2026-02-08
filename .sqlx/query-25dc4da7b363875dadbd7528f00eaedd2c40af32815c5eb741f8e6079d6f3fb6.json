@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                program_id = $6,\n                event_id = $7,\n                client_name = $8,\n                report_name = $9,\n                payload_descriptors = $10,\n                resources = $11\n            FROM program p\n            WHERE r.id = $1\n              AND (p.id = r.program_id)\n              AND (\n                  ($2 AND r.ven_id = ANY($3))\n                  OR\n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            RETURNING r.*\n            ",
+  "query": "\n            SELECT r.*\n            FROM report r\n                JOIN program p ON p.id = r.program_id\n            WHERE r.id = $1\n              AND (\n                  ($2 AND r.ven_id = ANY($3))\n                  OR\n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            ",
   "describe": {
     "columns": [
       {
@@ -60,13 +60,7 @@
         "Bool",
         "TextArray",
         "Bool",
-        "TextArray",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Jsonb"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -82,5 +76,5 @@
       true
     ]
   },
-  "hash": "d3d6071df6379d73f7d5c9254efc125437bea3ee0e25cf579019b6d41be6152a"
+  "hash": "25dc4da7b363875dadbd7528f00eaedd2c40af32815c5eb741f8e6079d6f3fb6"
 }
