@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "ven_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -64,7 +69,8 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
   "hash": "f947a48b3f9c03686fd0e7abd996dd9cda1e9a3cb2004a3f3ad330a24f885c1b"

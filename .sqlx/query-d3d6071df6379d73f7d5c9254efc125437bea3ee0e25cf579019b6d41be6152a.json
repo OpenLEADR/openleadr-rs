@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO report (id, created_date_time, modification_date_time, program_id, event_id, client_name, report_name, payload_descriptors, resources)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)\n            RETURNING *\n            ",
+  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                program_id = $6,\n                event_id = $7,\n                client_name = $8,\n                report_name = $9,\n                payload_descriptors = $10,\n                resources = $11\n            FROM program p\n            WHERE r.id = $1\n              AND (p.id = r.program_id)\n              AND (\n                  ($2 AND r.ven_id = ANY($3))\n                  OR\n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            RETURNING r.*\n            ",
   "describe": {
     "columns": [
       {
@@ -47,10 +47,20 @@
         "ordinal": 8,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "ven_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Bool",
+        "TextArray",
+        "Bool",
+        "TextArray",
         "Text",
         "Text",
         "Text",
@@ -68,8 +78,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "f4a84cdd22d4cde0609b297c2dcc0c63884f59e8a850980c5c2bc51c9890a7cb"
+  "hash": "d3d6071df6379d73f7d5c9254efc125437bea3ee0e25cf579019b6d41be6152a"
 }

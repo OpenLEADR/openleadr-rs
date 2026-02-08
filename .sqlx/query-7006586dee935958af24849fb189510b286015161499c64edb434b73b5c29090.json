@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                program_id = $6,\n                event_id = $7,\n                client_name = $8,\n                report_name = $9,\n                payload_descriptors = $10,\n                resources = $11\n            FROM program p\n                LEFT JOIN ven_program v ON p.id = v.program_id\n            WHERE r.id = $1\n              AND (p.id = r.program_id)\n              AND (\n                  ($2 AND (v.ven_id IS NULL OR v.ven_id = ANY($3))) \n                  OR \n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            RETURNING r.*\n            ",
+  "query": "\n            SELECT r.*\n            FROM report r\n                JOIN program p ON p.id = r.program_id\n            WHERE ($1::text IS NULL OR $1 like r.program_id)\n              AND ($2::text IS NULL OR $2 like r.event_id)\n              AND ($3::text IS NULL OR $3 like r.client_name)\n              AND (\n                  ($4 AND r.ven_id = ANY($5))\n                  OR\n                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))\n                  )\n            ORDER BY r.created_date_time DESC\n            OFFSET $8 LIMIT $9\n            ",
   "describe": {
     "columns": [
       {
@@ -47,21 +47,24 @@
         "ordinal": 8,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "ven_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Text",
+        "Text",
         "Bool",
         "TextArray",
         "Bool",
         "TextArray",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Jsonb"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -73,8 +76,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "d07a243cb731a8fbc250e382d6d4b8ec472d278ecb9da5895da8e831f26bd7bf"
+  "hash": "7006586dee935958af24849fb189510b286015161499c64edb434b73b5c29090"
 }

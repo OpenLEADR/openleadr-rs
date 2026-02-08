@@ -39,6 +39,7 @@ struct PostgresReport {
     report_name: Option<String>,
     payload_descriptors: Option<serde_json::Value>,
     resources: serde_json::Value,
+    ven_id: Option<String>,
 }
 
 impl TryFrom<PostgresReport> for Report {
@@ -124,11 +125,13 @@ impl Crud for PgReportStorage {
             ));
         }
 
+        let ven_id = user.ven_ids().into_iter().next().map(|id| id.to_string());
+
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
-            INSERT INTO report (id, created_date_time, modification_date_time, program_id, event_id, client_name, report_name, payload_descriptors, resources)
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)
+            INSERT INTO report (id, created_date_time, modification_date_time, program_id, event_id, client_name, report_name, payload_descriptors, resources, ven_id)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             "#,
             new.program_id.as_str(),
@@ -137,6 +140,7 @@ impl Crud for PgReportStorage {
             new.report_name,
             to_json_value(new.payload_descriptors)?,
             serde_json::to_value(new.resources).map_err(AppError::SerdeJsonBadRequest)?,
+            ven_id,
         )
             .fetch_one(&self.db)
             .await?
@@ -157,13 +161,12 @@ impl Crud for PgReportStorage {
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT DISTINCT r.*
+            SELECT r.*
             FROM report r
                 JOIN program p ON p.id = r.program_id
-                LEFT JOIN ven_program vp ON vp.program_id = r.program_id
             WHERE r.id = $1
               AND (
-                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
+                  ($2 AND r.ven_id = ANY($3))
                   OR
                   ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
                   )
@@ -193,15 +196,14 @@ impl Crud for PgReportStorage {
         let reports = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT DISTINCT r.*
+            SELECT r.*
             FROM report r
                 JOIN program p ON p.id = r.program_id
-                LEFT JOIN ven_program v ON v.program_id = r.program_id
             WHERE ($1::text IS NULL OR $1 like r.program_id)
               AND ($2::text IS NULL OR $2 like r.event_id)
               AND ($3::text IS NULL OR $3 like r.client_name)
               AND (
-                  ($4 AND (v.ven_id IS NULL OR v.ven_id = ANY($5)))
+                  ($4 AND r.ven_id = ANY($5))
                   OR
                   ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
                   )
@@ -248,12 +250,11 @@ impl Crud for PgReportStorage {
                 payload_descriptors = $10,
                 resources = $11
             FROM program p
-                LEFT JOIN ven_program v ON p.id = v.program_id
             WHERE r.id = $1
               AND (p.id = r.program_id)
               AND (
-                  ($2 AND (v.ven_id IS NULL OR v.ven_id = ANY($3))) 
-                  OR 
+                  ($2 AND r.ven_id = ANY($3))
+                  OR
                   ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
                   )
             RETURNING r.*

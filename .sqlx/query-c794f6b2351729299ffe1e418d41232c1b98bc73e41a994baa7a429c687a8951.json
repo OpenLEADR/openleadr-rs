@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT DISTINCT r.*\n            FROM report r\n                JOIN program p ON p.id = r.program_id\n                LEFT JOIN ven_program vp ON vp.program_id = r.program_id\n            WHERE r.id = $1\n              AND (\n                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))\n                  OR\n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            ",
+  "query": "\n            SELECT r.*\n            FROM report r\n                JOIN program p ON p.id = r.program_id\n            WHERE r.id = $1\n              AND (\n                  ($2 AND r.ven_id = ANY($3))\n                  OR\n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "ven_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -67,8 +72,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "7829779239db7225895c2504047db8beb0a596c6f36247088e4a3d361bb19803"
+  "hash": "c794f6b2351729299ffe1e418d41232c1b98bc73e41a994baa7a429c687a8951"
 }
