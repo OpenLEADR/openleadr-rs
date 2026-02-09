@@ -64,3 +64,5 @@ dotenvy = "0.15.7"
 serial_test = "3.1.1"
 
 iso_currency = { version = "0.5.0", features = ["with-serde"] }
+
+mdns-sd = "0.17.2"
