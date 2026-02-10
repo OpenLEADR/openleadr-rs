@@ -558,6 +558,7 @@ mod test {
         }
     }
 
+    #[ignore] // FIXME avoid OAUTH_BASE64_SECRET env mangling in tests
     #[sqlx::test]
     async fn sub_deserialization(db: PgPool) {
         let test = ApiTest::new(
