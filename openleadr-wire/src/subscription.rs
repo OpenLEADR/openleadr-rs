@@ -9,8 +9,8 @@ use serde_with::{serde_as, skip_serializing_none};
 use validator::Validate;
 
 use crate::{
-    program::ProgramId, resource::Resource, Event, Identifier, IdentifierError, ObjectType,
-    Program, Report, Ven,
+    program::ProgramId, resource::Resource, ClientId, Event, Identifier, IdentifierError,
+    ObjectType, Program, Report, Ven,
 };
 
 /// Server provided representation of subscription
@@ -25,6 +25,7 @@ pub struct Subscription {
     /// datetime in ISO 8601 format
     #[serde(with = "crate::serde_rfc3339")]
     pub modification_date_time: DateTime<Utc>,
+    pub client_id: ClientId,
     #[serde(flatten)]
     #[validate(nested)]
     pub content: SubscriptionRequest,
@@ -46,6 +47,7 @@ pub struct SubscriptionRequest {
     pub program_id: Option<ProgramId>,
 
     /// list of objects and operations to subscribe to.
+    #[validate(length(min = 1))]
     pub object_operations: Vec<SubscriptionObjectOperation>,
     // /// A list of target objects. Used by server to filter notifications.
     // #[serde(default)]
@@ -76,7 +78,7 @@ pub struct SubscriptionObjectOperation {
     pub bearer_token: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Operation {
     Create,
@@ -165,6 +167,17 @@ impl AnyObject {
             AnyObject::Subscription(subscription) => subscription.id.0.clone(),
             AnyObject::Ven(ven) => ven.id.0.clone(),
             AnyObject::Resource(resource) => resource.id.0.clone(),
+        }
+    }
+
+    pub fn kind(&self) -> ObjectType {
+        match self {
+            AnyObject::Program(_) => ObjectType::Program,
+            AnyObject::Report(_) => ObjectType::Report,
+            AnyObject::Event(_) => ObjectType::Event,
+            AnyObject::Subscription(_) => ObjectType::Subscription,
+            AnyObject::Ven(_) => ObjectType::Ven,
+            AnyObject::Resource(_) => ObjectType::Resource,
         }
     }
 }
