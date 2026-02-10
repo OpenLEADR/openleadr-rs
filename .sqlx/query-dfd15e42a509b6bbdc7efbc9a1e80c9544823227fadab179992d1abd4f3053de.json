@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO report (id, created_date_time, modification_date_time, program_id, event_id, client_name, report_name, payload_descriptors, resources)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)\n            RETURNING *\n            ",
+  "query": "\n            INSERT INTO report (id, created_date_time, modification_date_time, program_id, event_id, client_name, report_name, payload_descriptors, resources, ven_id)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6, $7)\n            RETURNING *\n            ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "ven_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -56,7 +61,8 @@
         "Text",
         "Text",
         "Jsonb",
-        "Jsonb"
+        "Jsonb",
+        "Text"
       ]
     },
     "nullable": [
@@ -68,8 +74,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "f4a84cdd22d4cde0609b297c2dcc0c63884f59e8a850980c5c2bc51c9890a7cb"
+  "hash": "dfd15e42a509b6bbdc7efbc9a1e80c9544823227fadab179992d1abd4f3053de"
 }

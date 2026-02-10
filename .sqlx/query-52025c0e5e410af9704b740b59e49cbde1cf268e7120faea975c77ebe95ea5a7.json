@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                program_id = $6,\n                event_id = $7,\n                client_name = $8,\n                report_name = $9,\n                payload_descriptors = $10,\n                resources = $11\n            FROM program p\n                LEFT JOIN ven_program v ON p.id = v.program_id\n            WHERE r.id = $1\n              AND (p.id = r.program_id)\n              AND (\n                  ($2 AND (v.ven_id IS NULL OR v.ven_id = ANY($3))) \n                  OR \n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            RETURNING r.*\n            ",
+  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                program_id = $6,\n                event_id = $7,\n                client_name = $8,\n                report_name = $9,\n                payload_descriptors = $10,\n                resources = $11\n            FROM program p\n            WHERE r.id = $1\n              AND (p.id = r.program_id)\n              AND (\n                  ($2 AND r.ven_id = ANY($3))\n                  OR\n                  ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))\n                  )\n            RETURNING r.*\n            ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "resources",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "ven_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -73,8 +78,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "d07a243cb731a8fbc250e382d6d4b8ec472d278ecb9da5895da8e831f26bd7bf"
+  "hash": "52025c0e5e410af9704b740b59e49cbde1cf268e7120faea975c77ebe95ea5a7"
 }
