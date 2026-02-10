@@ -43,9 +43,9 @@ async fn main() {
     let router = router.layer(tower_http::compression::CompressionLayer::new());
 
     // TODO: Make the mDNS service registration more robust and configurable (e.g., allow users to specify the service name, type, and metadata through configuration)
-    register_mdns_vtn_service(
+    let _mdns_handle = register_mdns_vtn_service(
         "vtn.local.".to_string(),
-        "_openadr._tcp.local.".to_string(),
+        "_openadr-http._tcp.local.".to_string(),
         "openleadr-vtn".to_string(), // If multiple VTNs are running on the same network, use a unique instance name
         listener.local_addr().unwrap().port(),
     ).await;
