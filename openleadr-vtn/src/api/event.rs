@@ -12,11 +12,12 @@ use validator::Validate;
 use openleadr_wire::{
     event::{EventId, EventRequest},
     program::ProgramId,
+    subscription::{AnyObject, Operation},
     Event,
 };
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{subscription, AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::EventCrud,
     error::AppError,
     jwt::{Scope, User},
@@ -79,6 +80,8 @@ pub async fn add(
 
     info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event created");
 
+    subscription::notify(Operation::Create, AnyObject::Event(event.clone()));
+
     Ok((StatusCode::CREATED, Json(event)))
 }
 
@@ -98,6 +101,8 @@ pub async fn edit(
 
     info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event updated");
 
+    subscription::notify(Operation::Update, AnyObject::Event(event.clone()));
+
     Ok(Json(event))
 }
 
@@ -112,6 +117,9 @@ pub async fn delete(
 
     let event = event_source.delete(&id, &Some(user.client_id()?)).await?;
     info!(%event.id, event.event_name=event.content.event_name, client_id = user.sub, "deleted event");
+
+    subscription::notify(Operation::Delete, AnyObject::Event(event.clone()));
+
     Ok(Json(event))
 }
 

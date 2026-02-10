@@ -4,16 +4,19 @@ use axum::{
     extract::{Path, State},
     Json,
 };
-use openleadr_wire::ven::VenId;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
+use openleadr_wire::{
+    resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest},
+    subscription::{AnyObject, Operation},
+    ven::VenId,
+};
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{subscription, AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::{ResourceCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
@@ -121,6 +124,8 @@ pub async fn add(
         "resource added"
     );
 
+    subscription::notify(Operation::Create, AnyObject::Resource(resource.clone()));
+
     Ok((StatusCode::CREATED, Json(resource)))
 }
 
@@ -181,6 +186,8 @@ pub async fn edit(
         "resource updated"
     );
 
+    subscription::notify(Operation::Update, AnyObject::Resource(resource.clone()));
+
     Ok(Json(resource))
 }
 
@@ -198,6 +205,9 @@ pub async fn delete(
     };
 
     info!(%id, client_id = user.sub, "deleted resource");
+
+    subscription::notify(Operation::Delete, AnyObject::Resource(resource.clone()));
+
     Ok(Json(resource))
 }
 

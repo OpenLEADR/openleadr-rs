@@ -1,5 +1,6 @@
 #[cfg(feature = "internal-oauth")]
 use crate::api::auth;
+use crate::data_source::SubscriptionCrud;
 #[cfg(feature = "internal-oauth")]
 use crate::{api::user, data_source::AuthSource};
 #[cfg(feature = "internal-oauth")]
@@ -313,6 +314,16 @@ impl AppState {
                     .put(resource::edit)
                     .delete(resource::delete),
             )
+            .route(
+                "/subscriptions",
+                get(subscription::get_all).post(subscription::add),
+            )
+            .route(
+                "/subscriptions/{id}",
+                get(subscription::get)
+                    .put(subscription::edit)
+                    .delete(subscription::delete),
+            )
             .route("/auth/server", get(auth_server_handler))
             .route("/notifiers", get(subscription::notifier_get))
             .route("/notifiers/ws", get(subscription::notifier_websocket_get));
@@ -407,6 +418,12 @@ impl FromRef<AppState> for Arc<dyn ResourceCrud> {
     }
 }
 
+impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
+    fn from_ref(state: &AppState) -> Self {
+        state.storage.subscriptions()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -434,6 +451,10 @@ mod test {
         }
 
         fn resources(&self) -> Arc<dyn ResourceCrud> {
+            unimplemented!()
+        }
+
+        fn subscriptions(&self) -> Arc<dyn SubscriptionCrud> {
             unimplemented!()
         }
 
