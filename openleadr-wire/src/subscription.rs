@@ -78,7 +78,6 @@ pub struct SubscriptionObjectOperation {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Operation {
-    Read,
     Create,
     Update,
     Delete,
@@ -139,11 +138,10 @@ pub struct Notification {
     /// the object that is the subject of the notification.
     #[serde(flatten)]
     pub object: AnyObject,
-
-    /// A list of targets.
-    #[serde(default)]
-    #[serde_as(deserialize_as = "DefaultOnNull")]
-    pub targets: Vec<Target>,
+    // /// A list of targets.
+    // #[serde(default)]
+    // #[serde_as(deserialize_as = "DefaultOnNull")]
+    // pub targets: Vec<Target>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -155,6 +153,19 @@ pub enum AnyObject {
     Subscription(Subscription),
     Ven(Ven),
     Resource(Resource),
+}
+
+impl AnyObject {
+    pub fn id(&self) -> Identifier {
+        match self {
+            AnyObject::Program(program) => program.id.0.clone(),
+            AnyObject::Report(report) => report.id.0.clone(),
+            AnyObject::Event(event) => event.id.0.clone(),
+            AnyObject::Subscription(subscription) => subscription.id.0.clone(),
+            AnyObject::Ven(ven) => ven.id.0.clone(),
+            AnyObject::Resource(resource) => resource.id.0.clone(),
+        }
+    }
 }
 
 /// Provides details of each notifier binding supported
@@ -259,7 +270,7 @@ mod tests {
                         targets: vec![],
                     }
                 }),
-                targets: vec![],
+                // targets: vec![],
             }
         );
     }

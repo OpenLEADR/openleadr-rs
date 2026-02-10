@@ -10,13 +10,14 @@ use tracing::{info, trace};
 use validator::Validate;
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{subscription, AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
     data_source::ProgramCrud,
     error::AppError,
     jwt::{Scope, User},
 };
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
+    subscription::{AnyObject, Operation},
     Program,
 };
 
@@ -95,6 +96,8 @@ pub async fn add(
         "program added"
     );
 
+    subscription::notify(Operation::Create, AnyObject::Program(program.clone()));
+
     Ok((StatusCode::CREATED, Json(program)))
 }
 
@@ -119,6 +122,8 @@ pub async fn edit(
         "program updated"
     );
 
+    subscription::notify(Operation::Update, AnyObject::Program(program.clone()));
+
     Ok(Json(program))
 }
 
@@ -133,6 +138,9 @@ pub async fn delete(
 
     let program = program_source.delete(&id, &Some(user.client_id()?)).await?;
     info!(%id, client_id = user.sub, "deleted program");
+
+    subscription::notify(Operation::Delete, AnyObject::Program(program.clone()));
+
     Ok(Json(program))
 }
 

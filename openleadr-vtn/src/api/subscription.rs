@@ -4,9 +4,10 @@ use axum::extract;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::response::Response;
 use axum::Json;
-use openleadr_wire::subscription::NotifiersResponse;
+use openleadr_wire::subscription::{AnyObject, NotifiersResponse, Operation};
 use openleadr_wire::ClientId;
 use tokio::sync::{mpsc, Mutex};
+use tracing::trace;
 
 use crate::error::AppError;
 use crate::jwt::User;
@@ -25,6 +26,10 @@ impl State {
             websockets: Mutex::new(HashMap::new()),
         }
     }
+}
+
+pub(crate) fn notify(operation: Operation, object: AnyObject) {
+    trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 }
 
 pub(crate) async fn notifier_get() -> Json<NotifiersResponse> {

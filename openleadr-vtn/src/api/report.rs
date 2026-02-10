@@ -13,11 +13,12 @@ use openleadr_wire::{
     event::EventId,
     program::ProgramId,
     report::{ReportId, ReportRequest},
+    subscription::{AnyObject, Operation},
     Report,
 };
 
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery},
+    api::{subscription, AppResponse, ValidatedJson, ValidatedQuery},
     data_source::ReportCrud,
     error::AppError,
     jwt::{Scope, User},
@@ -85,6 +86,8 @@ pub async fn add(
 
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report created");
 
+    subscription::notify(Operation::Create, AnyObject::Report(report.clone()));
+
     Ok((StatusCode::CREATED, Json(report)))
 }
 
@@ -104,6 +107,8 @@ pub async fn edit(
     };
 
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report updated");
+
+    subscription::notify(Operation::Update, AnyObject::Report(report.clone()));
 
     Ok(Json(report))
 }
@@ -126,6 +131,9 @@ pub async fn delete(
     };
 
     info!(%id, report_name=?report.content.report_name, client_id = user.sub, "deleted report");
+
+    subscription::notify(Operation::Delete, AnyObject::Report(report.clone()));
+
     Ok(Json(report))
 }
 
