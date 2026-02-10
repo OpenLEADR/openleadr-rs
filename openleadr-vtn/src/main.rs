@@ -15,7 +15,15 @@ async fn main() {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let addr = "0.0.0.0:3000";
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let mdns_host_name = std::env::var("MDNS_HOST_NAME")
+        .unwrap_or_else(|_| "vtn.local.".to_string());
+    let mdns_service_type = std::env::var("MDNS_SERVICE_TYPE")
+        .unwrap_or_else(|_| "_openadr-http._tcp.local.".to_string());
+    let mdns_server_name = std::env::var("MDNS_SERVER_NAME")
+        .unwrap_or_else(|_| "openleadr-vtn".to_string());
+
+    let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(addr).await.unwrap();
     info!("listening on http://{}", listener.local_addr().unwrap());
 
@@ -42,11 +50,10 @@ async fn main() {
     ))]
     let router = router.layer(tower_http::compression::CompressionLayer::new());
 
-    // TODO: Make the mDNS service registration more robust and configurable (e.g., allow users to specify the service name, type, and metadata through configuration)
     let _mdns_handle = register_mdns_vtn_service(
-        "vtn.local.".to_string(),
-        "_openadr-http._tcp.local.".to_string(),
-        "openleadr-vtn".to_string(), // If multiple VTNs are running on the same network, use a unique instance name
+        mdns_host_name,
+        mdns_service_type,
+        mdns_server_name, // If multiple VTNs are running on the same network, use a unique instance name
         listener.local_addr().unwrap().port(),
     ).await;
 

@@ -82,7 +82,7 @@ mod tests {
                                 break;
                             }
                         }
-                        Ok(other) => {
+                        Ok(_) => {
                             // You might see other events like ServiceFound before ServiceResolved
                             continue;
                         }
