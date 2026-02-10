@@ -32,7 +32,7 @@ jobs:
             features: "--all-features"
           - rust: "stable"
             target: "aarch64-unknown-linux-gnu"
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             features: "--all-features"
           - rust: "stable"
             target: "x86_64-unknown-linux-gnu"
@@ -57,11 +57,6 @@ jobs:
           toolchain: "${TARGET_RUST_VERSION}"
           targets: "${{ matrix.target }}"
 
-      - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@d30d20f04a3b09718e138524795d0d6ab7703dcb # v1.37.1
-        with:
-          target: ${{ matrix.target }}
-
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@887bc4e03483810873d617344dd5189cd82e7b8b # v2.67.11
         with:
@@ -76,6 +71,11 @@ jobs:
 
       - name: Install Nextest
         run: cargo install --locked cargo-nextest
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt update
+          sudo apt install -y postgresql-client
 
       - name: Setup Postgres DB
         run: |
