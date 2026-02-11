@@ -15,7 +15,6 @@ pub async fn discover_local_vtns(service_type: &str) -> Vec<url::Url> {
         tokio::select! {
             event = receiver.recv_async() => { 
                 if let Ok(ServiceEvent::ServiceResolved(info)) = event {
-                    println!("Service resolved: {}", info.get_fullname());
                     if let Some(host) = info.get_addresses().iter().next() {
                         let port = info.get_port();
                         if let Ok(url) = url::Url::parse(&format!("http://{}:{}", host, port)) {
