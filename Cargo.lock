@@ -1278,6 +1278,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "axum",
+ "axum-extra",
+ "base64",
+ "chrono",
+ "derive_more",
+ "dotenvy",
+ "http-body-util",
+ "jsonwebtoken",
+ "mdns-sd",
+ "mime",
+ "openleadr-client",
+ "openleadr-vtn",
+ "openleadr-wire",
+ "rand 0.9.2",
+ "reqwest",
+ "serde",
+ "serde_html_form 0.4.0",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1653,6 +1689,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "http-body-util",
+ "mdns-sd",
  "openleadr-vtn",
  "openleadr-wire",
  "rangemap",

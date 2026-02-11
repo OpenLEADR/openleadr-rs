@@ -2,7 +2,8 @@
 members = [
     "openleadr-vtn",
     "openleadr-client",
-    "openleadr-wire"
+    "openleadr-wire",
+    "integration-tests"
 ]
 exclude = []
 
@@ -22,6 +23,7 @@ keywords = ["energy", "openadr", "lf-energy"]
 [workspace.dependencies]
 openleadr-wire = { version = "0.1.1", path = "openleadr-wire" }
 openleadr-vtn = { version = "0.1.1", path = "openleadr-vtn" }
+openleadr-client = { version = "0.1.1", path = "openleadr-client" }
 
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"

@@ -2,12 +2,6 @@ use tokio::{net::TcpListener, signal};
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-#[cfg(feature = "postgres")]
-use openleadr_vtn::data_source::PostgresStorage;
-use openleadr_vtn::{data_source::Migrate, state::AppState};
-
-use openleadr_vtn::mdns::register_mdns_vtn_service;
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -15,52 +9,11 @@ async fn main() {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let mdns_ip = std::env::var("MDNS_IP_ADDRESS")
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
-    let mdns_host_name = std::env::var("MDNS_HOST_NAME")
-        .unwrap_or_else(|_| "vtn.local.".to_string());
-    let mdns_service_type = std::env::var("MDNS_SERVICE_TYPE")
-        .unwrap_or_else(|_| "_openadr-http._tcp.local.".to_string());
-    let mdns_server_name = std::env::var("MDNS_SERVER_NAME")
-        .unwrap_or_else(|_| "openleadr-vtn".to_string());
+    let server = create_vtn_server().await.unwrap();
 
-    let addr = format!("0.0.0.0:{}", port);
-    let listener = TcpListener::bind(addr).await.unwrap();
-    info!("listening on http://{}", listener.local_addr().unwrap());
+    info!("VTN listening on http://{}", server.listener.local_addr().unwrap());
 
-    #[cfg(feature = "postgres")]
-    let storage = PostgresStorage::from_env().await.unwrap();
-
-    #[cfg(not(feature = "postgres"))]
-    compile_error!(
-        "No storage backend selected. Please enable the `postgres` feature flag during compilation"
-    );
-
-    if let Err(e) = storage.migrate().await {
-        warn!("Database migration failed: {}", e);
-    }
-
-    let state = AppState::new(storage).await;
-    let router = state.into_router();
-
-    #[cfg(any(
-        feature = "compression-br",
-        feature = "compression-deflate",
-        feature = "compression-gzip",
-        feature = "compression-zstd"
-    ))]
-    let router = router.layer(tower_http::compression::CompressionLayer::new());
-
-    let _mdns_handle = register_mdns_vtn_service(
-        mdns_host_name,
-        mdns_service_type,
-        mdns_server_name, // If multiple VTNs are running on the same network, use a unique instance name
-        mdns_ip,
-        listener.local_addr().unwrap().port(),
-    ).await;
-
-    if let Err(e) = axum::serve(listener, router)
+    if let Err(e) = axum::serve(server.listener, server.router)
         .with_graceful_shutdown(shutdown_signal())
         .await
     {
