@@ -1,6 +1,6 @@
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 
-// Enables VENs to discover available VTNs via service type (i.e. "_openadr-http._tcp.local.") without needing manual configuration of IP addresses or ports
+/// Enables VENs to discover available VTNs via service type (i.e. "_openadr-http._tcp.local.") without needing manual configuration of IP addresses or ports
 pub async fn discover_local_vtns(service_type: &str) -> Vec<url::Url> {
     let mdns = ServiceDaemon::new().unwrap();
     let receiver = mdns.browse(&service_type).expect("Failed to browse");

@@ -3,7 +3,6 @@ members = [
     "openleadr-vtn",
     "openleadr-client",
     "openleadr-wire",
-    "integration-tests"
 ]
 exclude = []
 
