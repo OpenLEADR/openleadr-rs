@@ -1,6 +1,6 @@
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 
-pub async fn register_mdns_vtn_service(host_name: String, service_type: String, server_name: String, port: u16) -> ServiceDaemon {
+pub async fn register_mdns_vtn_service(host_name: String, service_type: String, server_name: String, ip_addr: String, port: u16) -> ServiceDaemon {
     let mdns = ServiceDaemon::new().expect("Failed to create daemon");
     
     // Include metadata about the VTN service, such as version and API path
@@ -10,7 +10,7 @@ pub async fn register_mdns_vtn_service(host_name: String, service_type: String, 
         &service_type,
         &server_name,
         &host_name,
-        "", // Auto-detect local IP
+        &ip_addr,
         port,
         &properties[..],
     ).expect("valid service info");

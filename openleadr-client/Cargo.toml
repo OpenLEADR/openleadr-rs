@@ -30,6 +30,8 @@ rangemap.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
 
+mdns-sd.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 openleadr-vtn.workspace = true

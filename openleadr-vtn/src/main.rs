@@ -16,6 +16,8 @@ async fn main() {
         .init();
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let mdns_ip = std::env::var("MDNS_IP_ADDRESS")
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
     let mdns_host_name = std::env::var("MDNS_HOST_NAME")
         .unwrap_or_else(|_| "vtn.local.".to_string());
     let mdns_service_type = std::env::var("MDNS_SERVICE_TYPE")
@@ -54,6 +56,7 @@ async fn main() {
         mdns_host_name,
         mdns_service_type,
         mdns_server_name, // If multiple VTNs are running on the same network, use a unique instance name
+        mdns_ip,
         listener.local_addr().unwrap().port(),
     ).await;
 
