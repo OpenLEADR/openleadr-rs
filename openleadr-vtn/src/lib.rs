@@ -9,7 +9,7 @@ pub mod mdns;
 use crate::data_source::PostgresStorage;
 use crate::{data_source::Migrate, state::AppState};
 
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use mdns_sd::ServiceDaemon;
 use crate::mdns::register_mdns_vtn_service;
 use tokio::net::TcpListener;

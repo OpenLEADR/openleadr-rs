@@ -13,6 +13,7 @@ keywords.workspace = true
 
 [dependencies]
 openleadr-wire.workspace = true
+openleadr-client.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true

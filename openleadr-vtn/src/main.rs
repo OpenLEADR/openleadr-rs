@@ -1,6 +1,7 @@
-use tokio::{net::TcpListener, signal};
-use tracing::{error, info, warn};
+use tokio::signal;
+use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use openleadr_vtn::create_vtn_server;
 
 #[tokio::main]
 async fn main() {
