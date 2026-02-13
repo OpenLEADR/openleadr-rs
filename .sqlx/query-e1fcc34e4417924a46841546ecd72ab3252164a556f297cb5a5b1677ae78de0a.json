@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                event_id = $2,\n                client_name = $3,\n                report_name = $4,\n                payload_descriptors = $5,\n                resources = $6\n            FROM program p\n            WHERE r.id = $1 \n              AND client_id = $7\n            RETURNING r.*\n            ",
+  "query": "\n            SELECT DISTINCT r.*\n            FROM report r\n                JOIN event e ON e.id = r.event_id\n            WHERE ($1::text IS NULL OR $1 like e.program_id)\n              AND ($2::text IS NULL OR $2 like r.event_id)\n              AND ($3::text IS NULL OR $3 like r.client_name)\n              AND ($4::text IS NULL OR $4 like r.client_id)\n            ORDER BY r.created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
   "describe": {
     "columns": [
       {
@@ -55,9 +55,8 @@
         "Text",
         "Text",
         "Text",
-        "Jsonb",
-        "Jsonb",
-        "Text"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -72,5 +71,5 @@
       false
     ]
   },
-  "hash": "27cb81f2ab40f8c739e98aa6a24edcf924ecd11ec0b695cd7f46ed782c087ba4"
+  "hash": "e1fcc34e4417924a46841546ecd72ab3252164a556f297cb5a5b1677ae78de0a"
 }

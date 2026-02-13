@@ -32,13 +32,14 @@ CREATE UNIQUE INDEX ven_client_id_unique ON ven (client_id);
 
 ALTER TABLE resource
     DROP COLUMN targets,
-    ADD COLUMN targets   text[] NOT NULL DEFAULT '{}';
+    ADD COLUMN targets text[] NOT NULL DEFAULT '{}';
 
 DROP TABLE ven_program;
 
 ALTER TABLE report
     DROP COLUMN program_id,
-    ADD COLUMN client_id text NOT NULL;
+    ADD COLUMN client_id text NOT NULL,
+    DROP COLUMN ven_id;
 
 
 DROP TABLE any_business_user;
@@ -60,4 +61,5 @@ CREATE TYPE scope AS ENUM (
     'write_users'
     );
 
-ALTER TABLE "user" ADD COLUMN scopes scope[] NOT NULL DEFAULT '{}';
+ALTER TABLE "user"
+    ADD COLUMN scopes scope[] NOT NULL DEFAULT '{}';
