@@ -157,14 +157,14 @@ impl Crud for PgReportStorage {
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT r.* 
-            FROM report r 
-                JOIN program p ON p.id = r.program_id 
+            SELECT DISTINCT r.*
+            FROM report r
+                JOIN program p ON p.id = r.program_id
                 LEFT JOIN ven_program vp ON vp.program_id = r.program_id
-            WHERE r.id = $1 
+            WHERE r.id = $1
               AND (
-                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3))) 
-                  OR 
+                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
+                  OR
                   ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
                   )
             "#,
@@ -193,7 +193,7 @@ impl Crud for PgReportStorage {
         let reports = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT r.*
+            SELECT DISTINCT r.*
             FROM report r
                 JOIN program p ON p.id = r.program_id
                 LEFT JOIN ven_program v ON v.program_id = r.program_id
@@ -201,8 +201,8 @@ impl Crud for PgReportStorage {
               AND ($2::text IS NULL OR $2 like r.event_id)
               AND ($3::text IS NULL OR $3 like r.client_name)
               AND (
-                  ($4 AND (v.ven_id IS NULL OR v.ven_id = ANY($5))) 
-                  OR 
+                  ($4 AND (v.ven_id IS NULL OR v.ven_id = ANY($5)))
+                  OR
                   ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
                   )
             ORDER BY r.created_date_time DESC
