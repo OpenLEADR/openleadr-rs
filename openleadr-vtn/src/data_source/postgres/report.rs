@@ -162,7 +162,7 @@ impl Crud for PgReportStorage {
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT r.*
+            SELECT DISTINCT r.*
             FROM report r
                 JOIN program p ON p.id = r.program_id
             WHERE r.id = $1
@@ -197,7 +197,7 @@ impl Crud for PgReportStorage {
         let reports = sqlx::query_as!(
             PostgresReport,
             r#"
-            SELECT r.*
+            SELECT DISTINCT r.*
             FROM report r
                 JOIN program p ON p.id = r.program_id
             WHERE ($1::text IS NULL OR $1 like r.program_id)
