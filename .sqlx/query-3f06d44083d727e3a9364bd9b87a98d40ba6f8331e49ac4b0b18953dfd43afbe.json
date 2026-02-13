@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                event_id = $2,\n                client_name = $3,\n                report_name = $4,\n                payload_descriptors = $5,\n                resources = $6\n            FROM program p\n            WHERE r.id = $1\n              AND client_id = $7\n            RETURNING r.*\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "report_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "resources",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "client_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "3f06d44083d727e3a9364bd9b87a98d40ba6f8331e49ac4b0b18953dfd43afbe"
+}

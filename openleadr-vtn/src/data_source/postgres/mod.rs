@@ -1,6 +1,7 @@
 #[cfg(feature = "internal-oauth")]
 use crate::data_source::{postgres::user::PgAuthSource, AuthSource};
 
+use super::{Migrate, VenObjectPrivacy};
 use crate::{
     data_source::{
         postgres::{
@@ -10,18 +11,15 @@ use crate::{
         DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
     error::AppError,
-    jwt::{BusinessIds, Claims},
 };
 use async_trait::async_trait;
 use dotenvy::dotenv;
-use openleadr_wire::target::{TargetMap, TargetType};
+use openleadr_wire::{target::Target, ClientId};
 use resource::PgResourceStorage;
 use serde::Serialize;
 use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
-use tracing::{error, info, trace};
-
-use super::Migrate;
+use tracing::{error, info};
 
 mod event;
 mod program;
@@ -50,6 +48,10 @@ impl DataSource for PostgresStorage {
     }
 
     fn vens(&self) -> Arc<dyn VenCrud> {
+        Arc::<PgVenStorage>::new(self.db.clone().into())
+    }
+
+    fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy> {
         Arc::<PgVenStorage>::new(self.db.clone().into())
     }
 
@@ -114,48 +116,41 @@ fn to_json_value<T: Serialize>(v: Option<T>) -> Result<Option<serde_json::Value>
         .transpose()
 }
 
-#[tracing::instrument(level = "trace")]
-fn extract_vens(targets: Option<TargetMap>) -> (Option<TargetMap>, Option<Vec<String>>) {
-    if let Some(TargetMap(targets)) = targets {
-        let (vens, targets): (Vec<_>, Vec<_>) = targets
-            .into_iter()
-            .partition(|t| t.label == TargetType::VENName);
-
-        let vens = vens
-            .into_iter()
-            .map(|t| t.values[0].clone())
-            .collect::<Vec<_>>();
-
-        let targets = if targets.is_empty() {
-            None
-        } else {
-            Some(TargetMap(targets))
-        };
-        let vens = if vens.is_empty() { None } else { Some(vens) };
-
-        trace!(?targets, ?vens);
-        (targets, vens)
-    } else {
-        (None, None)
+/// Returns the targets of the VEN associated with the given `client_id` and it's resources.
+/// If the VEN does not exist, returns an empty vector.
+async fn get_ven_targets(db: PgPool, client_id: &ClientId) -> Result<Vec<Target>, AppError> {
+    let ven_store: PgVenStorage = db.into();
+    match ven_store.targets_by_client_id(client_id).await {
+        Ok(t) => Ok(t),
+        // Cite from OpenADR Spec 3.1.1 Definition.md, "VEN created object privacy":
+        //      4. If a VEN object is not found, return objects that do not have targets and do not proceed to step 5.
+        //      [...]
+        //      6. If the union of the targets of the VEN and its resources is empty, return objects that do not have targets and do not proceed to step 7.
+        Err(AppError::NotFound) => Ok(Vec::new()),
+        Err(err) => Err(err),
     }
 }
 
-fn extract_business_id(user: &Claims) -> Result<Option<String>, AppError> {
-    match user.business_ids() {
-        BusinessIds::Specific(ids) => {
-            if ids.len() == 1 {
-                Ok(Some(ids[0].clone()))
-            } else {
-                Err(AppError::BadRequest("Cannot infer business id from user"))?
-            }
-        }
-        BusinessIds::Any => Ok(None),
-    }
+fn intersection<'a>(a: &'a [Target], b: &'a [Target]) -> Vec<&'a Target> {
+    a.iter().filter(|x| b.contains(x)).collect()
 }
 
-fn extract_business_ids(user: &Claims) -> Option<Vec<String>> {
-    match user.business_ids() {
-        BusinessIds::Specific(ids) => Some(ids),
-        BusinessIds::Any => None,
+#[cfg(test)]
+mod test {
+    use openleadr_wire::target::Target;
+    use std::str::FromStr;
+
+    #[test]
+    fn intersection() {
+        let t1 = Target::from_str("t1").unwrap();
+        let t2 = Target::from_str("t2").unwrap();
+        let t3 = Target::from_str("t3").unwrap();
+        let t4 = Target::from_str("t4").unwrap();
+
+        let a = vec![t1, t2.clone(), t3.clone()];
+        let b = vec![t2.clone(), t3.clone(), t4];
+
+        let i = super::intersection(&a, &b);
+        assert_eq!(i, vec![&t2, &t3]);
     }
 }

@@ -15,7 +15,7 @@ This repository contains an **OpenADR 3.0 client (VEN)** library and a **server 
 As of November 2025, **we've started implementing OpenADR 3.1** in the [`openadr3_1` branch](https://github.com/OpenLEADR/openleadr-rs/tree/openadr3_1).
 Once the changes are complete, we will merge them into the `main` branch and will discontinue support for OpenADR 3.0.
 
-Please note that the changes of 3.1 compared to 3.0 are not backwards compatible. 
+Please note that the changes of 3.1 compared to 3.0 are not backwards compatible.
 At the moment, we don't plan to offer upgrade instructions as we don't expect a need for that.
 Feel free to reach out if this assumption seems wrong.
 
@@ -32,7 +32,7 @@ If your business or client logic is written in Rust too, you may be interested i
 The documentation of the project is an ongoing effort:
 
 - The [`./openleadr-client`](./openleadr-client) and [`./openleadr-vtn`](./openleadr-vtn) directories contain READMEs on how to get
-started with the client library and server, respectively. 
+started with the client library and server, respectively.
 - The [client](https://crates.io/crates/openleadr-client), [server](https://crates.io/crates/openleadr-vtn), and [common data types](https://crates.io/crates/openleadr-wire) are published to crates.io
 and have documentation available on docs.rs.
 - [#17](https://github.com/OpenLEADR/openleadr-rs/issues/17) aims
@@ -102,7 +102,7 @@ To execute them locally, run:
 docker compose up db -d     # start up a Postgres DB in the background
 cargo sqlx migrate run # apply the DB scheme
 # load default credentials for integration testing of the client library
-psql -U openadr -W openadr -h localhost openadr < fixtures/test_user_credentials.sql
+psql -U openadr -W openadr -h localhost openadr < fixtures/users.sql
 cargo test --workspace      # execute the tests
 ```
 
@@ -157,6 +157,6 @@ As with any other open source project, you should carefully consider if it meets
 
 ## Contact
 - ElaadNL: Ton Smets: ton.smets@elaad.nl
-- Tweede Golf: 
+- Tweede Golf:
   - Maximilian Pohl (tech lead): max@tweedegolf.com
   - Hugo van de Pol (project lead): hugo@tweedegolf.com

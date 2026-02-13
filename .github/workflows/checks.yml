@@ -30,9 +30,10 @@ jobs:
             target: "x86_64-unknown-linux-musl"
             os: ubuntu-latest
             features: "--all-features"
+            packages: musl-dev
           - rust: "stable"
             target: "aarch64-unknown-linux-gnu"
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             features: "--all-features"
           - rust: "stable"
             target: "x86_64-unknown-linux-gnu"
@@ -48,6 +49,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y postgresql-client ${{matrix.packages}}
+
       - name: Set target rust version
         run: echo "TARGET_RUST_VERSION=$(if [ "${{matrix.rust}}" = "msrv" ]; then grep rust-version Cargo.toml | grep MSRV | cut -d'"' -f2; else echo "${{matrix.rust}}"; fi)" >> $GITHUB_ENV
 
@@ -56,11 +62,6 @@ jobs:
         with:
           toolchain: "${TARGET_RUST_VERSION}"
           targets: "${{ matrix.target }}"
-
-      - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@b8d1a322a6009a2b7220f53996695778eef89b41 # v1.38.0
-        with:
-          target: ${{ matrix.target }}
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@1e67dedb5e3c590e1c9d9272ace46ef689da250d # v2.67.27
@@ -71,19 +72,24 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           shared-key: "${{matrix.rust}}-${{matrix.target}}"
+          cache-on-failure: true
+          prefix-key: 'checks'
+
+      - name: Install Nextest
+        run: cargo install --locked cargo-nextest
 
       - name: Setup Postgres DB
         run: |
           docker compose up db --wait && \
-          cargo install sqlx-cli --no-default-features --features rustls,postgres && \
+          cargo install sqlx-cli --no-default-features --features postgres && \
           cargo sqlx migrate run --source openleadr-vtn/migrations && \
-          psql -U openadr -W openadr -h localhost openadr < fixtures/test_user_credentials.sql
+          psql -v ON_ERROR_STOP=1 postgresql://openadr:openadr@localhost:5432/openadr < fixtures/users.sql
 
       - name: cargo build
         run: cargo build ${{ matrix.features }}
 
-      - name: cargo test
-        run: cargo llvm-cov --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
+      - name: Run tests
+        run: cargo llvm-cov nextest --max-fail=10 --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
         env:
           RUST_BACKTRACE: 1
 

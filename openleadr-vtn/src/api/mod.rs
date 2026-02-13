@@ -8,10 +8,11 @@ use axum::{
     Form, Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
-use openleadr_wire::target::{TargetEntry, TargetType};
+use openleadr_wire::target::Target;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
-use validator::{Validate, ValidationError};
+use std::fmt::Debug;
+use validator::Validate;
 
 pub(crate) mod auth;
 pub(crate) mod event;
@@ -33,64 +34,14 @@ pub(crate) struct ValidatedQuery<T>(pub T);
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedJson<T>(pub T);
 
-#[derive(Deserialize, Validate, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-#[validate(schema(function = "validate_target_type_value_pair"))]
-pub(crate) struct TargetQueryParams {
-    #[serde(default)]
-    pub(crate) target_type: Option<TargetType>,
-    #[serde(default, deserialize_with = "from_str")]
-    #[serde(rename = "targetValues")]
-    pub(crate) values: Option<Vec<String>>,
-}
+#[derive(Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(transparent)]
+pub(crate) struct TargetQueryParams(pub Option<Vec<Target>>);
 
-fn validate_target_type_value_pair(query: &TargetQueryParams) -> Result<(), ValidationError> {
-    if query.target_type.is_some() == query.values.is_some() {
-        Ok(())
-    } else {
-        Err(ValidationError::new("targetType and targetValues query parameter must either both be set or not set at the same time."))
-    }
-}
-
-fn from_str<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StrOrArray {
-        String(String),
-        Array(Vec<String>),
-    }
-
-    Ok(
-        <Option<StrOrArray> as serde::Deserialize>::deserialize(deserializer)?.and_then(
-            |str_or_array| match str_or_array {
-                StrOrArray::String(s) => {
-                    if s.is_empty() {
-                        None
-                    } else {
-                        Some(vec![s])
-                    }
-                }
-                StrOrArray::Array(v) => {
-                    if v.is_empty() {
-                        None
-                    } else {
-                        Some(v)
-                    }
-                }
-            },
-        ),
-    )
-}
-
-impl From<TargetQueryParams> for Option<TargetEntry> {
-    fn from(query: TargetQueryParams) -> Self {
-        query
-            .target_type
-            .zip(query.values)
-            .map(|(label, values)| TargetEntry { label, values })
+impl TargetQueryParams {
+    pub fn as_deref(&self) -> &[Target] {
+        self.0.as_deref().unwrap_or_default()
     }
 }
 
@@ -111,7 +62,7 @@ where
 
 impl<T, S> FromRequestParts<S> for ValidatedQuery<T>
 where
-    T: DeserializeOwned + Validate,
+    T: DeserializeOwned + Validate + Debug,
     S: Send + Sync,
     Query<T>: FromRequestParts<S, Rejection = QueryRejection>,
 {
@@ -152,8 +103,8 @@ pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoR
 
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
-mod test {
-    use crate::{data_source::PostgresStorage, jwt::AuthRole, state::AppState};
+pub mod test {
+    use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState};
     use axum::{
         body::Body,
         http::{self, Request, StatusCode},
@@ -164,6 +115,7 @@ mod test {
     use reqwest::Method;
     use serde::de::DeserializeOwned;
     use sqlx::PgPool;
+    use std::fmt::Display;
     use tower::ServiceExt;
 
     pub(crate) struct ApiTest {
@@ -172,7 +124,7 @@ mod test {
     }
 
     impl ApiTest {
-        pub(crate) async fn new(db: PgPool, roles: Vec<AuthRole>) -> Self {
+        pub(crate) async fn new(db: PgPool, client_id: impl Display, scope: Vec<Scope>) -> Self {
             let store = PostgresStorage::new(db).unwrap();
             let app_state = AppState::new(store).await;
 
@@ -180,8 +132,8 @@ mod test {
                 .jwt_manager
                 .create(
                     std::time::Duration::from_secs(60),
-                    "test_admin".to_string(),
-                    roles,
+                    client_id.to_string(),
+                    scope,
                 )
                 .unwrap();
 
@@ -216,7 +168,11 @@ mod test {
 
             let status = response.status();
             let body = response.into_body().collect().await.unwrap().to_bytes();
-            let json_body = serde_json::from_slice(&body).unwrap();
+            if status.is_server_error() {
+                panic!("{status}: {}", String::from_utf8_lossy(&body));
+            }
+            let json_body = serde_json::from_slice(&body)
+                .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&body)));
 
             (status, json_body)
         }
@@ -244,13 +200,17 @@ mod test {
     }
 
     #[cfg(feature = "internal-oauth")]
-    pub(crate) fn jwt_test_token(state: &AppState, roles: Vec<AuthRole>) -> String {
+    pub(crate) fn jwt_test_token(
+        state: &AppState,
+        client_id: impl Display,
+        scope: Vec<Scope>,
+    ) -> String {
         state
             .jwt_manager
             .create(
                 std::time::Duration::from_secs(60),
-                "test_admin".to_string(),
-                roles,
+                client_id.to_string(),
+                scope,
             )
             .unwrap()
     }
@@ -264,7 +224,8 @@ mod test {
     async fn unsupported_media_type(db: PgPool) {
         let mut test = ApiTest::new(
             db.clone(),
-            vec![AuthRole::AnyBusiness, AuthRole::UserManager],
+            "test-client",
+            vec![Scope::ReadAll, Scope::WritePrograms],
         )
         .await;
 
@@ -283,7 +244,19 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let status = response.status();
+        let body = String::from_utf8(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        println!("Response body: {}", body);
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
         let (status, _) = test
             .request::<Problem>(Method::POST, "/auth/token", Body::empty())
@@ -294,7 +267,7 @@ mod test {
 
     #[sqlx::test]
     async fn method_not_allowed(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::DELETE, "/programs", Body::empty())
@@ -305,7 +278,7 @@ mod test {
 
     #[sqlx::test]
     async fn not_found(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![AuthRole::VenManager]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
@@ -315,7 +288,7 @@ mod test {
 
     #[sqlx::test]
     async fn healthcheck(db: PgPool) {
-        let test = ApiTest::new(db.clone(), vec![]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
 
         let status = test.empty_request(Method::GET, "/health").await;
         assert_eq!(status, StatusCode::OK);

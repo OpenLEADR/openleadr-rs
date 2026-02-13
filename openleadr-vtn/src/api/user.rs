@@ -2,7 +2,7 @@ use crate::{
     api::{AppResponse, ValidatedJson},
     data_source::{AuthSource, UserDetails},
     error::AppError,
-    jwt::{AuthRole, UserManagerUser},
+    jwt::{Scope, User},
 };
 use axum::{
     extract::{Path, State},
@@ -21,7 +21,7 @@ use validator::Validate;
 pub struct NewUser {
     reference: String,
     description: Option<String>,
-    roles: Vec<AuthRole>,
+    scope: Vec<Scope>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -33,94 +33,128 @@ pub struct NewCredential {
 
 pub async fn get_all(
     State(auth_source): State<Arc<dyn AuthSource>>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
 ) -> AppResponse<Vec<UserDetails>> {
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
     let users = auth_source.get_all_users().await?;
 
-    trace!("received {} users", users.len());
+    trace!(client_id = user.sub, "received {} users", users.len());
     Ok(Json(users))
 }
 
 pub async fn get(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
 ) -> AppResponse<UserDetails> {
-    let user = auth_source.get_user(&id).await?;
-    trace!(user_id = user.id(), "received user");
-    Ok(Json(user))
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
+    let u = auth_source.get_user(&id).await?;
+    trace!(user_id = u.id(), client_id = user.sub, "received user");
+    Ok(Json(u))
 }
 
 pub async fn add_user(
     State(auth_source): State<Arc<dyn AuthSource>>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
     ValidatedJson(new_user): ValidatedJson<NewUser>,
 ) -> Result<(StatusCode, Json<UserDetails>), AppError> {
-    let user = auth_source
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
+    let u = auth_source
         .add_user(
             &new_user.reference,
             new_user.description.as_deref(),
-            &new_user.roles,
+            &new_user.scope,
         )
         .await?;
-    info!(user_id = user.id(), "created new user");
-    Ok((StatusCode::CREATED, Json(user)))
+    info!(user_id = u.id(), client_id = user.sub, "created new user");
+    Ok((StatusCode::CREATED, Json(u)))
 }
 
 pub async fn add_credential(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
     ValidatedJson(new): ValidatedJson<NewCredential>,
 ) -> AppResponse<UserDetails> {
-    let user = auth_source
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
+    let u = auth_source
         .add_credential(&id, &new.client_id, &new.client_secret)
         .await?;
     info!(
         user_id = id,
-        client_id = new.client_id,
+        new_client_id = new.client_id,
+        client_id = user.sub,
         "created new credential for user"
     );
-    Ok(Json(user))
+    Ok(Json(u))
 }
 
 pub async fn edit(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
     ValidatedJson(modified): ValidatedJson<NewUser>,
 ) -> AppResponse<UserDetails> {
-    let user = auth_source
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
+    let u = auth_source
         .edit_user(
             &id,
             &modified.reference,
             modified.description.as_deref(),
-            &modified.roles,
+            &modified.scope,
         )
         .await?;
 
-    info!(user_id = user.id(), "updated user");
-    Ok(Json(user))
+    info!(user_id = u.id(), client_id = user.sub, "updated user");
+    Ok(Json(u))
 }
 
 pub async fn delete_user(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
 ) -> AppResponse<UserDetails> {
-    let user = auth_source.remove_user(&id).await?;
-    info!(user_id = user.id(), "deleted user");
-    Ok(Json(user))
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
+    let u = auth_source.remove_user(&id).await?;
+    info!(user_id = u.id(), client_id = user.sub, "deleted user");
+    Ok(Json(u))
 }
 
 pub async fn delete_credential(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path((user_id, client_id)): Path<(String, String)>,
-    UserManagerUser(_): UserManagerUser,
+    User(user): User,
 ) -> AppResponse<UserDetails> {
-    let user = auth_source.remove_credentials(&user_id, &client_id).await?;
-    info!(user_id = user.id(), client_id, "deleted credential");
-    Ok(Json(user))
+    if !user.scope.contains(Scope::WriteUsers) {
+        return Err(AppError::Forbidden("Missing 'write_users' scope"));
+    }
+
+    let u = auth_source.remove_credentials(&user_id, &client_id).await?;
+    info!(
+        user_id = u.id(),
+        removed_client_id = client_id,
+        client_id = user.sub,
+        "deleted credential"
+    );
+    Ok(Json(u))
 }
 
 #[cfg(test)]
@@ -138,29 +172,36 @@ mod test {
     use sqlx::PgPool;
     use tower::ServiceExt;
 
-    fn user_1() -> UserDetails {
+    fn ven_client() -> UserDetails {
         UserDetails {
-            id: "user-1".to_string(),
-            reference: "user-1-ref".to_string(),
+            id: "ven-client".to_string(),
+            reference: "ven-client-ref".to_string(),
             description: Some("desc".to_string()),
-            roles: vec![],
-            client_ids: vec!["user-1-client-id".to_string()],
+            scope: vec![
+                Scope::ReadTargets,
+                Scope::ReadVenObjects,
+                Scope::WriteReports,
+                Scope::WriteSubscriptions,
+            ],
+            client_ids: vec!["ven-client-client-id".parse().unwrap()],
             created: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modified: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
         }
     }
 
-    fn admin() -> UserDetails {
+    fn bl_client() -> UserDetails {
         UserDetails {
-            id: "admin".to_string(),
-            reference: "admin-ref".to_string(),
+            id: "bl-client".to_string(),
+            reference: "bl-client-ref".to_string(),
             description: None,
-            roles: vec![
-                AuthRole::UserManager,
-                AuthRole::VenManager,
-                AuthRole::AnyBusiness,
+            scope: vec![
+                Scope::ReadAll,
+                Scope::WritePrograms,
+                Scope::WriteEvents,
+                Scope::WriteVens,
+                Scope::WriteUsers,
             ],
-            client_ids: vec!["admin".to_string()],
+            client_ids: vec!["bl-client".parse().unwrap()],
             created: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
             modified: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
         }
@@ -170,35 +211,34 @@ mod test {
         NewUser {
             reference: "new user reference".to_string(),
             description: Some("Some description".to_string()),
-            roles: vec![
-                AuthRole::UserManager,
-                AuthRole::VenManager,
-                AuthRole::AnyBusiness,
-            ],
+            scope: all_scopes(),
         }
     }
 
-    fn all_roles() -> Vec<AuthRole> {
+    fn all_scopes() -> Vec<Scope> {
         vec![
-            AuthRole::VEN("ven-1".parse().unwrap()),
-            AuthRole::AnyBusiness,
-            AuthRole::Business("business-1".parse().unwrap()),
-            AuthRole::VenManager,
-            AuthRole::UserManager,
+            Scope::ReadAll,
+            Scope::ReadTargets,
+            Scope::ReadVenObjects,
+            Scope::WritePrograms,
+            Scope::WriteEvents,
+            Scope::WriteReports,
+            Scope::WriteSubscriptions,
+            Scope::WriteVens,
         ]
     }
 
     impl PartialEq<UserDetails> for NewUser {
         fn eq(&self, other: &UserDetails) -> bool {
-            let mut self_roles = self.roles.clone();
-            self_roles.sort();
+            let mut self_scopes = self.scope.clone();
+            self_scopes.sort();
 
-            let mut other_roles = other.roles.clone();
-            other_roles.sort();
+            let mut other_scopes = other.scope.clone();
+            other_scopes.sort();
 
             self.reference == other.reference
                 && self.description == other.description
-                && self_roles == other_roles
+                && self_scopes == other_scopes
         }
     }
 
@@ -314,7 +354,7 @@ mod test {
         async fn from(response: Response<Body>) -> Self {
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let mut user: UserDetails = serde_json::from_slice(&body).unwrap();
-            user.roles.sort();
+            user.scope.sort();
             user
         }
     }
@@ -322,36 +362,28 @@ mod test {
     #[sqlx::test(fixtures("users"))]
     async fn get(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
-        let response = help_get(&mut app, &token, "admin").await;
+        let response = help_get(&mut app, &token, "bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let user = UserDetails::from(response).await;
-        assert_eq!(user, admin());
+        assert_eq!(user, bl_client());
 
-        let response = help_get(&mut app, &token, "user-1").await;
+        let response = help_get(&mut app, &token, "ven-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let user = UserDetails::from(response).await;
-        assert_eq!(user, user_1());
+        assert_eq!(user, ven_client());
     }
 
     #[sqlx::test(fixtures("users"))]
     async fn all_routes_only_allowed_for_user_manager(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(
-            &state,
-            vec![
-                AuthRole::VEN("123".parse().unwrap()),
-                AuthRole::AnyBusiness,
-                AuthRole::Business("1234".parse().unwrap()),
-                AuthRole::VenManager,
-            ],
-        );
+        let token = jwt_test_token(&state, "test-client-id", all_scopes());
         let mut app = state.into_router();
-        let response = help_get(&mut app, &token, "admin").await;
+        let response = help_get(&mut app, &token, "ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let response = help_get_all(&mut app, &token).await;
@@ -360,23 +392,24 @@ mod test {
         let response = help_add_user(&mut app, &token, &new_user()).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_edit_user(&mut app, &token, "admin", &new_user()).await;
+        let response = help_edit_user(&mut app, &token, "ven-client", &new_user()).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_add_credential(&mut app, &token, "admin", &Default::default()).await;
+        let response =
+            help_add_credential(&mut app, &token, "ven-client", &Default::default()).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_delete(&mut app, &token, "/users/admin/admin").await;
+        let response = help_delete(&mut app, &token, "/users/ven-client/ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let response = help_delete(&mut app, &token, "/users/admin").await;
+        let response = help_delete(&mut app, &token, "/users/ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[sqlx::test(fixtures("users"))]
     async fn get_all(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
         let response = help_get_all(&mut app, &token).await;
@@ -384,20 +417,20 @@ mod test {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let mut users: Vec<UserDetails> = serde_json::from_slice(&body).unwrap();
-        users.iter_mut().for_each(|user| user.roles.sort());
+        users.iter_mut().for_each(|user| user.scope.sort());
         users.sort_by(|a, b| a.id.cmp(&b.id));
 
-        assert_eq!(users, vec![admin(), user_1()]);
+        assert_eq!(users, vec![bl_client(), ven_client()]);
     }
 
-    #[sqlx::test(fixtures("users", "vens", "business"))]
+    #[sqlx::test(fixtures("users", "vens"))]
     pub async fn add(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
         let new_user = NewUser {
-            roles: all_roles(),
+            scope: all_scopes(),
             ..new_user()
         };
 
@@ -414,24 +447,24 @@ mod test {
         assert_eq!(user2, user);
     }
 
-    #[sqlx::test(fixtures("users", "vens", "business"))]
+    #[sqlx::test(fixtures("users", "vens"))]
     async fn edit(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
         let new_users = [
             NewUser {
-                roles: vec![],
+                scope: vec![],
                 ..new_user()
             },
             NewUser {
-                roles: all_roles(),
+                scope: all_scopes(),
                 ..new_user()
             },
         ];
         for new_user in new_users {
-            let response = help_edit_user(&mut app, &token, "admin", &new_user).await;
+            let response = help_edit_user(&mut app, &token, "bl-client", &new_user).await;
             assert_eq!(response.status(), StatusCode::OK);
 
             let user = UserDetails::from(response).await;
@@ -448,7 +481,7 @@ mod test {
     #[sqlx::test(fixtures("users"))]
     async fn add_credential(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
         let new_credential = NewCredential {
@@ -456,11 +489,11 @@ mod test {
             client_secret: "test".to_string(),
         };
 
-        let response = help_add_credential(&mut app, &token, "admin", &new_credential).await;
+        let response = help_add_credential(&mut app, &token, "bl-client", &new_credential).await;
         assert_eq!(response.status(), StatusCode::OK);
 
         let user = UserDetails::from(response).await;
-        assert!(user.client_ids.contains(&"test".to_string()));
+        assert!(user.client_ids.contains(&"test".parse().unwrap()));
 
         let response = help_login(
             &mut app,
@@ -474,32 +507,32 @@ mod test {
     #[sqlx::test(fixtures("users"))]
     async fn delete_credential(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_delete(&mut app, &token, "/users/admin/admin").await;
+        let response = help_delete(&mut app, &token, "/users/bl-client/bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[sqlx::test(fixtures("users"))]
     async fn delete_user(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, vec![AuthRole::UserManager]);
+        let token = jwt_test_token(&state, "test-client-id", vec![Scope::WriteUsers]);
         let mut app = state.into_router();
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_delete(&mut app, &token, "/users/admin").await;
+        let response = help_delete(&mut app, &token, "/users/bl-client").await;
         assert_eq!(response.status(), StatusCode::OK);
 
-        let response = help_login(&mut app, "admin", "admin").await;
+        let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
