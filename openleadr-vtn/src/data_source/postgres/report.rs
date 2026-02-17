@@ -12,7 +12,6 @@ use openleadr_wire::{
 use sqlx::PgPool;
 use tracing::{error, info, trace};
 
-#[async_trait]
 impl ReportCrud for PgReportStorage {}
 
 pub(crate) struct PgReportStorage {
