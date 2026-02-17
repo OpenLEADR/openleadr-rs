@@ -1,12 +1,12 @@
 use crate::VtnConfig;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 
-pub async fn register_mdns_vtn_service(config: &VtnConfig, port: u16) -> ServiceDaemon {
+pub async fn register_mdns_vtn_service(config: &VtnConfig) -> ServiceDaemon {
     let mdns = ServiceDaemon::new().expect("Failed to create daemon");
 
     let local_url = format!(
         "http://{}:{}/{}",
-        config.mdns_host_name, port, config.mdns_base_path
+        config.mdns_host_name, config.port, config.mdns_base_path
     );
 
     // Include metadata about the VTN service, such as version and API path
@@ -21,7 +21,7 @@ pub async fn register_mdns_vtn_service(config: &VtnConfig, port: u16) -> Service
         &config.mdns_server_name,
         &config.mdns_host_name,
         &config.mdns_ip_address,
-        port,
+        config.port,
         &properties[..],
     )
     .expect("valid service info");
@@ -52,25 +52,8 @@ mod tests {
             mdns_base_path: "".to_string(),
         };
 
-        // Use a SINGLE daemon for both advertising and browsing so that we can reliably discover the service on localhost without network complexities.
-        let mdns_daemon = ServiceDaemon::new().expect("Failed to create daemon");
-
-        // Include metadata about the VTN service
-        let properties = [("version", "3.1"), ("path", "/programs")];
-
-        let vtn_service = ServiceInfo::new(
-            &config.mdns_service_type,
-            &config.mdns_server_name,
-            &config.mdns_host_name,
-            &config.mdns_ip_address,
-            config.port,
-            &properties[..],
-        )
-        .expect("valid service info");
-
-        mdns_daemon
-            .register(vtn_service)
-            .expect("Failed to register VTN service");
+        // Use a single daemon for both advertising and browsing so that we can reliably discover the service on localhost without network complexities.
+        let mdns_daemon = register_mdns_vtn_service(&config).await;
 
         // We will browse for it on the same daemon
         let receiver = mdns_daemon

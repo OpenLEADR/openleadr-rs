@@ -92,8 +92,7 @@ pub async fn create_vtn_server(config: VtnConfig) -> Result<VtnServer, Box<dyn s
     ))]
     let router = router.layer(tower_http::compression::CompressionLayer::new());
 
-    let mdns_handle =
-        register_mdns_vtn_service(&config, listener.local_addr().unwrap().port()).await;
+    let mdns_handle = register_mdns_vtn_service(&config).await;
 
     Ok(VtnServer {
         mdns_handle,
