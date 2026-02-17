@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT vp.program_id, v.ven_name\n        FROM ven_program vp\n        JOIN ven v ON v.id = vp.ven_id\n        WHERE vp.program_id = ANY($1)\n        ORDER BY vp.program_id, v.ven_name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ven_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "cc1a4bbdde03fed22c51394bd3e0ac96a1d5a2e62189ada7f427bc03a1597b6a"
+}

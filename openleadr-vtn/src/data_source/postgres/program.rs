@@ -5,16 +5,17 @@ use crate::{
         Crud, ProgramCrud,
     },
     error::AppError,
-    jwt::User,
+    jwt::{Claims, User},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     program::{ProgramContent, ProgramId},
-    target::TargetEntry,
+    target::{TargetEntry, TargetMap, TargetType},
     Program,
 };
 use sqlx::PgPool;
+use std::collections::HashMap;
 use tracing::error;
 
 #[async_trait]
@@ -28,6 +29,67 @@ impl From<PgPool> for PgProgramStorage {
     fn from(db: PgPool) -> Self {
         Self { db }
     }
+}
+
+/// Reconstruct VEN_NAME targets from `ven_program` rows for business users.
+///
+/// `extract_vens()` strips VEN_NAME targets on program creation and stores
+/// them as `ven_program` rows.  This function reverses that: it queries
+/// `ven_program` + `ven` for the given program IDs, groups by program, and
+/// merges a `TargetEntry { label: VENName, values }` into each program's
+/// `content.targets`.
+async fn enrich_ven_targets(
+    db: &PgPool,
+    programs: &mut [Program],
+    user: &Claims,
+) -> Result<(), AppError> {
+    if !user.is_business() || programs.is_empty() {
+        return Ok(());
+    }
+
+    let program_ids: Vec<&str> = programs.iter().map(|p| p.id.as_str()).collect();
+
+    struct VenProgramRow {
+        program_id: String,
+        ven_name: String,
+    }
+
+    let rows = sqlx::query_as!(
+        VenProgramRow,
+        r#"
+        SELECT vp.program_id, v.ven_name
+        FROM ven_program vp
+        JOIN ven v ON v.id = vp.ven_id
+        WHERE vp.program_id = ANY($1)
+        ORDER BY vp.program_id, v.ven_name
+        "#,
+        &program_ids as &[&str],
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut ven_map: HashMap<&str, Vec<String>> = HashMap::new();
+    for row in &rows {
+        ven_map
+            .entry(row.program_id.as_str())
+            .or_default()
+            .push(row.ven_name.clone());
+    }
+
+    for program in programs.iter_mut() {
+        if let Some(ven_names) = ven_map.remove(program.id.as_str()) {
+            let entry = TargetEntry {
+                label: TargetType::VENName,
+                values: ven_names,
+            };
+            match &mut program.content.targets {
+                Some(ref mut map) => map.0.push(entry),
+                None => program.content.targets = Some(TargetMap(vec![entry])),
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -140,7 +202,7 @@ impl Crud for PgProgramStorage {
 
         let mut tx = self.db.begin().await?;
 
-        let program: Program = sqlx::query_as!(
+        let mut program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
             INSERT INTO program (id,
@@ -217,6 +279,8 @@ impl Crud for PgProgramStorage {
             }
         };
         tx.commit().await?;
+
+        enrich_ven_targets(&self.db, std::slice::from_mut(&mut program), user).await?;
         Ok(program)
     }
 
@@ -225,7 +289,7 @@ impl Crud for PgProgramStorage {
         id: &Self::Id,
         User(user): &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        Ok(sqlx::query_as!(
+        let mut program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
             SELECT p.id,
@@ -255,7 +319,10 @@ impl Crud for PgProgramStorage {
         )
         .fetch_one(&self.db)
         .await?
-        .try_into()?)
+        .try_into()?;
+
+        enrich_ven_targets(&self.db, std::slice::from_mut(&mut program), user).await?;
+        Ok(program)
     }
 
     async fn retrieve_all(
@@ -266,7 +333,7 @@ impl Crud for PgProgramStorage {
         let target: Option<TargetEntry> = filter.targets.clone().into();
         let target_values = target.as_ref().map(|t| t.values.clone());
 
-        Ok(sqlx::query_as!(
+        let mut programs: Vec<Program> = sqlx::query_as!(
             PostgresProgram,
             r#"
             SELECT p.id AS "id!", 
@@ -321,7 +388,10 @@ impl Crud for PgProgramStorage {
         .await?
         .into_iter()
         .map(TryInto::try_into)
-        .collect::<Result<_, _>>()?)
+        .collect::<Result<_, _>>()?;
+
+        enrich_ven_targets(&self.db, &mut programs, user).await?;
+        Ok(programs)
     }
 
     async fn update(
@@ -335,7 +405,7 @@ impl Crud for PgProgramStorage {
 
         let mut tx = self.db.begin().await?;
 
-        let program: Program = sqlx::query_as!(
+        let mut program: Program = sqlx::query_as!(
             PostgresProgram,
             r#"
             UPDATE program p
@@ -420,6 +490,8 @@ impl Crud for PgProgramStorage {
             }
         };
         tx.commit().await?;
+
+        enrich_ven_targets(&self.db, std::slice::from_mut(&mut program), user).await?;
         Ok(program)
     }
 
