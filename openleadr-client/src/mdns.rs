@@ -14,7 +14,6 @@ pub struct DiscoveredVtn {
     pub base_path: String,
 }
 
-
 /// Enables VENs to discover available VTNs via service type (i.e. "_openadr3._tcp.local.") without needing manual configuration of IP addresses or ports
 pub async fn discover_local_vtns(
     service_type: &str,
@@ -29,7 +28,7 @@ pub async fn discover_local_vtns(
     loop {
         tokio::select! {
             event = receiver.recv_async() => {
-                if let Ok(ServiceEvent::ServiceResolved(info)) = event {                       
+                if let Ok(ServiceEvent::ServiceResolved(info)) = event {
                     // Get local_url from TXT properties (required by OpenADR 3.1 spec)
                     if let Some(local_url_str) = info.get_properties().get_property_val_str("local_url") {
                         match url::Url::parse(local_url_str) {
@@ -40,7 +39,7 @@ pub async fn discover_local_vtns(
                                     version: info.get_properties().get_property_val_str("version").unwrap_or("unknown").to_string(),
                                     base_path: info.get_properties().get_property_val_str("base_path").unwrap_or("").to_string(),
                                 });
-                                
+
                                 // Check if we've hit the limit
                                 if let Some(vtn_limit) = vtn_limit {
                                     if found_vtns.len() >= vtn_limit {

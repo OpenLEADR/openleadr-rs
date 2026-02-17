@@ -4,7 +4,10 @@ use mdns_sd::{ServiceDaemon, ServiceInfo};
 pub async fn register_mdns_vtn_service(config: &VtnConfig, port: u16) -> ServiceDaemon {
     let mdns = ServiceDaemon::new().expect("Failed to create daemon");
 
-    let local_url = format!("http://{}:{}/{}", config.mdns_host_name, port, config.mdns_base_path);
+    let local_url = format!(
+        "http://{}:{}/{}",
+        config.mdns_host_name, port, config.mdns_base_path
+    );
 
     // Include metadata about the VTN service, such as version and API path
     let properties = [
@@ -70,7 +73,9 @@ mod tests {
             .expect("Failed to register VTN service");
 
         // We will browse for it on the same daemon
-        let receiver = mdns_daemon.browse(&config.mdns_service_type).expect("Failed to browse");
+        let receiver = mdns_daemon
+            .browse(&config.mdns_service_type)
+            .expect("Failed to browse");
 
         // Search for the ServiceResolved event
         let mut found = false;
