@@ -235,7 +235,7 @@ impl Crud for PgReportStorage {
             PostgresReport,
             r#"
             DELETE FROM report r
-                   WHERE r.id = $1 
+                   WHERE r.id = $1
                      AND r.client_id = $2
                    RETURNING r.*
             "#,

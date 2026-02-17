@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM report r\n                   WHERE r.id = $1 \n                     AND r.client_id = $2\n                   RETURNING r.*\n            ",
+  "query": "\n            DELETE FROM report r\n                   WHERE r.id = $1\n                     AND r.client_id = $2\n                   RETURNING r.*\n            ",
   "describe": {
     "columns": [
       {
@@ -67,5 +67,5 @@
       false
     ]
   },
-  "hash": "cb7ba20590b66f06bf2e9eec4794a4e2c52b68da1d944243be1ad46c1345a4ba"
+  "hash": "136470e1997cc6738acdaa3dbb4abefd83fea7de2138acb36350ec43d17861cb"
 }
