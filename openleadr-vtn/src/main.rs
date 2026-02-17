@@ -1,7 +1,7 @@
+use openleadr_vtn::{create_vtn_server, VtnConfig};
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use openleadr_vtn::create_vtn_server;
 
 #[tokio::main]
 async fn main() {
@@ -10,9 +10,14 @@ async fn main() {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let server = create_vtn_server().await.unwrap();
+    // Load config from environment
+    let vtn_config = VtnConfig::from_env();
+    let server = create_vtn_server(vtn_config).await.unwrap();
 
-    info!("VTN listening on http://{}", server.listener.local_addr().unwrap());
+    info!(
+        "VTN listening on http://{}",
+        server.listener.local_addr().unwrap()
+    );
 
     if let Err(e) = axum::serve(server.listener, server.router)
         .with_graceful_shutdown(shutdown_signal())

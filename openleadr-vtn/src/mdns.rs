@@ -1,30 +1,38 @@
+use crate::VtnConfig;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 
-pub async fn register_mdns_vtn_service(host_name: String, service_type: String, server_name: String, ip_addr: String, port: u16) -> ServiceDaemon {
+pub async fn register_mdns_vtn_service(config: &VtnConfig, port: u16) -> ServiceDaemon {
     let mdns = ServiceDaemon::new().expect("Failed to create daemon");
-    
+
+    let local_url = format!("http://{}:{}/{}", config.mdns_host_name, port, config.mdns_base_path);
+
     // Include metadata about the VTN service, such as version and API path
-    let properties = [("version", "3.1"), ("path", "/programs")];
+    let properties = [
+        ("version", "3.1"),
+        ("base_path", config.mdns_base_path.as_str()),
+        ("local_url", local_url.as_str()),
+    ];
 
     let vtn_service = ServiceInfo::new(
-        &service_type,
-        &server_name,
-        &host_name,
-        &ip_addr,
+        &config.mdns_service_type,
+        &config.mdns_server_name,
+        &config.mdns_host_name,
+        &config.mdns_ip_address,
         port,
         &properties[..],
-    ).expect("valid service info");
+    )
+    .expect("valid service info");
 
-    mdns.register(vtn_service).expect("Failed to register VTN service");
+    mdns.register(vtn_service)
+        .expect("Failed to register VTN service");
     mdns
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use mdns_sd::ServiceEvent;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_mdns_registration_and_discovery() {
@@ -32,52 +40,53 @@ mod tests {
         // 1. That it can be discovered on localhost
         // 2. That the metadata properties are correctly registered
         // 3. On discovery, all properties are intact
-        let service_type = "_openadr-test._tcp.local.";
-        let server_name = "test-vtn-instance";
-        let host_name = "localhost.local."; 
-        let port = 1234;
+        let config = VtnConfig {
+            port: 1234,
+            mdns_ip_address: "127.0.0.1".to_string(),
+            mdns_host_name: "localhost.local.".to_string(),
+            mdns_service_type: "_openadr3._tcp.local.".to_string(),
+            mdns_server_name: "test-vtn-instance".to_string(),
+            mdns_base_path: "".to_string(),
+        };
 
         // Use a SINGLE daemon for both advertising and browsing so that we can reliably discover the service on localhost without network complexities.
         let mdns_daemon = ServiceDaemon::new().expect("Failed to create daemon");
-        
+
         // Include metadata about the VTN service
         let properties = [("version", "3.1"), ("path", "/programs")];
 
         let vtn_service = ServiceInfo::new(
-            service_type,
-            server_name,
-            host_name,
-            "127.0.0.1",
-            port,
+            &config.mdns_service_type,
+            &config.mdns_server_name,
+            &config.mdns_host_name,
+            &config.mdns_ip_address,
+            config.port,
             &properties[..],
-        ).expect("valid service info");
+        )
+        .expect("valid service info");
 
-        mdns_daemon.register(vtn_service).expect("Failed to register VTN service");
-                
+        mdns_daemon
+            .register(vtn_service)
+            .expect("Failed to register VTN service");
+
         // We will browse for it on the same daemon
-        let receiver = mdns_daemon.browse(service_type).expect("Failed to browse");
+        let receiver = mdns_daemon.browse(&config.mdns_service_type).expect("Failed to browse");
 
-        // Give the service time to be advertised
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        // Search for the ServiceResolved event, timeout after 5 seconds if not found
+        // Search for the ServiceResolved event
         let mut found = false;
-        let timeout = tokio::time::sleep(Duration::from_secs(5));
-        tokio::pin!(timeout);
-
         loop {
             tokio::select! {
                 event = async { receiver.recv_async().await } => {
                     match event {
                         Ok(ServiceEvent::ServiceResolved(info)) => {
-                            if info.get_fullname().contains(server_name) {
-                                assert_eq!(info.get_port(), port);
-                                
+                            if info.get_fullname().contains(&config.mdns_server_name) {
+                                assert_eq!(info.get_port(), config.port);
+
                                 // Get properties and check the value as a string
                                 let props = info.get_properties();
-                                let version_str = props.get_property_val_str("version");                                
+                                let version_str = props.get_property_val_str("version");
                                 assert_eq!(version_str, Some("3.1"));
-                                
+
                                 found = true;
                                 break;
                             }
@@ -92,13 +101,15 @@ mod tests {
                         }
                     }
                 }
-                _ = &mut timeout => {
-                    println!("Timeout reached");
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {
                     break;
                 }
             }
         }
 
-        assert!(found, "The mDNS service was not discovered within the 5s timeout.");
+        assert!(
+            found,
+            "The mDNS service was not discovered within the 5s timeout.",
+        );
     }
 }

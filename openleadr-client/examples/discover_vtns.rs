@@ -4,9 +4,9 @@ use tracing::info;
 #[tokio::main]
 async fn main() {
     info!("Searching for VTN servers...");
-    
-    let vtns = discover_local_vtns("_openadr-http._tcp.local.").await;
-    
+
+    let vtns = discover_local_vtns("_openadr3._tcp.local.").await;
+
     if vtns.is_empty() {
         info!("No VTNs found :(");
     } else {
