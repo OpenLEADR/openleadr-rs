@@ -6,12 +6,9 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    subscription::{
-        NotificationMechanism, Operation, Subscription, SubscriptionId,
-        SubscriptionObjectOperation, SubscriptionRequest,
-    },
+    subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     target::Target,
-    ClientId, ObjectType,
+    ClientId,
 };
 use sqlx::PgPool;
 use tracing::{error, trace, warn};
@@ -36,37 +33,23 @@ pub(crate) struct PostgresSubscription {
     client_id: ClientId,
     client_name: String,
     program_id: Option<String>,
-    //object_operations: Vec<SubscriptionObjectOperation>,
-    targets: Vec<Target>,
-}
-
-#[derive(Debug)]
-pub(crate) struct PostgresSubscriptionObjectOperation {
-    id: String,
-    subscription_id: String,
-    objects: Vec<ObjectType>,
-    operations: Vec<Operation>,
-    mechanism: NotificationMechanism,
-    callback_url: Option<String>,
-    bearer_token: Option<String>,
+    object_operations: serde_json::Value,
+    //targets: Vec<Target>,
 }
 
 impl TryFrom<PostgresSubscription> for Subscription {
     type Error = AppError;
 
-    #[tracing::instrument(name = "TryFrom<PostgresResource> for Resource")]
+    #[tracing::instrument(name = "TryFrom<PostgresSubscription> for Subscription")]
     fn try_from(value: PostgresSubscription) -> Result<Self, Self::Error> {
-        let attributes = match value.attributes {
-            None => None,
-            Some(t) => serde_json::from_value(t)
-                .inspect_err(|err| {
-                    error!(
-                        ?err,
-                        "Failed to deserialize JSON from DB to `Vec<ValuesMap>`"
-                    )
-                })
-                .map_err(AppError::SerdeJsonInternalServerError)?,
-        };
+        let object_operations = serde_json::from_value(value.object_operations)
+            .inspect_err(|err| {
+                error!(
+                    ?err,
+                    "Failed to deserialize JSON from DB to `Vec<SubscriptionObjectOperation>`"
+                )
+            })
+            .map_err(AppError::SerdeJsonInternalServerError)?;
 
         Ok(Self {
             id: value.id.parse()?,
@@ -78,8 +61,7 @@ impl TryFrom<PostgresSubscription> for Subscription {
                     .program_id
                     .map(|program_id| program_id.parse())
                     .transpose()?,
-                object_operations: (),
-                targets: value.targets,
+                object_operations,
             },
         })
     }
@@ -97,7 +79,7 @@ impl Crud for PgSubscriptionStorage {
     async fn create(
         &self,
         new: Self::NewType,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let resource: Subscription = sqlx::query_as!(
             PostgresSubscription,
