@@ -1,4 +1,4 @@
-use openleadr_vtn::{VtnServer, VtnConfig};
+use openleadr_vtn::{VtnConfig, VtnServer};
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};

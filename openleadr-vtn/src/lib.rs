@@ -10,9 +10,9 @@ use crate::data_source::PostgresStorage;
 use crate::{data_source::Migrate, state::AppState};
 
 use crate::mdns::register_mdns_vtn_service;
-use mdns_sd::ServiceDaemon;
+use mdns_sd::{ServiceDaemon, ServiceEvent};
 use tokio::net::TcpListener;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[derive(Clone, Debug)]
 pub struct VtnConfig {
@@ -100,8 +100,36 @@ impl VtnServer {
             mdns_handle,
             router,
             listener,
-            config
+            config,
         })
+    }
+
+    /// Wait for mDNS service to become discoverable
+    pub async fn wait_for_mdns_ready(
+        &self,
+        timeout: tokio::time::Duration,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let receiver = self
+            .mdns_handle
+            .browse(&self.config.mdns_service_type)
+            .map_err(|e| format!("Failed to browse: {}", e))?;
+
+        loop {
+            tokio::select! {
+                event = async { receiver.recv_async().await } => {
+                    match event {
+                        Ok(ServiceEvent::ServiceResolved(info)) => {
+                            if info.get_fullname().contains(&self.config.mdns_server_name) {
+                                return Ok(true);
+                            }
+                        },
+                        Ok(_) => continue,
+                        Err(e) => error!("Error receiving event: {:?}", e),
+                    }
+                }
+                _ = tokio::time::sleep_until(tokio::time::Instant::now() + timeout) => { return Ok(false) }
+            }
+        }
     }
 
     pub async fn shutdown(self) {

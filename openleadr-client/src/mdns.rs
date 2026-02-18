@@ -17,7 +17,7 @@ pub struct DiscoveredVtn {
 /// Enables VENs to discover available VTNs via service type (i.e. "_openadr3._tcp.local.") without needing manual configuration of IP addresses or ports
 pub async fn discover_local_vtns(
     service_type: &str,
-    timeout: u64,
+    timeout: tokio::time::Duration,
     vtn_limit: Option<usize>,
 ) -> Vec<DiscoveredVtn> {
     let mdns = ServiceDaemon::new().unwrap();
@@ -56,7 +56,7 @@ pub async fn discover_local_vtns(
                     }
                 }
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(timeout)) => {
+            _ = tokio::time::sleep_until(tokio::time::Instant::now() + timeout) => {
                 info!("Discovery timeout reached. Found {} VTN(s)", found_vtns.len());
                 break;
             }

@@ -1,7 +1,7 @@
 use openleadr_client::{discover_local_vtns, DiscoveredVtn};
-use openleadr_vtn::{VtnServer, VtnConfig};
-use std::time::Duration;
+use openleadr_vtn::{VtnConfig, VtnServer};
 use tokio::sync::oneshot;
+use tokio::time::Duration;
 
 #[tokio::test]
 async fn test_vtn_client_mdns_discovery() {
@@ -18,6 +18,17 @@ async fn test_vtn_client_mdns_discovery() {
     let server = VtnServer::new(vtn_config).await.unwrap();
     let server_port = server.listener.local_addr().unwrap().port();
 
+    // Make sure mDNS is ready before discovery
+    let is_ready = server
+        .wait_for_mdns_ready(Duration::from_secs(5))
+        .await
+        .expect("mDNS browse should not fail");
+
+    assert!(
+        is_ready,
+        "mDNS service should become discoverable within 5 seconds"
+    );
+
     // Create shutdown channel
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
@@ -31,10 +42,7 @@ async fn test_vtn_client_mdns_discovery() {
             .unwrap();
     });
 
-    // Give it time to broadcast
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    let vtns: Vec<DiscoveredVtn> = discover_local_vtns("_openadr3._tcp.local.", 1, Some(1)).await;
+    let vtns: Vec<DiscoveredVtn> = discover_local_vtns("_openadr3._tcp.local.", tokio::time::Duration::from_secs(1), Some(1)).await;
 
     // Gracefully shut down
     shutdown_tx.send(()).ok();
