@@ -1,4 +1,4 @@
-use openleadr_vtn::{create_vtn_server, VtnConfig};
+use openleadr_vtn::{VtnServer, VtnConfig};
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -12,7 +12,7 @@ async fn main() {
 
     // Load config from environment
     let vtn_config = VtnConfig::from_env();
-    let server = create_vtn_server(vtn_config).await.unwrap();
+    let server = VtnServer::new(vtn_config).await.unwrap();
 
     info!(
         "VTN listening on http://{}",

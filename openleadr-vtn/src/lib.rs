@@ -14,12 +14,6 @@ use mdns_sd::ServiceDaemon;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
 
-pub struct VtnServer {
-    pub mdns_handle: ServiceDaemon,
-    pub router: axum::Router,
-    pub listener: TcpListener,
-}
-
 #[derive(Clone, Debug)]
 pub struct VtnConfig {
     pub port: u16,
@@ -64,39 +58,53 @@ impl VtnConfig {
     }
 }
 
-pub async fn create_vtn_server(config: VtnConfig) -> Result<VtnServer, Box<dyn std::error::Error>> {
-    let addr = format!("0.0.0.0:{}", config.port);
-    let listener = TcpListener::bind(addr).await.unwrap();
-    info!("listening on http://{}", listener.local_addr().unwrap());
+pub struct VtnServer {
+    pub mdns_handle: ServiceDaemon,
+    pub router: axum::Router,
+    pub listener: TcpListener,
+    pub config: VtnConfig,
+}
 
-    #[cfg(feature = "postgres")]
-    let storage = PostgresStorage::from_env().await?;
+impl VtnServer {
+    pub async fn new(config: VtnConfig) -> Result<Self, Box<dyn std::error::Error>> {
+        let addr = format!("0.0.0.0:{}", config.port);
+        let listener = TcpListener::bind(addr).await.unwrap();
+        info!("listening on http://{}", listener.local_addr().unwrap());
 
-    #[cfg(not(feature = "postgres"))]
-    compile_error!(
-        "No storage backend selected. Please enable the `postgres` feature flag during compilation"
-    );
+        #[cfg(feature = "postgres")]
+        let storage = PostgresStorage::from_env().await?;
 
-    if let Err(e) = storage.migrate().await {
-        warn!("Database migration failed: {}", e);
+        #[cfg(not(feature = "postgres"))]
+        compile_error!(
+            "No storage backend selected. Please enable the `postgres` feature flag during compilation"
+        );
+
+        if let Err(e) = storage.migrate().await {
+            warn!("Database migration failed: {}", e);
+        }
+
+        let state = AppState::new(storage).await;
+        let router = state.into_router();
+
+        #[cfg(any(
+            feature = "compression-br",
+            feature = "compression-deflate",
+            feature = "compression-gzip",
+            feature = "compression-zstd"
+        ))]
+        let router = router.layer(tower_http::compression::CompressionLayer::new());
+
+        let mdns_handle = register_mdns_vtn_service(&config).await;
+
+        Ok(VtnServer {
+            mdns_handle,
+            router,
+            listener,
+            config
+        })
     }
 
-    let state = AppState::new(storage).await;
-    let router = state.into_router();
-
-    #[cfg(any(
-        feature = "compression-br",
-        feature = "compression-deflate",
-        feature = "compression-gzip",
-        feature = "compression-zstd"
-    ))]
-    let router = router.layer(tower_http::compression::CompressionLayer::new());
-
-    let mdns_handle = register_mdns_vtn_service(&config).await;
-
-    Ok(VtnServer {
-        mdns_handle,
-        router,
-        listener,
-    })
+    pub async fn shutdown(self) {
+        self.mdns_handle.shutdown().ok();
+    }
 }

@@ -1,5 +1,5 @@
 use openleadr_client::{discover_local_vtns, DiscoveredVtn};
-use openleadr_vtn::{create_vtn_server, VtnConfig};
+use openleadr_vtn::{VtnServer, VtnConfig};
 use std::time::Duration;
 use tokio::sync::oneshot;
 
@@ -15,7 +15,7 @@ async fn test_vtn_client_mdns_discovery() {
     };
 
     // Simulate VTN registration
-    let server = create_vtn_server(vtn_config).await.unwrap();
+    let server = VtnServer::new(vtn_config).await.unwrap();
     let server_port = server.listener.local_addr().unwrap().port();
 
     // Create shutdown channel
