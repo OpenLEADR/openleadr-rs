@@ -14,7 +14,6 @@ use sqlx::PgPool;
 use std::collections::BTreeSet;
 use tracing::{error, trace, warn};
 
-#[async_trait]
 impl VenCrud for PgVenStorage {}
 
 pub(crate) struct PgVenStorage {

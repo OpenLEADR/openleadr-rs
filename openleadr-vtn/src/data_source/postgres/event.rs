@@ -17,7 +17,6 @@ use sqlx::{error::BoxDynError, PgPool};
 use std::str::FromStr;
 use tracing::error;
 
-#[async_trait]
 impl EventCrud for PgEventStorage {}
 
 pub(crate) struct PgEventStorage {

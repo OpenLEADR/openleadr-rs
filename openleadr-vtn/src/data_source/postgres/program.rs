@@ -16,7 +16,6 @@ use openleadr_wire::{
 use sqlx::PgPool;
 use tracing::error;
 
-#[async_trait]
 impl ProgramCrud for PgProgramStorage {}
 
 pub(crate) struct PgProgramStorage {

@@ -12,7 +12,6 @@ use openleadr_wire::{
 use sqlx::PgPool;
 use tracing::{error, info, trace};
 
-#[async_trait]
 impl ReportCrud for PgReportStorage {}
 
 pub(crate) struct PgReportStorage {
@@ -236,7 +235,7 @@ impl Crud for PgReportStorage {
             PostgresReport,
             r#"
             DELETE FROM report r
-                   WHERE r.id = $1 
+                   WHERE r.id = $1
                      AND r.client_id = $2
                    RETURNING r.*
             "#,

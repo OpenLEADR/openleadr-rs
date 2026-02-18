@@ -13,7 +13,6 @@ use openleadr_wire::{
 use sqlx::PgPool;
 use tracing::{error, trace, warn};
 
-#[async_trait]
 impl ResourceCrud for PgResourceStorage {}
 
 pub(crate) struct PgResourceStorage {
