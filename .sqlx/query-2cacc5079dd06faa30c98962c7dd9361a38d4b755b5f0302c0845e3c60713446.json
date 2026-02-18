@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.*\n            FROM event e\n              JOIN program p on p.id = e.program_id\n              LEFT JOIN ven_program vp ON p.id = vp.program_id\n              LEFT JOIN LATERAL (\n                  \n                    SELECT targets.e_id,\n                           (t ->> 'type' = $2) AND\n                           (t -> 'values' ?| $3) AS target_test\n                    FROM (SELECT event.id                            AS e_id,\n                                 jsonb_array_elements(event.targets) AS t\n                          FROM event) AS targets\n                  \n                  )\n                  ON e.id = e_id\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              AND ($2 IS NULL OR $3 IS NULL OR target_test)\n              AND (\n                  ($4 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($5)))\n                  OR\n                  ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))\n                  )\n              AND (\n                  NOT $4\n                  OR e.targets IS NULL\n                  OR NOT EXISTS (\n                      SELECT 1 FROM jsonb_array_elements(e.targets) t\n                      WHERE t ->> 'type' = 'VEN_NAME'\n                  )\n                  OR EXISTS (\n                      SELECT 1 FROM jsonb_array_elements(e.targets) t, ven v\n                      WHERE t ->> 'type' = 'VEN_NAME'\n                        AND v.id = ANY($5)\n                        AND t -> 'values' ? v.ven_name\n                  )\n              )\n            GROUP BY e.id, e.priority, e.created_date_time\n            ORDER BY priority ASC , created_date_time DESC\n            OFFSET $8 LIMIT $9\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "report_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "intervals",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "targets",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Bool",
+        "TextArray",
+        "Bool",
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "2cacc5079dd06faa30c98962c7dd9361a38d4b755b5f0302c0845e3c60713446"
+}

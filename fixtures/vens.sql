@@ -29,6 +29,3 @@ VALUES ('ven-1',
         'ven-2-name',
         NULL,
         NULL);
-
-INSERT INTO user_ven (ven_id, user_id)
-VALUES ('ven-1', 'user-1');

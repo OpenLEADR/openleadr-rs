@@ -197,10 +197,24 @@ impl Crud for PgEventStorage {
               LEFT JOIN ven_program vp ON p.id = vp.program_id
             WHERE e.id = $1
               AND (
-                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3))) 
-                  OR 
+                  ($2 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($3)))
+                  OR
                   ($4 AND ($5::text[] IS NULL OR p.business_id = ANY ($5)))
                   )
+              AND (
+                  NOT $2
+                  OR e.targets IS NULL
+                  OR NOT EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(e.targets) t
+                      WHERE t ->> 'type' = 'VEN_NAME'
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(e.targets) t, ven v
+                      WHERE t ->> 'type' = 'VEN_NAME'
+                        AND v.id = ANY($3)
+                        AND t -> 'values' ? v.ven_name
+                  )
+              )
             "#,
             id.as_str(),
             user.is_ven(),
@@ -248,9 +262,23 @@ impl Crud for PgEventStorage {
               AND ($2 IS NULL OR $3 IS NULL OR target_test)
               AND (
                   ($4 AND (vp.ven_id IS NULL OR vp.ven_id = ANY($5)))
-                  OR 
+                  OR
                   ($6 AND ($7::text[] IS NULL OR p.business_id = ANY ($7)))
                   )
+              AND (
+                  NOT $4
+                  OR e.targets IS NULL
+                  OR NOT EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(e.targets) t
+                      WHERE t ->> 'type' = 'VEN_NAME'
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(e.targets) t, ven v
+                      WHERE t ->> 'type' = 'VEN_NAME'
+                        AND v.id = ANY($5)
+                        AND t -> 'values' ? v.ven_name
+                  )
+              )
             GROUP BY e.id, e.priority, e.created_date_time
             ORDER BY priority ASC , created_date_time DESC
             OFFSET $8 LIMIT $9
@@ -839,6 +867,149 @@ mod tests {
                 )
                 .await;
             assert!(matches!(event, Err(AppError::NotFound)));
+        }
+    }
+
+    mod ven_target_filtering {
+        use super::*;
+        use crate::jwt::AuthRole;
+
+        fn event_4_targeted() -> Event {
+            Event {
+                id: "event-4".parse().unwrap(),
+                created_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
+                modification_date_time: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
+                content: EventContent {
+                    program_id: "program-1".parse().unwrap(),
+                    event_name: Some("event-4-targeted".to_string()),
+                    priority: None.into(),
+                    targets: Some(TargetMap(vec![TargetEntry {
+                        label: TargetType::VENName,
+                        values: vec!["ven-1-name".to_string()],
+                    }])),
+                    report_descriptors: None,
+                    payload_descriptors: None,
+                    interval_period: None,
+                    intervals: vec![EventInterval {
+                        id: 1,
+                        interval_period: None,
+                        payloads: vec![EventValuesMap {
+                            value_type: EventType::Price,
+                            values: vec![Value::Number(0.25)],
+                        }],
+                    }],
+                },
+            }
+        }
+
+        /// VEN enrolled in program AND in event VEN_NAME targets => sees the event
+        #[sqlx::test(fixtures(
+            "programs",
+            "vens",
+            "vens-programs",
+            "events",
+            "events-ven-targets"
+        ))]
+        async fn ven_in_targets_sees_event(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+            let ven1 = User(Claims::new(vec![AuthRole::VEN("ven-1".parse().unwrap())]));
+
+            // retrieve by ID
+            let event = repo
+                .retrieve(&"event-4".parse().unwrap(), &ven1)
+                .await
+                .unwrap();
+            assert_eq!(event, event_4_targeted());
+
+            // retrieve_all for program-1
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        program_id: Some("program-1".parse().unwrap()),
+                        ..Default::default()
+                    },
+                    &ven1,
+                )
+                .await
+                .unwrap();
+            assert!(events.iter().any(|e| e.id.as_str() == "event-4"));
+        }
+
+        /// VEN enrolled in program but NOT in event VEN_NAME targets => does NOT see it
+        #[sqlx::test(fixtures(
+            "programs",
+            "vens",
+            "vens-programs",
+            "events",
+            "events-ven-targets"
+        ))]
+        async fn ven_not_in_targets_hidden(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+            let ven2 = User(Claims::new(vec![AuthRole::VEN("ven-2".parse().unwrap())]));
+
+            // retrieve by ID should fail
+            let result = repo.retrieve(&"event-4".parse().unwrap(), &ven2).await;
+            assert!(matches!(result, Err(AppError::NotFound)));
+
+            // retrieve_all should not include event-4
+            let events = repo
+                .retrieve_all(
+                    &QueryParams {
+                        program_id: Some("program-1".parse().unwrap()),
+                        ..Default::default()
+                    },
+                    &ven2,
+                )
+                .await
+                .unwrap();
+            assert!(!events.iter().any(|e| e.id.as_str() == "event-4"));
+        }
+
+        /// Event without VEN_NAME targets => all enrolled VENs see it
+        #[sqlx::test(fixtures(
+            "programs",
+            "vens",
+            "vens-programs",
+            "events",
+            "events-ven-targets"
+        ))]
+        async fn event_without_ven_targets_visible_to_enrolled(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+
+            // event-1 is in program-1, has GROUP targets but no VEN_NAME targets
+            // Both ven-1 and ven-2 are enrolled in program-1
+            for ven_id in &["ven-1", "ven-2"] {
+                let ven = User(Claims::new(vec![AuthRole::VEN(ven_id.parse().unwrap())]));
+                let event = repo
+                    .retrieve(&"event-1".parse().unwrap(), &ven)
+                    .await
+                    .unwrap();
+                assert_eq!(event.id.as_str(), "event-1");
+            }
+        }
+
+        /// Business user sees all events regardless of VEN_NAME targets
+        #[sqlx::test(fixtures(
+            "programs",
+            "vens",
+            "vens-programs",
+            "events",
+            "events-ven-targets"
+        ))]
+        async fn business_sees_all(db: PgPool) {
+            let repo: PgEventStorage = db.into();
+            let biz = User(Claims::any_business_user());
+
+            // Can see the VEN_NAME-targeted event
+            let event = repo
+                .retrieve(&"event-4".parse().unwrap(), &biz)
+                .await
+                .unwrap();
+            assert_eq!(event, event_4_targeted());
+
+            // retrieve_all includes all events
+            let events = repo.retrieve_all(&Default::default(), &biz).await.unwrap();
+            assert_eq!(events.len(), 4);
         }
     }
 }
