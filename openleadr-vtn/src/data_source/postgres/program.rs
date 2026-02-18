@@ -887,6 +887,57 @@ mod tests {
                 .await;
             assert!(matches!(program, Err(AppError::Conflict(_, _))));
         }
+
+        /// A program with both VEN_NAME and non-VEN_NAME targets must round-trip correctly.
+        ///
+        /// `extract_vens` strips VEN_NAME before storing, leaving the other targets
+        /// in the JSON column (`Some(TargetMap(...))`). On retrieval,
+        /// `reconstruct_ven_name_targets` pushes the VEN_NAME entry into the
+        /// existing `TargetMap` via the `Some(ref mut map)` branch.
+        #[sqlx::test(fixtures("users", "vens"))]
+        async fn add_with_mixed_targets(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            let content = ProgramContent {
+                program_name: "program-mixed-targets".to_string(),
+                program_long_name: None,
+                retailer_name: None,
+                retailer_long_name: None,
+                program_type: None,
+                country: None,
+                principal_subdivision: None,
+                time_zone_offset: None,
+                interval_period: None,
+                program_descriptions: None,
+                binding_events: None,
+                local_price: None,
+                payload_descriptors: None,
+                targets: Some(TargetMap(vec![
+                    TargetEntry {
+                        label: TargetType::VENName,
+                        values: vec!["ven-1-name".to_string()],
+                    },
+                    TargetEntry {
+                        label: TargetType::Group,
+                        values: vec!["group-1".to_string()],
+                    },
+                ])),
+            };
+
+            let program = repo
+                .create(content, &User(Claims::any_business_user()))
+                .await
+                .unwrap();
+
+            let retrieved = repo
+                .retrieve(&program.id, &User(Claims::any_business_user()))
+                .await
+                .unwrap();
+
+            let targets = retrieved.content.targets.unwrap();
+            assert!(targets.0.iter().any(|t| t.label == TargetType::VENName));
+            assert!(targets.0.iter().any(|t| t.label == TargetType::Group));
+        }
     }
 
     mod modify {
