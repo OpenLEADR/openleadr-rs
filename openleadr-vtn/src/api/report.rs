@@ -18,7 +18,7 @@ use openleadr_wire::{
 };
 
 use crate::{
-    api::{subscription, AppResponse, ValidatedJson, ValidatedQuery},
+    api::{subscription, subscription::NotifierState, AppResponse, ValidatedJson, ValidatedQuery},
     data_source::ReportCrud,
     error::AppError,
     jwt::{Scope, User},
@@ -70,9 +70,10 @@ pub async fn get(
     Ok(Json(report))
 }
 
-#[instrument(skip(user, report_source))]
+#[instrument(skip(user, report_source, notifier_state))]
 pub async fn add(
     State(report_source): State<Arc<dyn ReportCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_report): ValidatedJson<ReportRequest>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
@@ -86,14 +87,19 @@ pub async fn add(
 
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report created");
 
-    subscription::notify(Operation::Create, AnyObject::Report(report.clone()));
+    subscription::notify(
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Report(report.clone()),
+    );
 
     Ok((StatusCode::CREATED, Json(report)))
 }
 
-#[instrument(skip(user, report_source))]
+#[instrument(skip(user, report_source, notifier_state))]
 pub async fn edit(
     State(report_source): State<Arc<dyn ReportCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ReportId>,
     User(user): User,
     ValidatedJson(content): ValidatedJson<ReportRequest>,
@@ -108,14 +114,19 @@ pub async fn edit(
 
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report updated");
 
-    subscription::notify(Operation::Update, AnyObject::Report(report.clone()));
+    subscription::notify(
+        &notifier_state,
+        Operation::Update,
+        AnyObject::Report(report.clone()),
+    );
 
     Ok(Json(report))
 }
 
-#[instrument(skip(user, report_source))]
+#[instrument(skip(user, report_source, notifier_state))]
 pub async fn delete(
     State(report_source): State<Arc<dyn ReportCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     Path(id): Path<ReportId>,
 ) -> AppResponse<Report> {
@@ -132,7 +143,11 @@ pub async fn delete(
 
     info!(%id, report_name=?report.content.report_name, client_id = user.sub, "deleted report");
 
-    subscription::notify(Operation::Delete, AnyObject::Report(report.clone()));
+    subscription::notify(
+        &notifier_state,
+        Operation::Delete,
+        AnyObject::Report(report.clone()),
+    );
 
     Ok(Json(report))
 }

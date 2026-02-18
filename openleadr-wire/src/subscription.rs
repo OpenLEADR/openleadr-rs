@@ -167,6 +167,17 @@ impl AnyObject {
             AnyObject::Resource(resource) => resource.id.0.clone(),
         }
     }
+
+    pub fn kind(&self) -> ObjectType {
+        match self {
+            AnyObject::Program(_) => ObjectType::Program,
+            AnyObject::Report(_) => ObjectType::Report,
+            AnyObject::Event(_) => ObjectType::Event,
+            AnyObject::Subscription(_) => ObjectType::Subscription,
+            AnyObject::Ven(_) => ObjectType::Ven,
+            AnyObject::Resource(_) => ObjectType::Resource,
+        }
+    }
 }
 
 /// Provides details of each notifier binding supported

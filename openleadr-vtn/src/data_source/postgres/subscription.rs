@@ -257,7 +257,7 @@ mod test {
         fn default() -> Self {
             Self {
                 program_id: None,
-                objects: vec![],
+                objects: None,
                 skip: 0,
                 limit: 50,
             }

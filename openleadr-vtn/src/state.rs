@@ -46,7 +46,7 @@ use tracing::{info, warn};
 pub struct AppState {
     pub storage: Arc<dyn DataSource>,
     pub jwt_manager: Arc<JwtManager>,
-    pub(crate) notifier: Arc<subscription::State>,
+    pub(crate) notifier: Arc<subscription::NotifierState>,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -276,10 +276,14 @@ impl AppState {
             OAuthType::External => external_oauth_from_env(key_type).await,
         };
 
+        let notifier = subscription::NotifierState::load_from_storage(&*storage.subscriptions())
+            .await
+            .expect("failed to retrieve subscriptions from database");
+
         Self {
             storage: Arc::new(storage),
             jwt_manager: Arc::new(jwt_manager),
-            notifier: Arc::new(subscription::State::new()),
+            notifier: Arc::new(notifier),
         }
     }
 

@@ -2,9 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{
-        self,
         ws::{Message, WebSocketUpgrade},
-        Path,
+        Path, State,
     },
     response::Response,
     Json,
@@ -31,20 +30,41 @@ use crate::{
     state::AppState,
 };
 
-pub(crate) struct State {
+pub(crate) struct NotifierState {
     websockets: Mutex<HashMap<ClientId, mpsc::UnboundedSender<Notification>>>,
+    subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
 }
 
-impl State {
-    pub(crate) fn new() -> Self {
-        Self {
+impl NotifierState {
+    pub(crate) async fn load_from_storage(
+        storage: &dyn SubscriptionCrud,
+    ) -> Result<Self, AppError> {
+        let subscriptions = storage
+            .retrieve_all(
+                &QueryParams {
+                    program_id: None,
+                    objects: None,
+                    skip: 0,
+                    limit: i64::MAX,
+                },
+                &None,
+            )
+            .await?;
+
+        Ok(Self {
             websockets: Mutex::new(HashMap::new()),
-        }
+            subscriptions: Mutex::new(
+                subscriptions
+                    .into_iter()
+                    .map(|subscription| (subscription.id.clone(), subscription))
+                    .collect(),
+            ),
+        })
     }
 }
 
 pub async fn get_all(
-    axum::extract::State(subscription_source): axum::extract::State<Arc<dyn SubscriptionCrud>>,
+    State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
     User(user): User,
 ) -> AppResponse<Vec<Subscription>> {
@@ -74,7 +94,7 @@ pub async fn get_all(
 }
 
 pub async fn get(
-    axum::extract::State(subscription_source): axum::extract::State<Arc<dyn SubscriptionCrud>>,
+    State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     Path(id): Path<SubscriptionId>,
     User(user): User,
 ) -> AppResponse<Subscription> {
@@ -101,7 +121,8 @@ pub async fn get(
 }
 
 pub async fn add(
-    axum::extract::State(subscription_source): axum::extract::State<Arc<dyn SubscriptionCrud>>,
+    State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
+    State(app_state): State<AppState>,
     User(user): User,
     ValidatedJson(new_subscription): ValidatedJson<SubscriptionRequest>,
 ) -> Result<(StatusCode, Json<Subscription>), AppError> {
@@ -115,6 +136,13 @@ pub async fn add(
         return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     };
 
+    app_state
+        .notifier
+        .subscriptions
+        .lock()
+        .await
+        .insert(subscription.id.clone(), subscription.clone());
+
     info!(
         %subscription.id,
         subscription.program_id=?subscription.content.program_id,
@@ -126,7 +154,8 @@ pub async fn add(
 }
 
 pub async fn edit(
-    axum::extract::State(subscription_source): axum::extract::State<Arc<dyn SubscriptionCrud>>,
+    State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
+    State(app_state): State<AppState>,
     Path(id): Path<SubscriptionId>,
     User(user): User,
     ValidatedJson(update): ValidatedJson<SubscriptionRequest>,
@@ -139,6 +168,13 @@ pub async fn edit(
         return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
     };
 
+    app_state
+        .notifier
+        .subscriptions
+        .lock()
+        .await
+        .insert(subscription.id.clone(), subscription.clone());
+
     info!(
         %subscription.id,
         subscription.program_id=?subscription.content.program_id,
@@ -150,7 +186,8 @@ pub async fn edit(
 }
 
 pub async fn delete(
-    axum::extract::State(subscription_source): axum::extract::State<Arc<dyn SubscriptionCrud>>,
+    State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
+    State(app_state): State<AppState>,
     Path(id): Path<SubscriptionId>,
     User(user): User,
 ) -> AppResponse<Subscription> {
@@ -162,6 +199,13 @@ pub async fn delete(
         return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
     };
 
+    app_state
+        .notifier
+        .subscriptions
+        .lock()
+        .await
+        .remove(&subscription.id);
+
     info!(%id, client_id = user.sub, "deleted subscription");
 
     Ok(Json(subscription))
@@ -172,8 +216,7 @@ pub async fn delete(
 pub struct QueryParams {
     #[serde(rename = "programID")]
     pub(crate) program_id: Option<ProgramId>,
-    #[serde(default)]
-    pub(crate) objects: Vec<ObjectType>,
+    pub(crate) objects: Option<Vec<ObjectType>>,
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
@@ -186,8 +229,34 @@ fn get_50() -> i64 {
     50
 }
 
-pub(crate) fn notify(operation: Operation, object: AnyObject) {
+pub(crate) async fn notify(
+    notifier_state: &NotifierState,
+    operation: Operation,
+    object: AnyObject,
+) {
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
+
+    for subscription in notifier_state.subscriptions.lock().await.values() {
+        for object_operation in &subscription.content.object_operations {
+            if object_operation.operations.contains(&operation)
+                // FIXME program_id
+                && object_operation.objects.contains(&object.kind())
+            {
+                if let Some(tx) = notifier_state
+                    .websockets
+                    .lock()
+                    .await
+                    .get(subscription.client_id)
+                {
+                    tx.send(Notification {
+                        id: object.id(),
+                        operation,
+                        object,
+                    });
+                }
+            }
+        }
+    }
 }
 
 pub(crate) async fn notifier_get() -> Json<NotifiersResponse> {
@@ -195,13 +264,13 @@ pub(crate) async fn notifier_get() -> Json<NotifiersResponse> {
 }
 
 pub(crate) async fn notifier_websocket_get(
-    extract::State(state): extract::State<AppState>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
     let client_id = user.client_id()?;
 
-    let mut websockets = state.notifier.websockets.lock().await;
+    let mut websockets = notifier_state.websockets.lock().await;
     if websockets.contains_key(&client_id) {
         return Err(AppError::Conflict(
             "websocket connection already open".to_owned(),
@@ -222,6 +291,6 @@ pub(crate) async fn notifier_websocket_get(
                 break;
             }
         }
-        state.notifier.websockets.lock().await.remove(&client_id);
+        notifier_state.websockets.lock().await.remove(&client_id);
     }))
 }

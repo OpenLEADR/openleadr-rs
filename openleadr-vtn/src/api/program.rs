@@ -10,7 +10,10 @@ use tracing::{info, trace};
 use validator::Validate;
 
 use crate::{
-    api::{subscription, AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{
+        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
+        ValidatedQuery,
+    },
     data_source::ProgramCrud,
     error::AppError,
     jwt::{Scope, User},
@@ -78,6 +81,7 @@ pub async fn get(
 
 pub async fn add(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_program): ValidatedJson<ProgramRequest>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
@@ -96,13 +100,18 @@ pub async fn add(
         "program added"
     );
 
-    subscription::notify(Operation::Create, AnyObject::Program(program.clone()));
+    subscription::notify(
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Program(program.clone()),
+    );
 
     Ok((StatusCode::CREATED, Json(program)))
 }
 
 pub async fn edit(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ProgramId>,
     User(user): User,
     ValidatedJson(content): ValidatedJson<ProgramRequest>,
@@ -122,13 +131,18 @@ pub async fn edit(
         "program updated"
     );
 
-    subscription::notify(Operation::Update, AnyObject::Program(program.clone()));
+    subscription::notify(
+        &notifier_state,
+        Operation::Update,
+        AnyObject::Program(program.clone()),
+    );
 
     Ok(Json(program))
 }
 
 pub async fn delete(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ProgramId>,
     User(user): User,
 ) -> AppResponse<Program> {
@@ -139,7 +153,11 @@ pub async fn delete(
     let program = program_source.delete(&id, &Some(user.client_id()?)).await?;
     info!(%id, client_id = user.sub, "deleted program");
 
-    subscription::notify(Operation::Delete, AnyObject::Program(program.clone()));
+    subscription::notify(
+        &notifier_state,
+        Operation::Delete,
+        AnyObject::Program(program.clone()),
+    );
 
     Ok(Json(program))
 }
