@@ -42,7 +42,12 @@ async fn test_vtn_client_mdns_discovery() {
             .unwrap();
     });
 
-    let vtns: Vec<DiscoveredVtn> = discover_local_vtns("_openadr3._tcp.local.", tokio::time::Duration::from_secs(1), Some(1)).await;
+    let vtns: Vec<DiscoveredVtn> = discover_local_vtns(
+        "_openadr3._tcp.local.",
+        tokio::time::Duration::from_secs(1),
+        Some(1),
+    )
+    .await;
 
     // Gracefully shut down
     shutdown_tx.send(()).ok();
