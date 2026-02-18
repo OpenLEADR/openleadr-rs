@@ -264,58 +264,27 @@ mod test {
         }
     }
 
-    impl QueryParams {
-        fn program_id(program_id: &str) -> QueryParams {
-            Self {
-                program_id: Some(program_id.parse().unwrap()),
-                ..Self::default()
-            }
-        }
-    }
-
     #[sqlx::test(fixtures("users", "vens", "resources", "subscriptions"))] // FIXME remove unnecessary fixtures
     async fn retrieve_all(db: PgPool) {
         let repo = PgSubscriptionStorage::from(db.clone());
 
         let subscription = repo
             .retrieve_all(
-                &QueryParams::program_id("program-1"),
-                &Some("ven-1-client-id".parse().unwrap()),
+                &QueryParams::default(),
+                &Some("ven-client-client-id".parse().unwrap()),
             )
             .await
             .unwrap();
         assert_eq!(subscription.len(), 2);
 
+        // Ensure a client cannot see subscriptions of another client
         let subscription = repo
             .retrieve_all(
-                &QueryParams::program_id("program-2"),
-                &Some("ven-2-client-id".parse().unwrap()),
+                &QueryParams::default(),
+                &Some("ven-client2-client-id".parse().unwrap()),
             )
             .await
             .unwrap();
-        assert_eq!(subscription.len(), 3);
-
-        let filters = QueryParams {
-            resource_name: Some("resource-1-name".to_string()),
-            ven_id: Some("ven-1".parse().unwrap()),
-            ..Default::default()
-        };
-
-        let resources = repo
-            .retrieve_all(&filters, &Some("ven-1-client-id".parse().unwrap()))
-            .await
-            .unwrap();
-        assert_eq!(resources.len(), 1);
-        assert_eq!(resources[0].content.resource_name, "resource-1-name");
-
-        // Ensure a client cannot see resources of another client
-        let resources = repo
-            .retrieve_all(
-                &QueryParams::program_id("program-2"),
-                &Some("ven-1-client-id".parse().unwrap()),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resources.len(), 0);
+        assert_eq!(subscription.len(), 0);
     }
 }

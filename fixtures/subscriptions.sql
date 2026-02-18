@@ -1,0 +1,22 @@
+INSERT INTO subscription (id,
+                      created_date_time,
+                      modification_date_time,
+                      client_id,
+                      client_name,
+                      program_id,
+                      object_operations)
+
+VALUES ('subscription-1',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-client-client-id',
+        'abc',
+        NULL,
+        '[]'::jsonb),
+       ('subscription-2',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-client-client-id',
+        'abc',
+        NULL,
+        '[]'::jsonb);
