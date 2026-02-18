@@ -52,6 +52,7 @@
 
 mod error;
 mod event;
+mod mdns;
 mod program;
 mod report;
 mod resource;
@@ -74,6 +75,7 @@ use url::Url;
 
 pub use error::*;
 pub use event::*;
+pub use mdns::*;
 pub use program::*;
 pub use report::*;
 pub use resource::*;

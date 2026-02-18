@@ -1,10 +1,7 @@
-use tokio::{net::TcpListener, signal};
-use tracing::{error, info, warn};
+use openleadr_vtn::{VtnConfig, VtnServer};
+use tokio::signal;
+use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-#[cfg(feature = "postgres")]
-use openleadr_vtn::data_source::PostgresStorage;
-use openleadr_vtn::{data_source::Migrate, state::AppState};
 
 #[tokio::main]
 async fn main() {
@@ -13,34 +10,16 @@ async fn main() {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let addr = "0.0.0.0:3000";
-    let listener = TcpListener::bind(addr).await.unwrap();
-    info!("listening on http://{}", listener.local_addr().unwrap());
+    // Load config from environment
+    let vtn_config = VtnConfig::from_env();
+    let server = VtnServer::new(vtn_config).await.unwrap();
 
-    #[cfg(feature = "postgres")]
-    let storage = PostgresStorage::from_env().await.unwrap();
-
-    #[cfg(not(feature = "postgres"))]
-    compile_error!(
-        "No storage backend selected. Please enable the `postgres` feature flag during compilation"
+    info!(
+        "VTN listening on http://{}",
+        server.listener.local_addr().unwrap()
     );
 
-    if let Err(e) = storage.migrate().await {
-        warn!("Database migration failed: {}", e);
-    }
-
-    let state = AppState::new(storage).await;
-    let router = state.into_router();
-
-    #[cfg(any(
-        feature = "compression-br",
-        feature = "compression-deflate",
-        feature = "compression-gzip",
-        feature = "compression-zstd"
-    ))]
-    let router = router.layer(tower_http::compression::CompressionLayer::new());
-
-    if let Err(e) = axum::serve(listener, router)
+    if let Err(e) = axum::serve(server.listener, server.router)
         .with_graceful_shutdown(shutdown_signal())
         .await
     {
