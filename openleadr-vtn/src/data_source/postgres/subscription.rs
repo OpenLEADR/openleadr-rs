@@ -1,13 +1,12 @@
 use crate::{
     api::subscription::QueryParams,
-    data_source::{postgres::to_json_value, Crud, SubscriptionCrud},
+    data_source::{Crud, SubscriptionCrud},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     subscription::{Subscription, SubscriptionId, SubscriptionRequest},
-    target::Target,
     ClientId,
 };
 use sqlx::PgPool;
@@ -30,7 +29,6 @@ pub(crate) struct PostgresSubscription {
     id: String,
     created_date_time: DateTime<Utc>,
     modification_date_time: DateTime<Utc>,
-    client_id: ClientId,
     client_name: String,
     program_id: Option<String>,
     object_operations: serde_json::Value,
@@ -81,38 +79,40 @@ impl Crud for PgSubscriptionStorage {
         new: Self::NewType,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let resource: Subscription = sqlx::query_as!(
+        let subscription: Subscription = sqlx::query_as!(
             PostgresSubscription,
             r#"
-            INSERT INTO resource (
+            INSERT INTO subscription (
                 id,
                 created_date_time,
                 modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets
+                client_id,
+                client_name,
+                program_id,
+                object_operations
             )
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2::text, $3, $4)
             RETURNING
                 id,
                 created_date_time,
                 modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets as "targets:Vec<Target>"
+                client_name,
+                program_id,
+                object_operations
             "#,
-            new.resource_name,
-            new.ven_id.as_str(),
-            to_json_value(new.attributes)?,
-            new.targets as _,
+            client_id
+                .as_ref()
+                .expect("subscription create requires client id")
+                .as_str(),
+            new.client_name,
+            new.program_id.as_ref().map(|id| id.as_str()),
+            serde_json::to_value(new.object_operations).map_err(AppError::SerdeJsonBadRequest)?,
         )
         .fetch_one(&self.db)
         .await?
         .try_into()?;
 
-        Ok(resource)
+        Ok(subscription)
     }
 
     async fn retrieve(
@@ -120,21 +120,19 @@ impl Crud for PgSubscriptionStorage {
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let resource = sqlx::query_as!(
+        let subscription = sqlx::query_as!(
             PostgresSubscription,
             r#"
             SELECT
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>"
-            FROM resource r
-                JOIN ven v on r.ven_id = v.id
-            WHERE r.id = $1
-              AND ($2::text IS NULL OR v.client_id = $2)
+                id,
+                created_date_time,
+                modification_date_time,
+                client_name,
+                program_id,
+                object_operations
+            FROM subscription
+            WHERE id = $1
+              AND ($2::text IS NULL OR client_id = $2)
             "#,
             id.as_str(),
             client_id as _
@@ -143,7 +141,7 @@ impl Crud for PgSubscriptionStorage {
         .await?
         .try_into()?;
 
-        Ok(resource)
+        Ok(subscription)
     }
 
     async fn retrieve_all(
@@ -155,25 +153,17 @@ impl Crud for PgSubscriptionStorage {
             PostgresSubscription,
             r#"
             SELECT
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>"
-            FROM resource r
-                JOIN ven v on r.ven_id = v.id
-            WHERE ($1::text IS NULL OR r.ven_id = $1)
-                AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3::text[] IS NULL OR r.targets @> $3)
-                AND ($4::text IS NULL OR v.client_id = $4)
-            ORDER BY r.created_date_time
-            OFFSET $5 LIMIT $6
+                id,
+                created_date_time,
+                modification_date_time,
+                client_name,
+                program_id,
+                object_operations
+            FROM subscription
+            WHERE ($1::text IS NULL OR client_id = $1)
+            ORDER BY created_date_time
+            OFFSET $2 LIMIT $3
             "#,
-            filter.ven_id as _,
-            filter.resource_name,
-            filter.targets.as_deref() as _,
             client_id as _,
             filter.skip,
             filter.limit,
@@ -184,7 +174,7 @@ impl Crud for PgSubscriptionStorage {
         .map(TryInto::try_into)
         .collect::<Result<Vec<_>, _>>()?;
 
-        trace!("retrieved {} resources", res.len());
+        trace!("retrieved {} subscriptions", res.len());
 
         Ok(res)
     }
@@ -195,60 +185,35 @@ impl Crud for PgSubscriptionStorage {
         new: Self::NewType,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let mut tx = self.db.begin().await?;
-
-        let old_ven_id = sqlx::query_scalar!(
-            r#"
-            SELECT ven_id FROM resource WHERE id = $1
-            "#,
-            id.as_str()
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if old_ven_id != new.ven_id.as_str() {
-            let error = "Tried to update `ven_id` of resource. \
-            This is not allowed in the current version of openLEADR as the specification is not quite \
-            clear about if that should be allowed. If you disagree with that interpretation, please open \
-            an issue on GitHub.";
-            error!(resource_id = id.as_str(), "{}", error);
-            return Err(Self::Error::BadRequest(error));
-        }
-
-        let resource: Subscription = sqlx::query_as!(
+        let subscription: Subscription = sqlx::query_as!(
             PostgresSubscription,
             r#"
-            UPDATE resource r
+            UPDATE subscription
             SET modification_date_time = now(),
-                resource_name = $2,
-                attributes = $3,
-                targets = $4
-            FROM ven v
-            WHERE r.ven_id = v.id
-              AND r.id = $1
-              AND ($5::text IS NULL OR v.client_id = $5)
+                client_name = $2,
+                program_id = $3,
+                object_operations = $4
+            WHERE id = $1
+              AND ($5::text IS NULL OR client_id = $5)
             RETURNING
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>"
+                id,
+                created_date_time,
+                modification_date_time,
+                client_name,
+                program_id,
+                object_operations
             "#,
             id.as_str(),
-            new.resource_name,
-            to_json_value(new.attributes)?,
-            new.targets as _,
+            new.client_name,
+            new.program_id.as_ref().map(|id| id.as_str()),
+            serde_json::to_value(&new.object_operations).map_err(AppError::SerdeJsonBadRequest)?,
             client_id as _
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.db)
         .await?
         .try_into()?;
 
-        tx.commit().await?;
-
-        Ok(resource)
+        Ok(subscription)
     }
 
     async fn delete(
@@ -259,19 +224,16 @@ impl Crud for PgSubscriptionStorage {
         Ok(sqlx::query_as!(
             PostgresSubscription,
             r#"
-            DELETE FROM resource r
-                   USING ven v
-            WHERE r.ven_id = v.id
-              AND r.id = $1
-              AND ($2::text IS NULL OR v.client_id = $2)
+            DELETE FROM subscription
+            WHERE id = $1
+              AND ($2::text IS NULL OR client_id = $2)
             RETURNING
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>"
+                id,
+                created_date_time,
+                modification_date_time,
+                client_name,
+                program_id,
+                object_operations
             "#,
             id.as_str(),
             client_id as _
@@ -326,7 +288,7 @@ mod test {
 
         let subscription = repo
             .retrieve_all(
-                &QueryParams::program("program-2"),
+                &QueryParams::program_id("program-2"),
                 &Some("ven-2-client-id".parse().unwrap()),
             )
             .await

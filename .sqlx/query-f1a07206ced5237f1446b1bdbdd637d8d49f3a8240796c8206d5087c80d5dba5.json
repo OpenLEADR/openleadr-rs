@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO subscription (\n                id,\n                created_date_time,\n                modification_date_time,\n                client_id,\n                client_name,\n                program_id,\n                object_operations\n            )\n            VALUES (gen_random_uuid(), now(), now(), $1, $2::text, $3, $4)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                client_name,\n                program_id,\n                object_operations\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "object_operations",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "f1a07206ced5237f1446b1bdbdd637d8d49f3a8240796c8206d5087c80d5dba5"
+}

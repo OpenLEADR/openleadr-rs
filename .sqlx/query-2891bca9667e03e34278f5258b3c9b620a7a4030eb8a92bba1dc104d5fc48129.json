@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE subscription\n            SET modification_date_time = now(),\n                client_name = $2,\n                program_id = $3,\n                object_operations = $4\n            WHERE id = $1\n              AND ($5::text IS NULL OR client_id = $5)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                client_name,\n                program_id,\n                object_operations\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "object_operations",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2891bca9667e03e34278f5258b3c9b620a7a4030eb8a92bba1dc104d5fc48129"
+}
