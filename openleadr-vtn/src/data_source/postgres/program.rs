@@ -14,7 +14,7 @@ use openleadr_wire::{
     target::{TargetEntry, TargetMap, TargetType},
     Program,
 };
-use sqlx::PgPool;
+use sqlx::{Executor, PgPool, Postgres};
 use std::collections::HashMap;
 use tracing::error;
 
@@ -38,30 +38,26 @@ impl From<PgPool> for PgProgramStorage {
 /// `ven_program` + `ven` for the given program IDs, groups by program, and
 /// merges a `TargetEntry { label: VENName, values }` into each program's
 /// `content.targets`.
-async fn enrich_ven_targets(
-    db: &PgPool,
+async fn enrich_ven_targets<'e, 'c, E>(
+    db: E,
     programs: &mut [Program],
     user: &Claims,
-) -> Result<(), AppError> {
+) -> Result<(), AppError>
+where
+    E: 'e + Executor<'c, Database = Postgres>,
+{
     if !user.is_business() || programs.is_empty() {
         return Ok(());
     }
 
     let program_ids: Vec<&str> = programs.iter().map(|p| p.id.as_str()).collect();
 
-    struct VenProgramRow {
-        program_id: String,
-        ven_name: String,
-    }
-
-    let rows = sqlx::query_as!(
-        VenProgramRow,
+    let rows = sqlx::query!(
         r#"
         SELECT vp.program_id, v.ven_name
         FROM ven_program vp
-        JOIN ven v ON v.id = vp.ven_id
-        WHERE vp.program_id = ANY($1)
-        ORDER BY vp.program_id, v.ven_name
+                 JOIN ven v ON v.id = vp.ven_id
+        WHERE vp.program_id = ANY ($1)
         "#,
         &program_ids as &[&str],
     )
@@ -278,9 +274,10 @@ impl Crud for PgProgramStorage {
                 ))?
             }
         };
+        enrich_ven_targets(&mut *tx, std::slice::from_mut(&mut program), user).await?;
+
         tx.commit().await?;
 
-        enrich_ven_targets(&self.db, std::slice::from_mut(&mut program), user).await?;
         Ok(program)
     }
 
@@ -489,9 +486,10 @@ impl Crud for PgProgramStorage {
                 ))?
             }
         };
+        enrich_ven_targets(&mut *tx, std::slice::from_mut(&mut program), user).await?;
+
         tx.commit().await?;
 
-        enrich_ven_targets(&self.db, std::slice::from_mut(&mut program), user).await?;
         Ok(program)
     }
 
@@ -898,31 +896,17 @@ mod tests {
         async fn add_with_mixed_targets(db: PgPool) {
             let repo: PgProgramStorage = db.into();
 
-            let content = ProgramContent {
-                program_name: "program-mixed-targets".to_string(),
-                program_long_name: None,
-                retailer_name: None,
-                retailer_long_name: None,
-                program_type: None,
-                country: None,
-                principal_subdivision: None,
-                time_zone_offset: None,
-                interval_period: None,
-                program_descriptions: None,
-                binding_events: None,
-                local_price: None,
-                payload_descriptors: None,
-                targets: Some(TargetMap(vec![
-                    TargetEntry {
-                        label: TargetType::VENName,
-                        values: vec!["ven-1-name".to_string()],
-                    },
-                    TargetEntry {
-                        label: TargetType::Group,
-                        values: vec!["group-1".to_string()],
-                    },
-                ])),
-            };
+            let mut content = ProgramContent::new("program-mixed-targets");
+            content.targets = Some(TargetMap(vec![
+                TargetEntry {
+                    label: TargetType::VENName,
+                    values: vec!["ven-1-name".to_string()],
+                },
+                TargetEntry {
+                    label: TargetType::Group,
+                    values: vec!["group-1".to_string()],
+                },
+            ]));
 
             let program = repo
                 .create(content, &User(Claims::any_business_user()))
@@ -938,6 +922,30 @@ mod tests {
             assert!(targets.0.iter().any(|t| t.label == TargetType::VENName));
             assert!(targets.0.iter().any(|t| t.label == TargetType::Group));
         }
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn add_retrieve_ven_target(db: PgPool) {
+        let repo: PgProgramStorage = db.into();
+
+        let mut content = ProgramContent::new("program-mixed-targets");
+        content.targets = Some(TargetMap(vec![TargetEntry {
+            label: TargetType::VENName,
+            values: vec!["ven-1-name".to_string()],
+        }]));
+
+        let program = repo
+            .create(content, &User(Claims::any_business_user()))
+            .await
+            .unwrap();
+
+        let retrieved = repo
+            .retrieve(&program.id, &User(Claims::any_business_user()))
+            .await
+            .unwrap();
+
+        let targets = retrieved.content.targets.unwrap();
+        assert!(targets.0.iter().any(|t| t.label == TargetType::VENName));
     }
 
     mod modify {
