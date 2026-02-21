@@ -1,0 +1,16 @@
+INSERT INTO event (id, created_date_time, modification_date_time,
+                   program_id, event_name, priority,
+                   targets, report_descriptors, payload_descriptors,
+                   interval_period, intervals)
+VALUES ('event-4',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'program-1', 'event-4-name', NULL,
+        '[{"type":"VEN_NAME","values":["ven-1-name"]}]',
+        NULL, NULL, NULL, '[]'),
+       ('event-5',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'program-1', 'event-5-name', NULL,
+        NULL,
+        NULL, NULL, NULL, '[]');
