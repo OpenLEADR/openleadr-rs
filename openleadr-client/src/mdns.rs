@@ -21,7 +21,7 @@ pub async fn discover_local_vtns(
     vtn_limit: Option<usize>,
 ) -> Vec<DiscoveredVtn> {
     let mdns = ServiceDaemon::new().unwrap();
-    let receiver = mdns.browse(&service_type).expect("Failed to browse");
+    let receiver = mdns.browse(service_type).expect("Failed to browse");
 
     let mut found_vtns = Vec::new();
 
