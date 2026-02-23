@@ -1,6 +1,5 @@
 use openleadr_client::{discover_local_vtns, DiscoveredVtn};
 use tracing::info;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() {
