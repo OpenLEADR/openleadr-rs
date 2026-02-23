@@ -1,7 +1,6 @@
 use openleadr_client::{discover_local_vtns, DiscoveredVtn};
 use openleadr_vtn::{VtnConfig, VtnServer};
-use tokio::sync::oneshot;
-use tokio::time::Duration;
+use tokio::{sync::oneshot, time::Duration};
 
 #[tokio::test]
 async fn test_vtn_client_mdns_discovery() {
