@@ -1,23 +1,23 @@
 use crate::{
     error::{Error, Result},
-    Client, EventClient, EventContent, Filter, PaginationOptions, ProgramContent, ProgramId,
+    Client, ClientKind, EventClient, Filter, PaginationOptions, ProgramId, ProgramRequest,
     Timeline,
 };
 use openleadr_wire::{
-    event::{EventInterval, Priority},
+    event::{EventInterval, EventRequest, Priority},
     Program,
 };
 
 /// A client for interacting with the data in a specific program and the events
 /// contained in the program.
 #[derive(Debug, Clone)]
-pub struct ProgramClient {
-    client: Client,
+pub struct ProgramClient<K> {
+    client: Client<K>,
     data: Program,
 }
 
-impl ProgramClient {
-    pub(super) fn from_program(client: Client, program: Program) -> Self {
+impl<K: ClientKind> ProgramClient<K> {
+    pub(super) fn from_program(client: Client<K>, program: Program) -> Self {
         Self {
             client,
             data: program,
@@ -40,14 +40,14 @@ impl ProgramClient {
     }
 
     /// Read the data of the program
-    pub fn content(&self) -> &ProgramContent {
+    pub fn content(&self) -> &ProgramRequest {
         &self.data.content
     }
 
     /// Modify the data of the program.
     /// Make sure to call [`update`](Self::update)
     /// after your modifications to store them on the VTN
-    pub fn content_mut(&mut self) -> &mut ProgramContent {
+    pub fn content_mut(&mut self) -> &mut ProgramRequest {
         &mut self.data.content
     }
 
@@ -73,7 +73,7 @@ impl ProgramClient {
     /// Create a new event on the VTN.
     /// The content should be created with [`ProgramClient::new_event`]
     /// to automatically insert the correct program ID
-    pub async fn create_event(&self, event_data: EventContent) -> Result<EventClient> {
+    pub async fn create_event(&self, event_data: EventRequest) -> Result<EventClient<K>> {
         if &event_data.program_id != self.id() {
             return Err(Error::InvalidParentObject);
         }
@@ -85,28 +85,29 @@ impl ProgramClient {
     }
 
     /// Create a new event object within the program
-    pub fn new_event(&self, intervals: Vec<EventInterval>) -> EventContent {
-        EventContent {
+    pub fn new_event(&self, intervals: Vec<EventInterval>) -> EventRequest {
+        EventRequest {
             program_id: self.id().clone(),
             event_name: None,
             priority: Priority::UNSPECIFIED,
-            targets: None,
+            targets: vec![],
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,
-            intervals,
+            duration: None,
+            intervals: Some(intervals),
         }
     }
 
     /// Low-level operation that gets a list of events for this program from the VTN
     /// with the given query parameters.
     ///
-    /// To automatically iterate pages, use [`self.get_event_list`]
+    /// To automatically iterate pages, use [`self.get_event_list`](Self::get_event_list)
     pub async fn get_events_request(
         &self,
         filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
-    ) -> Result<Vec<EventClient>> {
+    ) -> Result<Vec<EventClient<K>>> {
         self.client
             .get_events(Some(self.id()), filter, pagination)
             .await
@@ -116,7 +117,7 @@ impl ProgramClient {
     pub async fn get_event_list(
         &self,
         filter: Filter<'_, impl AsRef<str> + Clone>,
-    ) -> Result<Vec<EventClient>> {
+    ) -> Result<Vec<EventClient<K>>> {
         self.client.get_event_list(Some(self.id()), filter).await
     }
 

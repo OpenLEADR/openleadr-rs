@@ -3,11 +3,11 @@
 ![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg?branch=main)
 ![Crates.io Version](https://img.shields.io/crates/v/openleadr-client)
 
-# OpenADR 3.0 VEN client library in Rust
+# OpenADR 3.1 VEN client library in Rust
 
 ![LF energy OpenLEADR logo](../openleadr-logo.svg)
 
-This is a client library to interact with an OpenADR 3.0 complaint VTN server.
+This is a client library to interact with an OpenADR 3.1 complaint VTN server.
 It mainly wraps the HTTP REST interface into an easy-to-use Rust API.
 
 The following contains information specific to the client library.

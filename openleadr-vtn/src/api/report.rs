@@ -6,13 +6,13 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::{info, instrument, trace};
 use validator::Validate;
 
 use openleadr_wire::{
     event::EventId,
     program::ProgramId,
-    report::{ReportContent, ReportId},
+    report::{ReportId, ReportRequest},
     Report,
 };
 
@@ -20,16 +20,28 @@ use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
     data_source::ReportCrud,
     error::AppError,
-    jwt::{BusinessUser, User, VENUser},
+    jwt::{Scope, User},
 };
 
 #[instrument(skip(user, report_source))]
 pub async fn get_all(
     State(report_source): State<Arc<dyn ReportCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Vec<Report>> {
-    let reports = report_source.retrieve_all(&query_params, &user).await?;
+    let reports = if user.scope.contains(Scope::ReadAll) {
+        report_source.retrieve_all(&query_params, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        report_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
+
+    trace!(client_id = user.sub, "retrieved {} reports", reports.len());
 
     Ok(Json(reports))
 }
@@ -38,21 +50,40 @@ pub async fn get_all(
 pub async fn get(
     State(report_source): State<Arc<dyn ReportCrud>>,
     Path(id): Path<ReportId>,
-    user: User,
+    User(user): User,
 ) -> AppResponse<Report> {
-    let report: Report = report_source.retrieve(&id, &user).await?;
+    let report = if user.scope.contains(Scope::ReadAll) {
+        report_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        report_source
+            .retrieve(&id, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
+
+    trace!(%report.id, report.report_name=report.content.report_name, client_id = user.sub, "retrieved report");
+
     Ok(Json(report))
 }
 
 #[instrument(skip(user, report_source))]
 pub async fn add(
     State(report_source): State<Arc<dyn ReportCrud>>,
-    VENUser(user): VENUser,
-    ValidatedJson(new_report): ValidatedJson<ReportContent>,
+    User(user): User,
+    ValidatedJson(new_report): ValidatedJson<ReportRequest>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
-    let report = report_source.create(new_report, &User(user)).await?;
+    let report = if user.scope.contains(Scope::WriteReports) {
+        report_source
+            .create(new_report, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_reports' scope"));
+    };
 
-    info!(%report.id, report_name=?report.content.report_name, "report created");
+    info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report created");
 
     Ok((StatusCode::CREATED, Json(report)))
 }
@@ -61,12 +92,18 @@ pub async fn add(
 pub async fn edit(
     State(report_source): State<Arc<dyn ReportCrud>>,
     Path(id): Path<ReportId>,
-    VENUser(user): VENUser,
-    ValidatedJson(content): ValidatedJson<ReportContent>,
+    User(user): User,
+    ValidatedJson(content): ValidatedJson<ReportRequest>,
 ) -> AppResponse<Report> {
-    let report = report_source.update(&id, content, &User(user)).await?;
+    let report = if user.scope.contains(Scope::WriteReports) {
+        report_source
+            .update(&id, content, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_reports' scope"));
+    };
 
-    info!(%report.id, report_name=?report.content.report_name, "report updated");
+    info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report updated");
 
     Ok(Json(report))
 }
@@ -74,12 +111,21 @@ pub async fn edit(
 #[instrument(skip(user, report_source))]
 pub async fn delete(
     State(report_source): State<Arc<dyn ReportCrud>>,
-    // TODO this contradicts the spec, which says that only VENs have write access
-    BusinessUser(user): BusinessUser,
+    User(user): User,
     Path(id): Path<ReportId>,
 ) -> AppResponse<Report> {
-    let report = report_source.delete(&id, &User(user)).await?;
-    info!(%id, "deleted report");
+    // The specification does only allow VEN clients to have write access to reports.
+    // Therefore, we can safely filter for the client_id, as there is no specified use-case
+    // where a BL client can delete a report.
+    // If a BL tried to delete a report, it would either fail by not having the `write_reports` scope
+    // or because the BLs client_id does not match the reports client_id.
+    let report = if user.scope.contains(Scope::WriteReports) {
+        report_source.delete(&id, &Some(user.client_id()?)).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_reports' scope"));
+    };
+
+    info!(%id, report_name=?report.content.report_name, client_id = user.sub, "deleted report");
     Ok(Json(report))
 }
 
@@ -94,8 +140,7 @@ pub struct QueryParams {
     pub(crate) client_name: Option<String>,
     #[serde(default)]
     pub(crate) skip: i64,
-    // TODO how to interpret limit = 0 and what is the default?
-    #[validate(range(max = 50))]
+    #[validate(range(min = 1, max = 50))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
 }
@@ -107,17 +152,16 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{api::test::ApiTest, jwt::AuthRole};
+    use crate::{api::test::ApiTest, jwt::Scope};
     use axum::{body::Body, http, http::StatusCode};
     use openleadr_wire::{
         problem::Problem,
-        report::{ReportContent, ReportPayloadDescriptor, ReportType},
+        report::{ReportPayloadDescriptor, ReportRequest, ReportType},
     };
     use sqlx::PgPool;
 
-    fn default() -> ReportContent {
-        ReportContent {
-            program_id: "asdf".parse().unwrap(),
+    fn default() -> ReportRequest {
+        ReportRequest {
             event_id: "asdf".parse().unwrap(),
             client_name: "".to_string(),
             report_name: None,
@@ -128,18 +172,23 @@ mod test {
 
     #[sqlx::test]
     async fn name_constraint_validation(db: PgPool) {
-        let test = ApiTest::new(db, vec![AuthRole::VEN("ven-1".parse().unwrap())]).await;
+        let test = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteVens, Scope::ReadTargets],
+        )
+        .await;
 
         let reports = [
-            ReportContent {
+            ReportRequest {
                 report_name: Some("".to_string()),
                 ..default()
             },
-            ReportContent {
+            ReportRequest {
                 report_name: Some("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),
                 ..default()
             },
-            ReportContent {
+            ReportRequest {
                 payload_descriptors: Some(vec![
                     ReportPayloadDescriptor{
                         payload_type: ReportType::Private("".to_string()),
@@ -151,7 +200,7 @@ mod test {
                 ]),
                 ..default()
             },
-            ReportContent {
+            ReportRequest {
                 payload_descriptors: Some(vec![
                     ReportPayloadDescriptor{
                         payload_type: ReportType::Private("This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()),

@@ -1,6 +1,6 @@
 [package]
 name = "openleadr-vtn"
-description = "OpenADR 3.0 VTN server"
+description = "OpenADR 3.1 VTN server"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
@@ -13,22 +13,21 @@ keywords.workspace = true
 
 [dependencies]
 openleadr-wire.workspace = true
+openleadr-client.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true
-serde_with.workspace = true
 
 reqwest.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
 tokio = { workspace = true, features = ["full"] }
-tower-http.workspace = true
+tower-http = { workspace = true }
 tower.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-url.workspace = true
 uuid.workspace = true
 jsonwebtoken.workspace = true
 base64.workspace = true
@@ -41,16 +40,25 @@ async-trait.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 
+derive_more.workspace = true
+
 sqlx = { workspace = true, optional = true }
 argon2 = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
+mdns-sd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 serial_test.workspace = true
+serde_html_form = "0.4.0"
 
 [features]
-default = ["postgres", "live-db-test", "internal-oauth"]
+default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd"]
 live-db-test = ["postgres", "internal-oauth"]
 postgres = ["sqlx/postgres", "dep:dotenvy", "dep:argon2"]
 internal-oauth = []
+mdns = ["dep:mdns-sd"]
+compression-br = ["tower-http/compression-br"]
+compression-deflate = ["tower-http/compression-deflate"]
+compression-gzip = ["tower-http/compression-gzip"]
+compression-zstd = ["tower-http/compression-zstd"]

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM resource r\n                   USING ven v\n            WHERE r.ven_id = v.id\n              AND r.id = $1\n              AND ($2::text IS NULL OR v.client_id = $2)\n            RETURNING\n                r.id,\n                r.created_date_time,\n                r.modification_date_time,\n                r.resource_name,\n                r.ven_id,\n                r.attributes,\n                r.targets as \"targets:Vec<Target>\",\n                v.client_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ven_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1a05584efa5c402737772f3ef055bcb26f380ee0dee13ec9e6e2fdf09293a85c"
+}

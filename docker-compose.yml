@@ -7,12 +7,8 @@ services:
       - ${VTN_PORT}:3000
     environment:
       RUST_LOG: debug
+      OAUTH_TOKEN_URL: http://localhost:3000/auth/token
       DATABASE_URL: postgres://openadr:openadr@db:5432/openadr
-    healthcheck:
-      test: curl --fail http://127.0.0.1:3000/health || exit 1
-      interval: 15s
-      timeout: 5s
-      retries: 3
     depends_on:
       - db
 

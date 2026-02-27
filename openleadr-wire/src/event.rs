@@ -1,13 +1,13 @@
 //! Types used for the `event/` endpoint
 
 use crate::{
-    interval::IntervalPeriod, program::ProgramId, report::ReportDescriptor, target::TargetMap,
-    values_map::Value, Identifier, IdentifierError, Unit,
+    interval::IntervalPeriod, program::ProgramId, report::ReportDescriptor, target::Target,
+    values_map::Value, Duration, Identifier, IdentifierError, Unit,
 };
 use chrono::{DateTime, Utc};
 use iso_currency::Currency;
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -15,7 +15,7 @@ use std::{
 use validator::{Validate, ValidationError};
 
 /// Event object to communicate a Demand Response request to VEN. If intervalPeriod is present, sets
-/// start time and duration of intervals.
+/// default start time and duration of intervals.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
@@ -29,22 +29,27 @@ pub struct Event {
     pub modification_date_time: DateTime<Utc>,
     #[serde(flatten)]
     #[validate(nested)]
-    pub content: EventContent,
+    pub content: EventRequest,
 }
 
 #[skip_serializing_none]
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase", tag = "objectType", rename = "EVENT")]
-pub struct EventContent {
+#[serde(rename_all = "camelCase")]
+pub struct EventRequest {
     /// URL safe VTN assigned object ID.
     #[serde(rename = "programID")]
     pub program_id: ProgramId,
     /// User defined string for use in debugging or User Interface.
     pub event_name: Option<String>,
+    /// Optional duration of event. May be used to loop intervals. See User Guide.
+    pub duration: Option<Duration>,
     /// Relative priority of event. A lower number is a higher priority.
     pub priority: Priority,
-    /// A list of valuesMap objects.
-    pub targets: Option<TargetMap>,
+    /// A list of targets.
+    #[serde(default)]
+    #[serde_as(deserialize_as = "DefaultOnNull")]
+    pub targets: Vec<Target>,
     /// A list of reportDescriptor objects. Used to request reports from VEN.
     pub report_descriptors: Option<Vec<ReportDescriptor>>,
     /// A list of payloadDescriptor objects.
@@ -52,21 +57,22 @@ pub struct EventContent {
     /// Defines default start and durations of intervals.
     pub interval_period: Option<IntervalPeriod>,
     /// A list of interval objects.
-    #[validate(length(min = 1), nested)]
-    pub intervals: Vec<EventInterval>,
+    #[validate(nested)]
+    pub intervals: Option<Vec<EventInterval>>,
 }
 
-impl EventContent {
-    pub fn new(program_id: ProgramId, intervals: Vec<EventInterval>) -> Self {
+impl EventRequest {
+    pub fn new(program_id: ProgramId) -> Self {
         Self {
             program_id,
             event_name: None,
+            duration: None,
             priority: Priority::UNSPECIFIED,
-            targets: None,
+            targets: vec![],
             report_descriptors: None,
             payload_descriptors: None,
             interval_period: None,
-            intervals,
+            intervals: None,
         }
     }
 
@@ -79,8 +85,8 @@ impl EventContent {
         Self { priority, ..self }
     }
 
-    pub fn with_targets(mut self, targets: TargetMap) -> Self {
-        self.targets = Some(targets);
+    pub fn with_targets(mut self, targets: Vec<Target>) -> Self {
+        self.targets = targets;
         self
     }
 
@@ -103,7 +109,7 @@ impl EventContent {
     }
 
     pub fn with_intervals(mut self, intervals: Vec<EventInterval>) -> Self {
-        self.intervals = intervals;
+        self.intervals = Some(intervals);
         self
     }
 }
@@ -191,7 +197,9 @@ impl From<Priority> for Option<i64> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventPayloadDescriptor {
-    /// Enumerated or private string signifying the nature of values.
+    /// Represents the nature of values.
+    ///
+    /// See enumerations in Definitions for defined string values, or use privately defined strings
     pub payload_type: EventType,
     /// Units of measure.
     pub units: Option<Unit>,
@@ -392,18 +400,19 @@ mod tests {
 
     #[test]
     fn parse_minimal() {
-        let example = r#"{"programID":"foo","intervals":[]}"#;
+        let example = r#"{"programID":"foo"}"#;
         assert_eq!(
-            serde_json::from_str::<EventContent>(example).unwrap(),
-            EventContent {
+            serde_json::from_str::<EventRequest>(example).unwrap(),
+            EventRequest {
                 program_id: ProgramId("foo".parse().unwrap()),
                 event_name: None,
+                duration: None,
                 priority: Priority::MIN,
-                targets: None,
+                targets: vec![],
                 report_descriptors: None,
                 payload_descriptors: None,
                 interval_period: None,
-                intervals: vec![],
+                intervals: None,
             }
         );
     }
@@ -417,6 +426,7 @@ mod tests {
                                     "objectType": "EVENT",
                                     "programID": "object-999",
                                     "eventName": "price event 11-18-2022",
+                                    "duration": "PT1H",
                                     "priority": 0,
                                     "targets": null,
                                     "reportDescriptors": null,
@@ -450,9 +460,10 @@ mod tests {
             id: EventId("object-999-foo".parse().unwrap()),
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
-            content: EventContent {
+            content: EventRequest {
                 program_id: ProgramId("object-999".parse().unwrap()),
                 event_name: Some("price event 11-18-2022".into()),
+                duration: Some(Duration::PT1H),
                 priority: Priority::MAX,
                 targets: Default::default(),
                 report_descriptors: None,
@@ -462,7 +473,7 @@ mod tests {
                     duration: Some(Duration::PT1H),
                     randomize_start: Some(Duration::PT1H),
                 }),
-                intervals: vec![EventInterval {
+                intervals: Some(vec![EventInterval {
                     id: 0,
                     interval_period: Some(IntervalPeriod {
                         start: "2023-06-15T09:30:00Z".parse().unwrap(),
@@ -473,7 +484,7 @@ mod tests {
                         value_type: EventType::Price,
                         values: vec![Value::Number(0.17)],
                     }],
-                }],
+                }]),
             },
         };
 

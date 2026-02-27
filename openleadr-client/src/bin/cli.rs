@@ -1,20 +1,20 @@
-use openleadr_client::ClientCredentials;
-use openleadr_wire::program::ProgramContent;
+// use openleadr_client::ClientCredentials;
+// use openleadr_wire::program::ProgramRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let reqwest_client = reqwest::Client::new();
-    let client = openleadr_client::Client::with_details(
-        "http://localhost:3000/".try_into()?,
-        "http://localhost:8080/token".try_into()?,
-        reqwest_client,
-        Some(ClientCredentials::new(
-            "admin".to_string(),
-            "admin".to_string(),
-        )),
-    );
-
-    let _created_program = client.create_program(ProgramContent::new("name")).await?;
+    // let reqwest_client = reqwest::Client::new();
+    // let client = openleadr_client::Client::with_details(
+    //     "http://localhost:3000/".try_into()?,
+    //     "http://localhost:8080/token".try_into()?,
+    //     reqwest_client,
+    //     Some(ClientCredentials::new(
+    //         "admin".to_string(),
+    //         "admin".to_string(),
+    //     )),
+    // );
+    //
+    // let _created_program = client.create_program(ProgramRequest::new("name")).await?;
     // let created_program_1 = client.create_program(ProgramContent::new("name1")).await?;
     // let program = client.get_program_by_name("name").await?;
     // let created_event = program

@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT u.id,\n                   u.reference,\n                   u.description,\n                   u.created,\n                   u.modified,\n                   u.scopes as \"scope:Vec<Scope>\",\n                   array_agg(DISTINCT c.client_id) FILTER ( WHERE c.client_id IS NOT NULL ) AS \"client_ids!:Vec<ClientId>\"\n            FROM \"user\" u\n                     LEFT JOIN user_credentials c ON c.user_id = u.id\n            GROUP BY u.id,\n                     u.created\n            ORDER BY u.created\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "reference",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "modified",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "scope:Vec<Scope>",
+        "type_info": {
+          "Custom": {
+            "name": "scope[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "scope",
+                  "kind": {
+                    "Enum": [
+                      "read_all",
+                      "read_targets",
+                      "read_ven_objects",
+                      "write_programs",
+                      "write_events",
+                      "write_reports",
+                      "write_subscriptions",
+                      "write_vens",
+                      "write_users"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "client_ids!:Vec<ClientId>",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "251fb8e67fc43a107167e3b643ec293abc039a856ac900fcb02ce5d68c24649c"
+}

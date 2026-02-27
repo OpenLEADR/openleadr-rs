@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO program (id,\n                                 created_date_time,\n                                 modification_date_time,\n                                 program_name,\n                                 interval_period,\n                                 program_descriptions,\n                                 payload_descriptors,\n                                 targets,\n                                 attributes)\n            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4, $5, $6)\n            RETURNING id,\n                      created_date_time,\n                      modification_date_time,\n                      program_name,\n                      interval_period,\n                      program_descriptions,\n                      payload_descriptors,\n                      targets as  \"targets:Vec<Target>\",\n                      attributes\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "program_descriptions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "TextArray",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "289c76c48409acbf97d58349825ee4e4dca0093bb01e84ee66a6b4a0778ddc15"
+}

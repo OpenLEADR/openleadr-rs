@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets AS \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE\n              -- IF filter targets are empty, do not filter.\n              -- IF filter targets are not empty, filter only if they are in the program targets.\n              ($1::text[] IS NULL OR p.targets @> $1)\n            ORDER BY created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "program_descriptions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "0e6ff7995b5e279abc600120d4e6fccefda7bb84f7727308268bb7e0218ea002"
+}

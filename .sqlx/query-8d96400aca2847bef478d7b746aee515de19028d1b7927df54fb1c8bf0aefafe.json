@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                v.id AS \"id!\",\n                v.created_date_time AS \"created_date_time!\",\n                v.modification_date_time AS \"modification_date_time!\",\n                v.ven_name AS \"ven_name!\",\n                v.attributes,\n                v.targets as \"targets:Vec<Target>\",\n                v.client_id\n            FROM ven v\n            WHERE ($1::text IS NULL OR v.ven_name = $1)\n              AND ($2::text[] IS NULL OR v.targets @> $2)\n              AND ($3::text IS NULL OR v.client_id = $3)\n            ORDER BY v.created_date_time DESC\n            OFFSET $4 LIMIT $5\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "ven_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "client_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "8d96400aca2847bef478d7b746aee515de19028d1b7927df54fb1c8bf0aefafe"
+}

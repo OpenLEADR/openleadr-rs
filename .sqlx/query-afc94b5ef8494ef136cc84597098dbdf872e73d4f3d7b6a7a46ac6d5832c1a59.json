@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT resource.targets\n            FROM ven\n                     JOIN resource ON ven.id = resource.ven_id\n            WHERE ven.client_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "targets",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "afc94b5ef8494ef136cc84597098dbdf872e73d4f3d7b6a7a46ac6d5832c1a59"
+}

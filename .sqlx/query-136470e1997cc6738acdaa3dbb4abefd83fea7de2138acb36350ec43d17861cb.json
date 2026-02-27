@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM report r\n                   WHERE r.id = $1\n                     AND r.client_id = $2\n                   RETURNING r.*\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "report_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "resources",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "client_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "136470e1997cc6738acdaa3dbb4abefd83fea7de2138acb36350ec43d17861cb"
+}

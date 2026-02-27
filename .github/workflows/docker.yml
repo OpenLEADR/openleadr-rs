@@ -6,6 +6,10 @@ permissions:
 
 on:
   push:
+    tags:
+      - '*'
+    branches:
+      - '*'
 
 jobs:
   build-docker:
@@ -23,10 +27,18 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: echo "tag=${{ env.tag }},ghcr.io/openleadr/openleadr-rs:main" >> $GITHUB_ENV
       - name: "explicit release tags & 'latest' tag"
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         run: |
-          REF=${{ github.ref }}
-          echo "tag=${{ env.tag }},ghcr.io/openleadr/openleadr-rs:${REF:11},ghcr.io/openleadr/openleadr-rs:latest" >> $GITHUB_ENV
+          REF_NAME=${{ github.ref_name }}
+          TAGS="${{ env.tag }},ghcr.io/openleadr/openleadr-rs:${REF_NAME}"
+          if [[ $REF_NAME =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable release detected. Adding 'latest' tag."
+            TAGS="${TAGS},ghcr.io/openleadr/openleadr-rs:latest"
+          else
+            echo "Pre-release or non-standard tag detected. Skipping 'latest'."
+          fi
+          
+          echo "tag=${TAGS}" >> $GITHUB_ENV
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:

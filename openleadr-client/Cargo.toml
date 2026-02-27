@@ -1,6 +1,6 @@
 [package]
 name = "openleadr-client"
-description = "OpenADR 3.0 client"
+description = "OpenADR 3.1 client"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
@@ -10,6 +10,10 @@ homepage.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
+
+[[example]]
+name = "discover_vtns"
+required-features = ["mdns"]
 
 [dependencies]
 openleadr-wire.workspace = true
@@ -21,6 +25,7 @@ reqwest.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
+tracing-subscriber.workspace = true
 http-body-util.workspace = true
 tower.workspace = true
 
@@ -30,11 +35,15 @@ rangemap.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
 
+mdns-sd = { workspace = true, optional = true }
+
+[features]
+mdns = ["dep:mdns-sd"]
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 openleadr-vtn.workspace = true
 tokio-test.workspace = true
-mime.workspace = true
 sqlx.workspace = true
 serial_test.workspace = true
 dotenvy.workspace = true

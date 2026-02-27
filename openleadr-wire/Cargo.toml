@@ -1,6 +1,6 @@
 [package]
 name = "openleadr-wire"
-description = "Encode and decode OpenADR 3.0 messages that go over the wire"
+description = "Encode and decode OpenADR 3.1 messages that go over the wire"
 readme = "../README.md"
 version.workspace = true
 edition.workspace = true
@@ -18,8 +18,11 @@ serde_with.workspace  = true
 iso8601-duration.workspace = true
 thiserror.workspace = true
 http.workspace = true
+url.workspace = true
 validator.workspace = true
 iso_currency.workspace = true
+derive_more.workspace = true
+sqlx.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
