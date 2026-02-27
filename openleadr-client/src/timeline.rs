@@ -58,7 +58,7 @@ impl Timeline {
     /// ```
     ///
     /// This function logs at `warn` level if provided with an [`Event`](crate::Event)
-    /// those [`program_id`](crate::EventContent::program_id) does not match with the [`Program::id`].
+    /// those [`program_id`](openleadr_wire::event::EventRequest::program_id) does not match with the [`Program::id`].
     /// The corresponding event will be ignored then building the timeline.
     ///
     /// This function also logs at `warn`

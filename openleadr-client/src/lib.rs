@@ -1,4 +1,6 @@
 #![warn(missing_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
 
 //! # OpenADR 3.1 VEN client
 //!
@@ -52,6 +54,7 @@
 
 mod error;
 mod event;
+#[cfg(feature = "mdns")]
 mod mdns;
 mod program;
 mod report;
@@ -75,6 +78,7 @@ use url::Url;
 
 pub use error::*;
 pub use event::*;
+#[cfg(feature = "mdns")]
 pub use mdns::*;
 pub use program::*;
 pub use report::*;
@@ -408,7 +412,7 @@ pub struct PaginationOptions {
 /// Filter based on Target as specified for various items.
 ///
 /// **Please note:** This does only filter based on what is stored in the `target` field of an item
-/// (e.g., [`ProgramContent::targets`]) and should not get interpreted by the server.
+/// (e.g., [`ProgramRequest::targets`]) and should not get interpreted by the server.
 ///
 /// Unfortunately, the specification is not very clear about this behavior,
 /// so some servers might interpret it differently.
@@ -418,7 +422,7 @@ pub struct PaginationOptions {
 pub enum Filter<'a, S: AsRef<str>> {
     /// Do not apply any filtering
     None,
-    /// Filter by [`Target`] and a list of values.
+    /// Filter a list of [`Target`](openleadr_wire::target::Target).
     ///
     /// It will be encoded to the request as query parameters,
     /// e.g., `/programs?targets=group-1&targets=group-2`.
@@ -585,7 +589,7 @@ impl<K: ClientKind> Client<K> {
 
     /// Low-level operation that gets a list of events from the VTN with the given query parameters
     ///
-    /// To automatically iterate pages, use [`self.get_event_list`]
+    /// To automatically iterate pages, use [`self.get_event_list`](Self::get_event_list)
     pub async fn get_events(
         &self,
         program_id: Option<&ProgramId>,
@@ -683,7 +687,7 @@ impl<K: ClientKind> Client<K> {
     }
 
     /// Get VEN by name from VTN.
-    /// According to the spec, a [`ven_name`](VenContent::ven_name) must be unique for the whole VTN instance.
+    /// According to the spec, a [`ven_name`](BlVenRequest::ven_name) must be unique for the whole VTN instance.
     pub async fn get_ven_by_name(&self, name: &str) -> Result<VenClient<K>> {
         let mut vens: Vec<Ven> = self.client_ref.get("vens", &[("venName", name)]).await?;
         match vens[..] {

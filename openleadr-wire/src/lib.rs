@@ -1,3 +1,6 @@
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
+
 //! Wire format definitions for OpenADR endpoints
 //!
 //! The types in this module model the messages sent over the wire in OpenADR 3.0.

@@ -3,7 +3,7 @@
 ![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg?branch=main)
 ![Crates.io Version](https://img.shields.io/crates/v/openleadr-vtn)
 
-# OpenADR 3.0 VTN server in Rust
+# OpenADR 3.1 VTN server in Rust
 
 ![LF energy OpenLEADR logo](../openleadr-logo.svg)
 

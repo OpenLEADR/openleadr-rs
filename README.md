@@ -4,18 +4,16 @@
 ![codecov](https://codecov.io/gh/OpenLEADR/openleadr-rs/graph/badge.svg?token=BKQ0QW9G8H)
 [![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg)](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml)
 
-# OpenADR 3.0 and 3.1 in Rust
+# OpenADR 3.1 in Rust
 
 ![LF energy OpenLEADR logo](https://github.com/OpenLEADR/openleadr-rs/raw/refs/heads/main/openleadr-logo.svg)
 
 OpenADR is a protocol for automated demand-response in electricity grids, like dynamic pricing or load shedding. The [OpenADR alliance](https://www.openadr.org/) is responsible for the standard, which can be [downloaded](https://www.openadr.org/specification) free of charge.
 
-This repository contains an **OpenADR 3.0 client (VEN)** library and a **server (VTN)** implementation, both written in Rust.
+This repository contains an **OpenADR 3.1 client (VEN)** library and a **server (VTN)** implementation, both written in Rust.
 
-As of November 2025, **we've started implementing OpenADR 3.1** in the [`openadr3_1` branch](https://github.com/OpenLEADR/openleadr-rs/tree/openadr3_1).
-Once the changes are complete, we will merge them into the `main` branch and will discontinue support for OpenADR 3.0.
-
-Please note that the changes of 3.1 compared to 3.0 are not backwards compatible.
+From OpenLEADR version 0.2, we support OpenADR 3.1. Previous versions implement the OpenADR 3.0 standard.
+Please note that OpenADR 3.1 is not backwards compatible with OpenADR 3.0.
 At the moment, we don't plan to offer upgrade instructions as we don't expect a need for that.
 Feel free to reach out if this assumption seems wrong.
 
@@ -44,7 +42,7 @@ to produce a detailed OpenAPI specification of the VTN API we provide.
 
 Your machine needs a recent version of Rust installed.
 Please refer to the [official installation website](https://rustup.rs/) for instructions for your platform. To apply the database migrations, you also need the sqlx-cli installed.
-Simply run `cargo install sqlx-cli`. Additionally, you need `postgresql-client` installed (version 16 or newer).
+Simply run `cargo install sqlx-cli`. Additionally, you need `postgresql-client` installed (version 18 or newer).
 
 ### Docker compose
 

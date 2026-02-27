@@ -14,8 +14,8 @@ pub enum Error {
     DuplicateObject,
     /// Error if you try
     /// to create an event underneath a program
-    /// where the [`program_id`](crate::EventContent::program_id)
-    /// in the [`EventContent`](crate::EventContent)
+    /// where the [`program_id`](openleadr_wire::event::EventRequest::program_id)
+    /// in the [`EventContent`](openleadr_wire::event::EventRequest)
     /// does not match the program ID of the [`ProgramClient`](crate::ProgramClient),
     /// for example.
     InvalidParentObject,

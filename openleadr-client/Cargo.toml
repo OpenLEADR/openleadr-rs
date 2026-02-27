@@ -31,7 +31,10 @@ rangemap.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
 
-mdns-sd.workspace = true
+mdns-sd = { workspace = true, optional = true }
+
+[features]
+mdns = ["dep:mdns-sd"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

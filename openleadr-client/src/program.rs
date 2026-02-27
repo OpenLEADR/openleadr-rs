@@ -102,7 +102,7 @@ impl<K: ClientKind> ProgramClient<K> {
     /// Low-level operation that gets a list of events for this program from the VTN
     /// with the given query parameters.
     ///
-    /// To automatically iterate pages, use [`self.get_event_list`]
+    /// To automatically iterate pages, use [`self.get_event_list`](Self::get_event_list)
     pub async fn get_events_request(
         &self,
         filter: Filter<'_, impl AsRef<str>>,
