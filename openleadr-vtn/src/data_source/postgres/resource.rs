@@ -34,6 +34,7 @@ pub(crate) struct PostgresResource {
     attributes: Option<serde_json::Value>,
     targets: Vec<Target>,
     ven_id: String,
+    client_id: String,
 }
 
 impl TryFrom<PostgresResource> for Resource {
@@ -55,6 +56,7 @@ impl TryFrom<PostgresResource> for Resource {
 
         Ok(Self {
             id: value.id.parse()?,
+            client_id: value.client_id.parse()?,
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
             content: BlResourceRequest {
@@ -84,24 +86,27 @@ impl Crud for PgResourceStorage {
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
-            INSERT INTO resource (
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets
-            )
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
-            RETURNING
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets as "targets:Vec<Target>"
+            WITH new_resource AS (INSERT INTO resource (
+                                                        id,
+                                                        created_date_time,
+                                                        modification_date_time,
+                                                        resource_name,
+                                                        ven_id,
+                                                        attributes,
+                                                        targets
+                )
+                VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
+                RETURNING
+                    id,
+                    created_date_time,
+                    modification_date_time,
+                    resource_name,
+                    ven_id,
+                    attributes,
+                    targets as "targets:Vec<Target>")
+            SELECT new_resource.*, v.client_id
+            FROM new_resource
+                     JOIN ven v ON v.id = new_resource.ven_id;
             "#,
             new.resource_name,
             new.ven_id.as_str(),
@@ -130,7 +135,8 @@ impl Crud for PgResourceStorage {
                 r.resource_name,
                 r.ven_id,
                 r.attributes,
-                r.targets as "targets:Vec<Target>"
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             FROM resource r
                 JOIN ven v on r.ven_id = v.id
             WHERE r.id = $1
@@ -161,7 +167,8 @@ impl Crud for PgResourceStorage {
                 r.resource_name,
                 r.ven_id,
                 r.attributes,
-                r.targets as "targets:Vec<Target>"
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             FROM resource r
                 JOIN ven v on r.ven_id = v.id
             WHERE ($1::text IS NULL OR r.ven_id = $1)
@@ -234,7 +241,8 @@ impl Crud for PgResourceStorage {
                 r.resource_name,
                 r.ven_id,
                 r.attributes,
-                r.targets as "targets:Vec<Target>"
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             "#,
             id.as_str(),
             new.resource_name,
@@ -271,7 +279,8 @@ impl Crud for PgResourceStorage {
                 r.resource_name,
                 r.ven_id,
                 r.attributes,
-                r.targets as "targets:Vec<Target>"
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             "#,
             id.as_str(),
             client_id as _
@@ -346,6 +355,7 @@ mod test {
             .unwrap();
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].content.resource_name, "resource-1-name");
+        assert_eq!(resources[0].client_id, "ven-1-client-id".parse().unwrap());
 
         // Ensure a client cannot see resources of another client
         let resources = repo

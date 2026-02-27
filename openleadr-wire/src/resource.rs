@@ -4,7 +4,9 @@ use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
-use crate::{target::Target, values_map::ValuesMap, ven::VenId, Identifier, IdentifierError};
+use crate::{
+    target::Target, values_map::ValuesMap, ven::VenId, ClientId, Identifier, IdentifierError,
+};
 
 /// A resource is an energy device or system subject to control by a VEN.
 #[skip_serializing_none]
@@ -19,6 +21,11 @@ pub struct Resource {
     /// datetime in ISO 8601 format
     #[serde(with = "crate::serde_rfc3339")]
     pub modification_date_time: DateTime<Utc>,
+    /// The `clientID` is specified as a read-write field, but a duplicate of the `venID`.
+    /// Therefore, we include it as a read-only field here until it's completely removed.
+    // TODO remove as soon as https://github.com/oadr3-org/specification/pull/381 is resolved
+    #[serde(rename = "clientID")]
+    pub client_id: ClientId,
     #[serde(flatten)]
     #[validate(nested)]
     pub content: BlResourceRequest,
@@ -139,6 +146,7 @@ mod test {
 
         let expected = Resource {
             id: ResourceId("test-resource".parse().unwrap()),
+            client_id: "ven_client".parse().unwrap(),
             created_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             modification_date_time: "2023-06-15T09:30:00Z".parse().unwrap(),
             content: BlResourceRequest {

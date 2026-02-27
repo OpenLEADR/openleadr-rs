@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                r.id,\n                r.created_date_time,\n                r.modification_date_time,\n                r.resource_name,\n                r.ven_id,\n                r.attributes,\n                r.targets as \"targets:Vec<Target>\"\n            FROM resource r\n                JOIN ven v on r.ven_id = v.id\n            WHERE ($1::text IS NULL OR r.ven_id = $1)\n                AND ($2::text IS NULL OR r.resource_name = $2)\n                AND ($3::text[] IS NULL OR r.targets @> $3)\n                AND ($4::text IS NULL OR v.client_id = $4)\n            ORDER BY r.created_date_time\n            OFFSET $5 LIMIT $6\n            ",
+  "query": "\n            DELETE FROM resource r\n                   USING ven v\n            WHERE r.ven_id = v.id\n              AND r.id = $1\n              AND ($2::text IS NULL OR v.client_id = $2)\n            RETURNING\n                r.id,\n                r.created_date_time,\n                r.modification_date_time,\n                r.resource_name,\n                r.ven_id,\n                r.attributes,\n                r.targets as \"targets:Vec<Target>\",\n                v.client_id\n            ",
   "describe": {
     "columns": [
       {
@@ -37,16 +37,17 @@
         "ordinal": 6,
         "name": "targets:Vec<Target>",
         "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Text",
-        "TextArray",
-        "Text",
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -56,8 +57,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "baaf0c76fe5f404a0d827eb643ed9b7a9439378995936bc299aaf420a3be3a7f"
+  "hash": "1a05584efa5c402737772f3ef055bcb26f380ee0dee13ec9e6e2fdf09293a85c"
 }
