@@ -117,7 +117,7 @@ pub async fn delete(
     // The specification does only allow VEN clients to have write access to reports.
     // Therefore, we can safely filter for the client_id, as there is no specified use-case
     // where a BL client can delete a report.
-    // If a BL tried to delete a report, it would either fail by not having the `write_reports` scope or because it
+    // If a BL tried to delete a report, it would either fail by not having the `write_reports` scope
     // or because the BLs client_id does not match the reports client_id.
     let report = if user.scope.contains(Scope::WriteReports) {
         report_source.delete(&id, &Some(user.client_id()?)).await?

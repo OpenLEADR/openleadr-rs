@@ -1,5 +1,3 @@
-#![cfg(feature = "mdns")]
-
 use openleadr_client::{discover_local_vtns, DiscoveredVtn};
 use tracing::info;
 

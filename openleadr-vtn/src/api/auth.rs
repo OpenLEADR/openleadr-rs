@@ -13,11 +13,12 @@ use validator::Validate;
 
 use crate::error::AppError;
 use axum::{
-    http::{header::AUTHORIZATION, HeaderMap, Response, StatusCode},
+    http::{Response, StatusCode},
     response::IntoResponse,
     Json,
 };
-use axum_extra::headers::{authorization::Bearer, Header};
+#[cfg(feature = "internal-oauth")]
+use axum_extra::headers::Header;
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
 use reqwest::header;
 
@@ -70,6 +71,7 @@ impl From<OAuthError> for ResponseOAuthError {
     }
 }
 
+#[cfg(feature = "internal-oauth")]
 #[derive(Debug, serde::Serialize)]
 pub struct AccessTokenResponse {
     access_token: String,
@@ -79,6 +81,7 @@ pub struct AccessTokenResponse {
     scope: Option<String>,
 }
 
+#[cfg(feature = "internal-oauth")]
 impl IntoResponse for AccessTokenResponse {
     fn into_response(self) -> Response<axum::body::Body> {
         IntoResponse::into_response((StatusCode::OK, Json(self)))
@@ -90,7 +93,7 @@ impl IntoResponse for AccessTokenResponse {
 pub(crate) async fn token(
     State(auth_source): State<Arc<dyn AuthSource>>,
     State(jwt_manager): State<Arc<JwtManager>>,
-    headers: HeaderMap,
+    headers: axum::http::HeaderMap,
     ValidatedForm(request): ValidatedForm<AccessTokenRequest>,
 ) -> Result<AccessTokenResponse, ResponseOAuthError> {
     if request.grant_type != "client_credentials" {
@@ -100,13 +103,17 @@ pub(crate) async fn token(
     }
 
     let mut auth_header = None;
-    if let Some(header) = headers.get(AUTHORIZATION) {
+    if let Some(header) = headers.get(axum::http::header::AUTHORIZATION) {
         if let Ok(basic_auth) = Authorization::<Basic>::decode(&mut [header].into_iter()) {
             auth_header = Some((
                 basic_auth.username().to_string(),
                 basic_auth.password().to_string(),
             ))
-        } else if Authorization::<Bearer>::decode(&mut [header].into_iter()).is_ok() {
+        } else if Authorization::<axum_extra::headers::authorization::Bearer>::decode(
+            &mut [header].into_iter(),
+        )
+        .is_ok()
+        {
             trace!("login request contained Bearer token which got ignored")
         }
     }

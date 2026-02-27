@@ -11,6 +11,10 @@ publish.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
 
+[[example]]
+name = "discover_vtns"
+required-features = ["mdns"]
+
 [dependencies]
 openleadr-wire.workspace = true
 

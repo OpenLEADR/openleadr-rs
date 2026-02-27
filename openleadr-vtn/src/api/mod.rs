@@ -1,11 +1,8 @@
 use crate::{error::AppError, state::AppState};
 use axum::{
-    extract::{
-        rejection::{FormRejection, JsonRejection},
-        FromRequest, FromRequestParts, Request, State,
-    },
+    extract::{rejection::JsonRejection, FromRequest, FromRequestParts, Request, State},
     response::IntoResponse,
-    Form, Json,
+    Json,
 };
 use axum_extra::extract::{Query, QueryRejection};
 use openleadr_wire::target::Target;
@@ -25,6 +22,7 @@ pub(crate) mod ven;
 
 pub(crate) type AppResponse<T> = Result<Json<T>, AppError>;
 
+#[cfg(feature = "internal-oauth")]
 #[derive(Debug, Clone)]
 pub(crate) struct ValidatedForm<T>(T);
 
@@ -78,16 +76,17 @@ where
     }
 }
 
+#[cfg(feature = "internal-oauth")]
 impl<T, S> FromRequest<S> for ValidatedForm<T>
 where
     T: DeserializeOwned + Validate,
     S: Send + Sync,
-    Form<T>: FromRequest<S, Rejection = FormRejection>,
+    axum::extract::Form<T>: FromRequest<S, Rejection = axum::extract::rejection::FormRejection>,
 {
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let Form(value) = Form::<T>::from_request(req, state).await?;
+        let axum::extract::Form(value) = axum::extract::Form::<T>::from_request(req, state).await?;
         value.validate()?;
         Ok(ValidatedForm(value))
     }
