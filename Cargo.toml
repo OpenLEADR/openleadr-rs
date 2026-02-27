@@ -9,7 +9,7 @@ exclude = []
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.2.0-rc1"
 edition = "2021"
 rust-version = "1.91" # MSRV
 license = "Apache-2.0 OR MIT"
@@ -20,9 +20,9 @@ description = "An OpenADR 3.1 VTN/VEN implementation"
 keywords = ["energy", "openadr", "lf-energy"]
 
 [workspace.dependencies]
-openleadr-wire = { version = "0.1.3", path = "openleadr-wire" }
-openleadr-vtn = { version = "0.1.3", path = "openleadr-vtn" }
-openleadr-client = { version = "0.1.3", path = "openleadr-client" }
+openleadr-wire = { version = "0.2.0-rc1", path = "openleadr-wire" }
+openleadr-vtn = { version = "0.2.0-rc1", path = "openleadr-vtn" }
+openleadr-client = { version = "0.2.0-rc1", path = "openleadr-client" }
 
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
