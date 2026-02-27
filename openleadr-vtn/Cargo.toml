@@ -45,7 +45,7 @@ derive_more.workspace = true
 sqlx = { workspace = true, optional = true }
 argon2 = { workspace = true, optional = true }
 dotenvy = { workspace = true, optional = true }
-mdns-sd.workspace = true
+mdns-sd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -53,10 +53,11 @@ serial_test.workspace = true
 serde_html_form = "0.4.0"
 
 [features]
-default = ["postgres", "live-db-test", "internal-oauth", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd"]
+default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd"]
 live-db-test = ["postgres", "internal-oauth"]
 postgres = ["sqlx/postgres", "dep:dotenvy", "dep:argon2"]
 internal-oauth = []
+mdns = ["dep:mdns-sd"]
 compression-br = ["tower-http/compression-br"]
 compression-deflate = ["tower-http/compression-deflate"]
 compression-gzip = ["tower-http/compression-gzip"]

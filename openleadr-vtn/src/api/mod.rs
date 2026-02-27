@@ -102,7 +102,6 @@ pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoR
 }
 
 #[cfg(test)]
-#[cfg(feature = "live-db-test")]
 pub mod test {
     use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState};
     use axum::{

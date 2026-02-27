@@ -76,6 +76,26 @@ Therefore, run
 cargo build/run --bin openleadr-vtn --no-default-features --features=postgres [--release]
 ```
 
+### Testing
+To run the tests, you need to start a postgres database and run the migrations:
+```bash
+docker compose up -d db
+cargo sqlx migrate run
+# alternatively, you can also reset the database to an empty state
+cargo sqlx db reset
+```
+
+Make sure the VTN has the necessary user accounts prepared to run the client (VEN) tests.
+For that, please apply the corresponding fixture
+```bash
+psql postgres://openadr:openadr@localhost:5432/openadr < fixtures/users.sql
+```
+
+Then, run the tests with the `live-db-test` feature enabled
+```bash
+cargo test --features=live-db-test [--workspace]
+```
+
 ### Note on prepared SQL
 
 This workspace uses SQLX macro to type check SQL statements.

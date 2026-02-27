@@ -2,6 +2,7 @@ mod api;
 pub mod data_source;
 mod error;
 pub mod jwt;
+#[cfg(feature = "mdns")]
 pub mod mdns;
 pub mod state;
 
@@ -9,10 +10,8 @@ pub mod state;
 use crate::data_source::PostgresStorage;
 use crate::{data_source::Migrate, state::AppState};
 
-use crate::mdns::register_mdns_vtn_service;
-use mdns_sd::{ServiceDaemon, ServiceEvent};
 use tokio::net::TcpListener;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[derive(Clone, Debug)]
 pub struct VtnConfig {
@@ -59,7 +58,8 @@ impl VtnConfig {
 }
 
 pub struct VtnServer {
-    pub mdns_handle: ServiceDaemon,
+    #[cfg(feature = "mdns")]
+    pub mdns_handle: mdns_sd::ServiceDaemon,
     pub router: axum::Router,
     pub listener: TcpListener,
     pub config: VtnConfig,
@@ -94,9 +94,11 @@ impl VtnServer {
         ))]
         let router = router.layer(tower_http::compression::CompressionLayer::new());
 
-        let mdns_handle = register_mdns_vtn_service(&config).await;
+        #[cfg(feature = "mdns")]
+        let mdns_handle = crate::mdns::register_mdns_vtn_service(&config).await;
 
         Ok(VtnServer {
+            #[cfg(feature = "mdns")]
             mdns_handle,
             router,
             listener,
@@ -105,6 +107,7 @@ impl VtnServer {
     }
 
     /// Wait for mDNS service to become discoverable
+    #[cfg(feature = "mdns")]
     pub async fn wait_for_mdns_ready(
         &self,
         timeout: tokio::time::Duration,
@@ -118,13 +121,13 @@ impl VtnServer {
             tokio::select! {
                 event = async { receiver.recv_async().await } => {
                     match event {
-                        Ok(ServiceEvent::ServiceResolved(info)) => {
+                        Ok(mdns_sd::ServiceEvent::ServiceResolved(info)) => {
                             if info.get_fullname().contains(&self.config.mdns_server_name) {
                                 return Ok(true);
                             }
                         },
                         Ok(_) => continue,
-                        Err(e) => error!("Error receiving event: {:?}", e),
+                        Err(e) => tracing::error!("Error receiving event: {:?}", e),
                     }
                 }
                 _ = tokio::time::sleep_until(tokio::time::Instant::now() + timeout) => { return Ok(false) }
@@ -132,6 +135,7 @@ impl VtnServer {
         }
     }
 
+    #[cfg(feature = "mdns")]
     pub async fn shutdown(self) {
         self.mdns_handle.shutdown().ok();
     }

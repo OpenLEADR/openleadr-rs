@@ -1,8 +1,12 @@
+#[cfg(feature = "mdns")]
 use openleadr_client::{discover_local_vtns, DiscoveredVtn};
+#[cfg(feature = "mdns")]
 use openleadr_vtn::{VtnConfig, VtnServer};
+#[cfg(feature = "mdns")]
 use tokio::{sync::oneshot, time::Duration};
 
 #[tokio::test]
+#[cfg(feature = "mdns")]
 async fn test_vtn_client_mdns_discovery() {
     let vtn_config = VtnConfig {
         port: 3999,
