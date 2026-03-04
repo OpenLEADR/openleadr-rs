@@ -35,6 +35,7 @@ impl NotifierState {
             .retrieve_all(
                 &QueryParams {
                     program_id: None,
+                    client_name: None,
                     objects: None,
                     skip: 0,
                     limit: i64::MAX,
@@ -207,6 +208,8 @@ pub async fn delete(
 pub struct QueryParams {
     #[serde(rename = "programID")]
     pub(crate) program_id: Option<ProgramId>,
+    #[validate(length(min = 1, max = 128))]
+    pub(crate) client_name: Option<String>,
     pub(crate) objects: Option<Vec<ObjectType>>,
     #[serde(default)]
     #[validate(range(min = 0))]

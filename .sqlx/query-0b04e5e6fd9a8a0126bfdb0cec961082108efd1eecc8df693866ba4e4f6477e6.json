@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                client_id,\n                client_name,\n                program_id,\n                object_operations\n            FROM subscription\n            WHERE ($1::text IS NULL OR client_id = $1)\n            ORDER BY created_date_time\n            OFFSET $2 LIMIT $3\n            ",
+  "query": "\n            SELECT\n                id,\n                created_date_time,\n                modification_date_time,\n                client_id,\n                client_name,\n                program_id,\n                object_operations\n            FROM subscription\n            WHERE ($1::text IS NULL OR client_id = $1)\n              AND ($1::text IS NULL OR client_name = $2)\n            ORDER BY created_date_time\n            OFFSET $3 LIMIT $4\n            ",
   "describe": {
     "columns": [
       {
@@ -42,6 +42,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Text",
         "Int8",
         "Int8"
       ]
@@ -56,5 +57,5 @@
       true
     ]
   },
-  "hash": "64b87a84d0ff5842cf34fa12d22f60d51777f699bcd44044739b8743de15589a"
+  "hash": "0b04e5e6fd9a8a0126bfdb0cec961082108efd1eecc8df693866ba4e4f6477e6"
 }

@@ -166,10 +166,12 @@ impl Crud for PgSubscriptionStorage {
                 object_operations
             FROM subscription
             WHERE ($1::text IS NULL OR client_id = $1)
+              AND ($1::text IS NULL OR client_name = $2)
             ORDER BY created_date_time
-            OFFSET $2 LIMIT $3
+            OFFSET $3 LIMIT $4
             "#,
             client_id as _,
+            filter.client_name,
             filter.skip,
             filter.limit,
         )
@@ -264,6 +266,7 @@ mod test {
         fn default() -> Self {
             Self {
                 program_id: None,
+                client_name: None,
                 objects: None,
                 skip: 0,
                 limit: 50,
