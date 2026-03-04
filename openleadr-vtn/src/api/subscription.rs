@@ -219,3 +219,32 @@ pub struct QueryParams {
 fn get_50() -> i64 {
     50
 }
+
+#[cfg(test)]
+mod test {
+    use axum::body::Body;
+    use openleadr_wire::problem::Problem;
+    use reqwest::{Method, StatusCode};
+    use sqlx::PgPool;
+
+    use crate::{api::test::ApiTest, jwt::Scope};
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn empty_object_operations_not_allowed(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "bl-client",
+            vec![Scope::WriteSubscriptions, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Problem>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(r#"{"clientName": "ven-1-name", "objectOperations": []}"#),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST)
+    }
+}
