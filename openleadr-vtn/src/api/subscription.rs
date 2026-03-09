@@ -12,7 +12,7 @@ use openleadr_wire::{
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::sync::Mutex;
-use tracing::{info, trace};
+use tracing::{error, info, trace};
 use validator::Validate;
 
 use crate::{
@@ -61,6 +61,17 @@ pub async fn get_all(
     User(user): User,
 ) -> AppResponse<Vec<Subscription>> {
     trace!(?query_params);
+
+    // FIXME update retrieve_all implementation when removing this
+    if query_params.objects.as_deref().unwrap_or(&[]).len() > 1 {
+        let error = "Tried to filter subscriptions by multiple object types. \
+            This is not allowed in the current version of openLEADR as the specification \
+            is not quite clear about if this should require all or any of the object types \
+            to apply to subscriptions. If you have a use case for either option, please \
+            open an issue on GitHub.";
+        error!("{}", error);
+        return Err(AppError::BadRequest(error));
+    }
 
     let resources = if user.scope.contains(Scope::ReadAll) {
         subscription_source
@@ -226,7 +237,7 @@ fn get_50() -> i64 {
 #[cfg(test)]
 mod test {
     use axum::body::Body;
-    use openleadr_wire::problem::Problem;
+    use openleadr_wire::{problem::Problem, subscription::Subscription};
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
@@ -248,6 +259,105 @@ mod test {
                 Body::from(r#"{"clientName": "ven-1-name", "objectOperations": []}"#),
             )
             .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST)
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn subscription_search(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "bl-client",
+            vec![Scope::WriteSubscriptions, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+  "clientName": "myClient",
+  "objectOperations": [{
+    "mechanism": "WEBSOCKET",
+    "operations": [
+      "CREATE",
+      "UPDATE"
+    ],
+    "objects": [
+      "EVENT",
+      "PROGRAM"
+    ]
+  }]
+}"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, _) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+  "clientName": "myClient",
+  "objectOperations": [{
+    "mechanism": "WEBSOCKET",
+    "operations": [
+      "CREATE",
+      "UPDATE"
+    ],
+    "objects": [
+      "EVENT",
+      "RESOURCE"
+    ]
+  }]
+}"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscriptions.len(), 2);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(
+                Method::GET,
+                "/subscriptions?objects=EVENT",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscriptions.len(), 2);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(
+                Method::GET,
+                "/subscriptions?objects=RESOURCE",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscriptions.len(), 1);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(
+                Method::GET,
+                "/subscriptions?objects=REPORT",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscriptions.len(), 0);
+
+        let (status, _) = server
+            .request::<Problem>(Method::GET, "/subscriptions?objects=INVALID", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }
