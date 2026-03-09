@@ -428,6 +428,13 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 
 #[cfg(test)]
 mod test {
+    use openleadr_wire::{
+        subscription::{Subscription, SubscriptionId, SubscriptionRequest},
+        ClientId,
+    };
+
+    use crate::data_source::Crud;
+
     use super::*;
 
     struct MockDataSource {}
@@ -457,7 +464,7 @@ mod test {
         }
 
         fn subscriptions(&self) -> Arc<dyn SubscriptionCrud> {
-            unimplemented!()
+            Arc::new(MockSubscriptionSource)
         }
 
         #[cfg(feature = "internal-oauth")]
@@ -469,6 +476,61 @@ mod test {
             unimplemented!()
         }
     }
+
+    struct MockSubscriptionSource;
+
+    #[async_trait::async_trait]
+    impl Crud for MockSubscriptionSource {
+        type Type = Subscription;
+        type Id = SubscriptionId;
+        type NewType = SubscriptionRequest;
+        type Error = AppError;
+        type Filter = subscription::QueryParams;
+        type PermissionFilter = Option<ClientId>;
+
+        async fn create(
+            &self,
+            _new: Self::NewType,
+            _client_id: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+
+        async fn retrieve(
+            &self,
+            _id: &Self::Id,
+            _client_id: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+
+        async fn retrieve_all(
+            &self,
+            _filter: &Self::Filter,
+            _client_id: &Self::PermissionFilter,
+        ) -> Result<Vec<Self::Type>, Self::Error> {
+            Ok(vec![])
+        }
+
+        async fn update(
+            &self,
+            _id: &Self::Id,
+            _new: Self::NewType,
+            _client_id: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+
+        async fn delete(
+            &self,
+            _id: &Self::Id,
+            _client_id: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+    }
+
+    impl SubscriptionCrud for MockSubscriptionSource {}
 
     mod state_from_env_var {
         use super::*;
