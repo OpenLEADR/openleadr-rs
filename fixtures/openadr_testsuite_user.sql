@@ -15,7 +15,7 @@ INSERT INTO "user" (id, reference, description, scopes, created, modified)
 VALUES ('ven_user',
         'ven_test_user',
         null,
-        '{"read_targets", "write_reports", "write_subscriptions", "write_vens"}',
+        '{"read_targets", "read_ven_objects", "write_reports", "write_subscriptions", "write_vens"}',
         now(),
         now());
 

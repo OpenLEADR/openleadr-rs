@@ -6,7 +6,7 @@ services:
     ports:
       - ${VTN_PORT}:3000
     environment:
-      RUST_LOG: debug
+      RUST_LOG: openleadr_vtn=trace,sqlx=info,debug
       OAUTH_TOKEN_URL: http://localhost:3000/auth/token
       DATABASE_URL: postgres://openadr:openadr@db:5432/openadr
     depends_on:
