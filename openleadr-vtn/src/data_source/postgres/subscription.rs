@@ -167,16 +167,21 @@ impl Crud for PgSubscriptionStorage {
             FROM subscription
             WHERE ($1::text IS NULL OR client_id = $1)
               AND ($2::text IS NULL OR client_name = $2)
-              AND ($3::text IS NULL OR jsonb_path_exists(
+              AND ($3::text IS NULL OR program_id = $3 OR program_id IS NULL)
+              AND ($4::text IS NULL OR jsonb_path_exists(
                     object_operations,
                     '$[*].objects[*] ? (@ == $obj)',
-                    jsonb_build_object('obj', $3)
+                    jsonb_build_object('obj', $4)
                   ))
             ORDER BY created_date_time
-            OFFSET $4 LIMIT $5
+            OFFSET $5 LIMIT $6
             "#,
             client_id as _,
             filter.client_name,
+            filter
+                .program_id
+                .as_ref()
+                .map(|program_id| program_id.as_str()),
             // We check that at most one object is present in the api module
             filter.objects.as_ref().map(|objects| objects[0].as_str()),
             filter.skip,

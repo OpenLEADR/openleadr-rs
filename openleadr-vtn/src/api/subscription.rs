@@ -302,6 +302,7 @@ mod test {
                 Body::from(
                     r#"{
   "clientName": "myClient",
+  "programId": "PROGRAM-100",
   "objectOperations": [{
     "mechanism": "WEBSOCKET",
     "operations": [
@@ -359,5 +360,26 @@ mod test {
             .request::<Problem>(Method::GET, "/subscriptions?objects=INVALID", Body::empty())
             .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(
+                Method::GET,
+                "/subscriptions?programID=PROGRAM-100",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        // subscriptions without program id filter also match
+        assert_eq!(subscriptions.len(), 2);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(
+                Method::GET,
+                "/subscriptions?programID=PROGRAM-999999",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscriptions.len(), 2);
     }
 }
