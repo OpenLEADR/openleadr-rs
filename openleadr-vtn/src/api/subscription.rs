@@ -264,7 +264,7 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "users"))]
-    async fn subscription_search(db: PgPool) {
+    async fn get_many(db: PgPool) {
         let server = ApiTest::new(
             db,
             "ven-1-client-id",
@@ -371,4 +371,25 @@ mod test {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(subscriptions.len(), 2);
     }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn get_many_multiple_object_types_not_allowed(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptions, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Problem>(
+                Method::GET,
+                "/subscriptions?objects=PROGRAM&objects=RESOURCE",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    // FIXME add edit and delete tests
 }
