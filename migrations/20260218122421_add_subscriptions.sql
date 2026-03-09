@@ -5,7 +5,7 @@ create table subscription
             primary key,
     created_date_time      timestamptz not null,
     modification_date_time timestamptz not null,
-    client_id              text        not null references user_credentials (client_id),
+    client_id              text        not null references ven (client_id),
     client_name            text        not null,
     program_id             text,
     object_operations      jsonb

@@ -221,6 +221,7 @@ pub struct QueryParams {
     pub(crate) program_id: Option<ProgramId>,
     #[validate(length(min = 1, max = 128))]
     pub(crate) client_name: Option<String>,
+    #[validate(length(min = 0, max = 6))]
     pub(crate) objects: Option<Vec<ObjectType>>,
     #[serde(default)]
     #[validate(range(min = 0))]
@@ -247,7 +248,7 @@ mod test {
     async fn empty_object_operations_not_allowed(db: PgPool) {
         let server = ApiTest::new(
             db,
-            "bl-client",
+            "ven-1-client-id",
             vec![Scope::WriteSubscriptions, Scope::ReadAll],
         )
         .await;
@@ -266,7 +267,7 @@ mod test {
     async fn subscription_search(db: PgPool) {
         let server = ApiTest::new(
             db,
-            "bl-client",
+            "ven-1-client-id",
             vec![Scope::WriteSubscriptions, Scope::ReadAll],
         )
         .await;
@@ -277,19 +278,13 @@ mod test {
                 "/subscriptions",
                 Body::from(
                     r#"{
-  "clientName": "myClient",
-  "objectOperations": [{
-    "mechanism": "WEBSOCKET",
-    "operations": [
-      "CREATE",
-      "UPDATE"
-    ],
-    "objects": [
-      "EVENT",
-      "PROGRAM"
-    ]
-  }]
-}"#,
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE", "UPDATE"],
+                            "objects": ["EVENT", "PROGRAM"]
+                        }]
+                    }"#,
                 ),
             )
             .await;
@@ -301,20 +296,14 @@ mod test {
                 "/subscriptions",
                 Body::from(
                     r#"{
-  "clientName": "myClient",
-  "programId": "PROGRAM-100",
-  "objectOperations": [{
-    "mechanism": "WEBSOCKET",
-    "operations": [
-      "CREATE",
-      "UPDATE"
-    ],
-    "objects": [
-      "EVENT",
-      "RESOURCE"
-    ]
-  }]
-}"#,
+                        "clientName": "myClient",
+                        "programId": "PROGRAM-100",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE", "UPDATE"],
+                            "objects": ["EVENT", "RESOURCE"]
+                        }]
+                    }"#,
                 ),
             )
             .await;

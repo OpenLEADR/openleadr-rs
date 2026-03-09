@@ -293,7 +293,7 @@ mod test {
         let subscription = repo
             .retrieve_all(
                 &QueryParams::default(),
-                &Some("ven-client-client-id".parse().unwrap()),
+                &Some("ven-1-client-id".parse().unwrap()),
             )
             .await
             .unwrap();
@@ -303,7 +303,7 @@ mod test {
         let subscription = repo
             .retrieve_all(
                 &QueryParams::default(),
-                &Some("ven-client2-client-id".parse().unwrap()),
+                &Some("ven-2-client-id".parse().unwrap()),
             )
             .await
             .unwrap();

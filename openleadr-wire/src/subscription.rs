@@ -40,6 +40,7 @@ pub struct Subscription {
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionRequest {
     /// User generated identifier, may be VEN identifier provisioned out-of-band.
+    #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
     pub client_name: String,
 
     /// ID attribute of the program object this subscription is associated with.
@@ -47,7 +48,7 @@ pub struct SubscriptionRequest {
     pub program_id: Option<ProgramId>,
 
     /// list of objects and operations to subscribe to.
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1, max = 15))]
     pub object_operations: Vec<SubscriptionObjectOperation>,
     // /// A list of target objects. Used by server to filter notifications.
     // #[serde(default)]
