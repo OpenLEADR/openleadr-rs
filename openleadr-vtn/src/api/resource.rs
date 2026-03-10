@@ -4,13 +4,15 @@ use axum::{
     extract::{Path, State},
     Json,
 };
-use openleadr_wire::ven::VenId;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
+use openleadr_wire::{
+    resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest},
+    ven::VenId,
+};
 
 use crate::{
     api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
