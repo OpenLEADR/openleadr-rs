@@ -6,7 +6,7 @@ use axum::{
 };
 use openleadr_wire::{
     program::ProgramId,
-    subscription::{Subscription, SubscriptionId, SubscriptionRequest},
+    subscription::{AnyObject, Operation, Subscription, SubscriptionId, SubscriptionRequest},
     ObjectType,
 };
 use reqwest::StatusCode;
@@ -233,6 +233,14 @@ pub struct QueryParams {
 
 fn get_50() -> i64 {
     50
+}
+
+pub(crate) async fn notify(
+    _notifier_state: &NotifierState,
+    operation: Operation,
+    object: AnyObject,
+) {
+    trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 }
 
 #[cfg(test)]

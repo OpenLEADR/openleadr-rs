@@ -10,13 +10,17 @@ use tracing::{info, trace};
 use validator::Validate;
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{
+        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
+        ValidatedQuery,
+    },
     data_source::ProgramCrud,
     error::AppError,
     jwt::{Scope, User},
 };
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
+    subscription::{AnyObject, Operation},
     Program,
 };
 
@@ -77,6 +81,7 @@ pub async fn get(
 
 pub async fn add(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_program): ValidatedJson<ProgramRequest>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
@@ -95,11 +100,19 @@ pub async fn add(
         "program added"
     );
 
+    subscription::notify(
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Program(program.clone()),
+    )
+    .await;
+
     Ok((StatusCode::CREATED, Json(program)))
 }
 
 pub async fn edit(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ProgramId>,
     User(user): User,
     ValidatedJson(content): ValidatedJson<ProgramRequest>,
@@ -119,11 +132,19 @@ pub async fn edit(
         "program updated"
     );
 
+    subscription::notify(
+        &notifier_state,
+        Operation::Update,
+        AnyObject::Program(program.clone()),
+    )
+    .await;
+
     Ok(Json(program))
 }
 
 pub async fn delete(
     State(program_source): State<Arc<dyn ProgramCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ProgramId>,
     User(user): User,
 ) -> AppResponse<Program> {
@@ -133,6 +154,14 @@ pub async fn delete(
 
     let program = program_source.delete(&id, &Some(user.client_id()?)).await?;
     info!(%id, client_id = user.sub, "deleted program");
+
+    subscription::notify(
+        &notifier_state,
+        Operation::Delete,
+        AnyObject::Program(program.clone()),
+    )
+    .await;
+
     Ok(Json(program))
 }
 

@@ -11,11 +11,15 @@ use validator::Validate;
 
 use openleadr_wire::{
     resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest},
+    subscription::{AnyObject, Operation},
     ven::VenId,
 };
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{
+        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
+        ValidatedQuery,
+    },
     data_source::{ResourceCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
@@ -78,6 +82,7 @@ pub async fn get(
 
 pub async fn add(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     User(user): User,
     ValidatedJson(new_resource): ValidatedJson<ResourceRequest>,
@@ -126,11 +131,19 @@ pub async fn add(
         "resource added"
     );
 
+    subscription::notify(
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Resource(resource.clone()),
+    )
+    .await;
+
     Ok((StatusCode::CREATED, Json(resource)))
 }
 
 pub async fn edit(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<ResourceId>,
     User(user): User,
@@ -185,11 +198,19 @@ pub async fn edit(
         "resource updated"
     );
 
+    subscription::notify(
+        &notifier_state,
+        Operation::Update,
+        AnyObject::Resource(resource.clone()),
+    )
+    .await;
+
     Ok(Json(resource))
 }
 
 pub async fn delete(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ResourceId>,
     User(user): User,
 ) -> AppResponse<Resource> {
@@ -206,6 +227,14 @@ pub async fn delete(
     };
 
     info!(%id, client_id = user.sub, "deleted resource");
+
+    subscription::notify(
+        &notifier_state,
+        Operation::Delete,
+        AnyObject::Resource(resource.clone()),
+    )
+    .await;
+
     Ok(Json(resource))
 }
 
