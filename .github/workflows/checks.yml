@@ -59,7 +59,7 @@ jobs:
           targets: "${{ matrix.target }}"
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cfdb446e391c69574ebc316dfb7d7849ec12b940 # v2.68.8
+        uses: taiki-e/install-action@a37010ded18ff788be4440302bd6830b1ae50d8b # v2.68.25
         with:
           tool: cargo-llvm-cov
 
@@ -114,7 +114,7 @@ jobs:
           toolchain: nightly
 
       - name: Install udeps
-        uses: taiki-e/install-action@cfdb446e391c69574ebc316dfb7d7849ec12b940 # v2.68.8
+        uses: taiki-e/install-action@a37010ded18ff788be4440302bd6830b1ae50d8b # v2.68.25
         with:
           tool: cargo-udeps
 
@@ -177,7 +177,7 @@ jobs:
         run: cargo install --force --locked bindgen-cli
 
       - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@b8d1a322a6009a2b7220f53996695778eef89b41 # v1.38.0
+        uses: taiki-e/setup-cross-toolchain-action@20dbac418ca692fd1a9377acf2cec38161169a39 # v1.39.1
         with:
           target: ${{ matrix.target }}
 
