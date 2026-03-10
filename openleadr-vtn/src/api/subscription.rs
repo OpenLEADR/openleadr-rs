@@ -345,9 +345,15 @@ pub(crate) async fn notifier_websocket_get(
 #[cfg(test)]
 mod test {
     use axum::body::Body;
-    use openleadr_wire::{problem::Problem, subscription::Subscription};
+    use openleadr_wire::{
+        problem::Problem,
+        program::ProgramRequest,
+        subscription::{AnyObject, Notification, Operation, Subscription},
+        Program,
+    };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
+    use tokio_stream::StreamExt;
 
     use crate::{api::test::ApiTest, jwt::Scope};
 
@@ -499,4 +505,63 @@ mod test {
     }
 
     // FIXME add edit and delete tests
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn ws_support(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![
+                Scope::WriteSubscriptions,
+                Scope::WritePrograms,
+                Scope::ReadAll,
+            ],
+        )
+        .await;
+
+        let (status, mut ws) = server.websocket_request("/notifiers/ws").await;
+        assert_eq!(status, StatusCode::SWITCHING_PROTOCOLS);
+
+        let (status, _) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE", "UPDATE"],
+                            "objects": ["EVENT", "PROGRAM"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, program) = server
+            .request::<Program>(
+                Method::POST,
+                "/programs",
+                Body::from(
+                    serde_json::to_vec(&ProgramRequest {
+                        program_name: "program_name".to_string(),
+                        interval_period: None,
+                        program_descriptions: None,
+                        payload_descriptors: None,
+                        attributes: None,
+                        targets: vec![],
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let msg: Notification =
+            serde_json::from_slice(&ws.next().await.unwrap().unwrap().into_data()).unwrap();
+        assert_eq!(msg.operation, Operation::Create);
+        assert_eq!(msg.object, AnyObject::Program(program));
+    }
 }

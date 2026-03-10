@@ -105,7 +105,7 @@ pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoR
 pub mod test {
     use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState};
     use axum::{
-        body::Body,
+        body::{Body, Bytes},
         http::{self, Request, StatusCode},
         Router,
     };
@@ -195,6 +195,59 @@ pub mod test {
                 .unwrap();
 
             response.status()
+        }
+
+        pub(crate) async fn websocket_request(
+            &self,
+            path: &str,
+        ) -> (
+            StatusCode,
+            tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+        ) {
+            let (pending, on_upgrade) = hyper::upgrade::pending();
+
+            let (left, right) = tokio::io::duplex(1024);
+            pending.fulfill(hyper::upgrade::Upgraded::new(
+                hyper_util::rt::tokio::TokioIo::new(left),
+                Bytes::new(),
+            ));
+
+            let response = self
+                .router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri(path)
+                        .header(
+                            http::header::AUTHORIZATION,
+                            format!("Bearer {}", self.token),
+                        )
+                        .header(http::header::UPGRADE, "websocket")
+                        .header(http::header::CONNECTION, "Upgrade")
+                        .header(http::header::SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==")
+                        .header(http::header::SEC_WEBSOCKET_VERSION, "13")
+                        .extension(on_upgrade)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            let status = response.status();
+            if status.is_server_error() {
+                let body = response.into_body().collect().await.unwrap().to_bytes();
+                panic!("{status}: {}", String::from_utf8_lossy(&body));
+            }
+
+            let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+                right,
+                tokio_tungstenite::tungstenite::protocol::Role::Client,
+                None,
+            )
+            .await;
+
+            (status, ws)
         }
     }
 
