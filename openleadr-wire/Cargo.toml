@@ -10,6 +10,7 @@ homepage.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
+categories = ["web-programming"]
 
 [dependencies]
 serde.workspace = true

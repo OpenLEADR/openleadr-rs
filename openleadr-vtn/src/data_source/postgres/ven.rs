@@ -189,7 +189,7 @@ impl Crud for PgVenStorage {
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
@@ -201,6 +201,17 @@ impl Crud for PgVenStorage {
         )
         .fetch_one(&mut *tx)
         .await?;
+
+        if let Some(client_id) = client_id {
+            if old.client_id != client_id.as_str() {
+                warn!(
+                    client_id = ?client_id,
+                    ven_id = id.as_str(),
+                    "Client tried to update VEN it does not own"
+                );
+                return Err(Self::Error::NotFound);
+            }
+        }
 
         if old.client_id != new.client_id.as_str() {
             let error = "Tried to update `client_id` of VEN. \

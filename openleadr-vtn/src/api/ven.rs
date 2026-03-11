@@ -427,7 +427,7 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn add_edit_delete_ven(db: PgPool) {
+    async fn ven_can_add_and_edit_ven(db: PgPool) {
         let test = ApiTest::new(
             db,
             "test-client",
@@ -468,7 +468,111 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn cannot_create_ven_with_conflicting_client_id(db: PgPool) {
+    async fn bl_can_add_ven(db: PgPool) {
+        let test = ApiTest::new(
+            db,
+            "test-client",
+            vec![Scope::WriteVensBl, Scope::ReadVenObjects],
+        )
+        .await;
+
+        let new_ven = r#"
+            {
+              "venName":"new-ven",
+              "objectType": "BL_VEN_REQUEST",
+              "clientID": "new-ven-client-id",
+              "targets": ["group-1", "private-value"]
+            }"#;
+        let (status, ven) = test
+            .request::<Ven>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(ven.content.ven_name, "new-ven");
+        assert_eq!(ven.content.client_id.as_str(), "new-ven-client-id");
+        assert_eq!(
+            ven.content.targets,
+            vec!["group-1".parse().unwrap(), "private-value".parse().unwrap()]
+        );
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn ven_cannot_send_bl_add_ven_request(db: PgPool) {
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensVen]).await;
+
+        let new_ven = r#"
+            {
+              "venName":"new-ven",
+              "objectType": "BL_VEN_REQUEST",
+              "clientID": "new-ven-client-id",
+              "targets": ["group-1", "private-value"]
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn bl_cannot_send_ven_add_ven_request(db: PgPool) {
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl]).await;
+
+        let new_ven = r#"
+            {
+              "venName":"new-ven",
+              "objectType": "VEN_VEN_REQUEST"
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn bl_can_edit_ven(db: PgPool) {
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl, Scope::ReadAll]).await;
+
+        let new_ven = r#"
+            {
+              "venName":"updated",
+              "objectType": "BL_VEN_REQUEST",
+              "clientID": "ven-1-client-id",
+              "targets": ["group-2"]
+            }"#;
+        let (status, ven) = test
+            .request::<Ven>(Method::PUT, "/vens/ven-1", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(ven.content.ven_name, "updated");
+        assert_eq!(ven.content.client_id.as_str(), "ven-1-client-id");
+        assert_eq!(ven.content.targets, vec!["group-2".parse().unwrap()]);
+
+        let (status, ven) = test
+            .request::<Ven>(Method::GET, "/vens/ven-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(ven.content.ven_name, "updated");
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn ven_cannot_create_ven_with_conflicting_client_id(db: PgPool) {
         // This VEN should not be able to create a new VEN object, as there already exists a VEN object with the same client_id
         // See also https://github.com/oadr3-org/specification/issues/374
         let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
@@ -482,8 +586,26 @@ mod tests {
         assert_eq!(problem.status, StatusCode::CONFLICT);
     }
 
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn bl_cannot_create_ven_with_conflicting_client_id(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+
+        let new_ven = r#"
+          {
+            "venName":"new-ven",
+            "objectType": "BL_VEN_REQUEST",
+            "clientID": "ven-1-client-id"
+          }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(problem.status, StatusCode::CONFLICT);
+    }
+
     #[sqlx::test(fixtures("users", "vens", "resources"))]
-    async fn ven_cannot_send_bl_ven_request(db: PgPool) {
+    async fn ven_cannot_send_bl_update_ven(db: PgPool) {
         let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let updated_ven = r#"
@@ -493,11 +615,57 @@ mod tests {
                "targets": ["group-2"],
                "clientID": "ven-1-client-id"
             }"#;
-        let (status, _) = test
+        let (status, problem) = test
             .request::<Problem>(Method::PUT, "/vens/ven-1", Body::from(updated_ven))
             .await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn bl_cannot_send_ven_update_ven(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+
+        let updated_ven = r#"
+            {
+              "venName":"updated-name",
+              "objectType": "VEN_VEN_REQUEST"
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::PUT, "/vens/ven-1", Body::from(updated_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn ven_cannot_update_other_ven(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
+
+        let updated_ven = r#"
+            {
+              "venName":"updated-name",
+              "objectType": "VEN_VEN_REQUEST"
+            }"#;
+        let (status, _) = test
+            .request::<Problem>(Method::PUT, "/vens/ven-2", Body::from(updated_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]

@@ -136,8 +136,6 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<ResourceRequest>,
 ) -> AppResponse<Resource> {
-    // FIXME: how to restrict client logics (aka VENs) from creating resources for other vens?
-    //  See also https://github.com/oadr3-org/specification/discussions/371
     let resource = if user.scope.contains(Scope::WriteVensBl) {
         let ResourceRequest::BlResourceRequest(update) = update else {
             return Err(AppError::BadRequest(
@@ -163,10 +161,6 @@ pub async fn edit(
         let orig_resource = resource_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?;
-
-        if ven_id != orig_resource.content.ven_id {
-            return Err(AppError::Forbidden("Cannot edit resource of another VEN"));
-        }
 
         let new_resource = BlResourceRequest {
             resource_name: update.resource_name,
@@ -540,6 +534,35 @@ mod test {
         assert_eq!(resource.content.resource_name, "new-resource");
     }
 
+    #[sqlx::test(fixtures("vens"))]
+    async fn ven_cannot_send_bl_add_resource_request(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensVen]).await;
+
+        let (status, problem) = test
+            .request::<Problem>(
+                Method::POST,
+                "/resources",
+                Body::from(
+                    r#"
+                  {
+                    "resourceName":"new-resource",
+                    "venID": "ven-1",
+                    "clientID": "ven-1-client-id",
+                    "objectType": "BL_RESOURCE_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a BL_RESOURCE_REQUEST, but user is authenticated as a VEN client"
+                    .to_string()
+            )
+        );
+    }
+
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_update_resource(db: PgPool) {
         let test = ApiTest::new(
@@ -575,6 +598,36 @@ mod test {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource.content.resource_name, "updated-resource");
         assert_eq!(resource.content.targets, vec!["group-3".parse().unwrap()]);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources"))]
+    async fn ven_cannot_send_bl_update_resource_request(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensVen]).await;
+
+        let (status, problem) = test
+            .request::<Problem>(
+                Method::PUT,
+                "/resources/resource-1",
+                Body::from(
+                    r#"
+                  {
+                    "resourceName":"updated-resource",
+                    "venID": "ven-1",
+                    "clientID": "ven-1-client-id",
+                    "targets": ["group-3"],
+                    "objectType": "BL_RESOURCE_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a BL_RESOURCE_REQUEST, but user is authenticated as a VEN client"
+                    .to_string()
+            )
+        );
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]
@@ -638,6 +691,56 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(resource.content.resource_name, "new-resource");
+    }
+    #[sqlx::test(fixtures("vens"))]
+    async fn nonexistent_ven_cannot_add_resource(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "nonexistent", vec![Scope::WriteVensVen]).await;
+
+        let (status, problem) = test
+            .request::<Problem>(
+                Method::POST,
+                "/resources",
+                Body::from(
+                    r#"
+                  {
+                    "resourceName":"new-resource",
+                    "objectType": "VEN_RESOURCE_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            problem.detail,
+            Some("No VEN object associated with this clientID".to_string())
+        );
+    }
+
+    #[sqlx::test(fixtures("vens"))]
+    async fn bl_cannot_send_ven_add_resource(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+
+        let (status, problem) = test
+            .request::<Problem>(
+                Method::POST,
+                "/resources",
+                Body::from(
+                    r#"
+                  {
+                    "resourceName":"new-resource",
+                    "objectType": "VEN_RESOURCE_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a VEN_RESOURCE_REQUEST, but user is authenticated as a BL client"
+                    .to_string()
+            )
+        );
     }
 
     #[sqlx::test(fixtures("vens"))]
@@ -725,6 +828,59 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources"))]
+    async fn nonexistent_ven_cannot_update_resource(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "nonexistent", vec![Scope::WriteVensVen]).await;
+
+        let (status, problem) = test
+            .request::<Problem>(
+                Method::PUT,
+                "/resources/resource-1",
+                Body::from(
+                    r#"
+                  {
+                    "resourceName":"updated-resource",
+                    "targets": ["group-3"],
+                    "objectType": "VEN_RESOURCE_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            problem.detail,
+            Some("No VEN object associated with this clientID".to_string())
+        );
+    }
+
+    #[sqlx::test(fixtures("vens", "resources"))]
+    async fn bl_cannot_send_ven_update_resource(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+
+        let (status, problem) = test
+            .request::<Problem>(
+                Method::PUT,
+                "/resources/resource-1",
+                Body::from(
+                    r#"
+                  {
+                    "resourceName":"updated-resource",
+                    "targets": ["group-3"],
+                    "objectType": "VEN_RESOURCE_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a VEN_RESOURCE_REQUEST, but user is authenticated as a BL client"
+                    .to_string()
+            )
+        );
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]
