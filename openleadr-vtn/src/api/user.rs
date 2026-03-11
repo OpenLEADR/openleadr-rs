@@ -181,8 +181,8 @@ mod test {
                 Scope::ReadTargets,
                 Scope::ReadVenObjects,
                 Scope::WriteReports,
-                Scope::WriteVensVen,
                 Scope::WriteSubscriptions,
+                Scope::WriteVensVen,
             ],
             client_ids: vec!["ven-client-client-id".parse().unwrap()],
             created: "2024-07-25 08:31:10.776000 +00:00".parse().unwrap(),
@@ -373,7 +373,14 @@ mod test {
     #[sqlx::test(fixtures("users"))]
     async fn all_routes_only_allowed_for_user_manager(db: PgPool) {
         let state = state(db).await;
-        let token = jwt_test_token(&state, "test-client-id", all_scopes());
+        let token = jwt_test_token(
+            &state,
+            "test-client-id",
+            all_scopes()
+                .into_iter()
+                .filter(|s| *s != Scope::WriteUsers)
+                .collect(),
+        );
         let mut app = state.into_router();
         let response = help_get(&mut app, &token, "ven-client").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);

@@ -148,12 +148,10 @@ pub async fn delete(
     Path(id): Path<VenId>,
     User(user): User,
 ) -> AppResponse<Ven> {
-    let ven = if user.scope.contains(Scope::WriteVens) {
-        // FIXME how to prevent VEN clients to delete other clients' VENs?
-        //  See also https://github.com/oadr3-org/specification/discussions/371
+    let ven = if user.scope.contains(Scope::WriteVensBl) {
         ven_source.delete(&id, &None).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN deleted");
@@ -240,7 +238,7 @@ mod tests {
                 "test-client",
                 Scope::all()
                     .into_iter()
-                    .filter(|s| *s != Scope::WriteVens)
+                    .filter(|s| !(*s == Scope::WriteVensBl || *s == Scope::WriteVensVen))
                     .collect(),
             )
             .await;
@@ -270,7 +268,7 @@ mod tests {
                 "ven-1-client-id",
                 Scope::all()
                     .into_iter()
-                    .filter(|s| *s != Scope::WriteVens)
+                    .filter(|s| !(*s == Scope::WriteVensBl || *s == Scope::WriteVensVen))
                     .collect(),
             )
             .await;
@@ -300,7 +298,7 @@ mod tests {
                 "test-client",
                 Scope::all()
                     .into_iter()
-                    .filter(|s| *s != Scope::WriteVens)
+                    .filter(|s| *s != Scope::WriteVensBl)
                     .collect(),
             )
             .await;
@@ -430,13 +428,10 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn add_edit_delete_ven(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled
         let test = ApiTest::new(
             db,
             "test-client",
-            vec![Scope::WriteVens, Scope::ReadVenObjects],
+            vec![Scope::WriteVensVen, Scope::ReadVenObjects],
         )
         .await;
 
@@ -470,25 +465,13 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.content.ven_name, "new-ven-2");
         assert_eq!(ven.id.as_str(), ven_id);
-
-        let (status, ven) = test
-            .request::<Ven>(Method::DELETE, &format!("/vens/{ven_id}"), Body::empty())
-            .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(ven.id.as_str(), ven_id);
-
-        let (status, _) = test
-            .request::<Problem>(Method::GET, &format!("/vens/{ven_id}"), Body::empty())
-            .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn cannot_create_ven_with_conflicting_client_id(db: PgPool) {
         // This VEN should not be able to create a new VEN object, as there already exists a VEN object with the same client_id
         // See also https://github.com/oadr3-org/specification/issues/374
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let new_ven = r#"{"venName":"new-ven", "objectType": "VEN_VEN_REQUEST"}"#;
         let (status, problem) = test
@@ -500,12 +483,26 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn ven_cannot_send_bl_ven_request(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
+
+        let updated_ven = r#"
+            {
+              "venName":"updated-name",
+              "objectType": "BL_VEN_REQUEST",
+               "targets": ["group-2"],
+               "clientID": "ven-1-client-id"
+            }"#;
+        let (status, _) = test
+            .request::<Problem>(Method::PUT, "/vens/ven-1", Body::from(updated_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn ven_cannot_edit_their_targets(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled. Especially test that a VEN cannot
-        //  sneak in a "objectType": "BL_VEN_REQUEST"
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let updated_ven = r#"
             {
@@ -527,10 +524,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn bl_can_edit_ven_targets(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled. Especially grant BL level access
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
 
         let updated_ven = r#"
             {
@@ -550,10 +544,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn cannot_update_client_id(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled. Especially grant BL level access
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
 
         // Updating the client_id should fail
         let updated_ven = r#"
