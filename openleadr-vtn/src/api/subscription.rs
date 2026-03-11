@@ -20,6 +20,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, trace};
+use uuid::{ContextV7, Uuid};
 use validator::Validate;
 
 use crate::{
@@ -31,6 +32,7 @@ use crate::{
 };
 
 pub(crate) struct NotifierState {
+    uuidv7_context: Arc<Mutex<ContextV7>>,
     websockets: Mutex<HashMap<ClientId, mpsc::UnboundedSender<Notification>>>,
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
 }
@@ -53,6 +55,7 @@ impl NotifierState {
             .await?;
 
         Ok(Self {
+            uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(
                 subscriptions
@@ -249,6 +252,10 @@ pub(crate) async fn notify(
     operation: Operation,
     object: AnyObject,
 ) {
+    let uuid = Uuid::new_v7(uuid::Timestamp::now(
+        &*notifier_state.uuidv7_context.lock().await,
+    ));
+
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 
     for subscription in notifier_state.subscriptions.lock().await.values() {
@@ -266,7 +273,10 @@ pub(crate) async fn notify(
                     .get(&subscription.client_id)
                 {
                     let _ = tx.send(Notification {
-                        id: object.id(),
+                        id: uuid
+                            .to_string()
+                            .parse()
+                            .expect("uuid should always be a valid identifier"),
                         operation,
                         object: object.clone(),
                     });
