@@ -175,7 +175,7 @@ mod test {
         let test = ApiTest::new(
             db,
             "ven-1-client-id",
-            vec![Scope::WriteVens, Scope::ReadTargets],
+            vec![Scope::WriteVensVen, Scope::ReadTargets],
         )
         .await;
 

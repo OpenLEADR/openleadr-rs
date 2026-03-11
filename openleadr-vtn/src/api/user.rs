@@ -181,6 +181,7 @@ mod test {
                 Scope::ReadTargets,
                 Scope::ReadVenObjects,
                 Scope::WriteReports,
+                Scope::WriteVensVen,
                 Scope::WriteSubscriptions,
             ],
             client_ids: vec!["ven-client-client-id".parse().unwrap()],
@@ -198,7 +199,7 @@ mod test {
                 Scope::ReadAll,
                 Scope::WritePrograms,
                 Scope::WriteEvents,
-                Scope::WriteVens,
+                Scope::WriteVensBl,
                 Scope::WriteUsers,
             ],
             client_ids: vec!["bl-client".parse().unwrap()],
@@ -216,16 +217,7 @@ mod test {
     }
 
     fn all_scopes() -> Vec<Scope> {
-        vec![
-            Scope::ReadAll,
-            Scope::ReadTargets,
-            Scope::ReadVenObjects,
-            Scope::WritePrograms,
-            Scope::WriteEvents,
-            Scope::WriteReports,
-            Scope::WriteSubscriptions,
-            Scope::WriteVens,
-        ]
+        Scope::all()
     }
 
     impl PartialEq<UserDetails> for NewUser {

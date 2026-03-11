@@ -67,11 +67,20 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_ven): ValidatedJson<VenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
-    // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
-    //  See also https://github.com/oadr3-org/specification/discussions/371
-    let new_ven = match new_ven {
-        VenRequest::BlVenRequest(new_ven) => new_ven,
-        VenRequest::VenVenRequest(new_ven) => BlVenRequest {
+    let ven = if user.scope.contains(Scope::WriteVensBl) {
+        let VenRequest::BlVenRequest(new_ven) = new_ven else {
+            return Err(AppError::BadRequest(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client",
+            ));
+        };
+        ven_source.create(new_ven, &None).await?
+    } else if user.scope.contains(Scope::WriteVensVen) {
+        let VenRequest::VenVenRequest(new_ven) = new_ven else {
+            return Err(AppError::BadRequest(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client",
+            ));
+        };
+        let new_ven = BlVenRequest {
             client_id: user.client_id()?,
             // There cannot be another VEN object with the user.client_id() yet and a VEN isn't
             // allowed to assign its own targets. Therefore, we have to initialize the targets with an empty
@@ -79,13 +88,12 @@ pub async fn add(
             targets: vec![],
             ven_name: new_ven.ven_name,
             attributes: new_ven.attributes,
-        },
-    };
-
-    let ven = if user.scope.contains(Scope::WriteVens) {
-        ven_source.create(new_ven, &None).await?
+        };
+        ven_source.create(new_ven, &Some(user.client_id()?)).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_vens_bl' or 'write_vens_ven' scope",
+        ));
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN added");
@@ -99,27 +107,35 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<VenRequest>,
 ) -> AppResponse<Ven> {
-    // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
-    //  See also https://github.com/oadr3-org/specification/discussions/371
-    let update = match update {
-        VenRequest::BlVenRequest(new_ven) => new_ven,
-        VenRequest::VenVenRequest(new_ven) => {
-            let org_ven = ven_source.retrieve(&id, &Some(user.client_id()?)).await?;
-
-            BlVenRequest {
-                client_id: org_ven.content.client_id,
-                // VEN clients are not allowed to change their targets
-                targets: org_ven.content.targets,
-                ven_name: new_ven.ven_name,
-                attributes: new_ven.attributes,
-            }
-        }
-    };
-
-    let ven = if user.scope.contains(Scope::WriteVens) {
+    let ven = if user.scope.contains(Scope::WriteVensBl) {
+        let VenRequest::BlVenRequest(update) = update else {
+            return Err(AppError::BadRequest(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client",
+            ));
+        };
         ven_source.update(&id, update, &None).await?
+    } else if user.scope.contains(Scope::WriteVensVen) {
+        let VenRequest::VenVenRequest(update) = update else {
+            return Err(AppError::BadRequest(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client",
+            ));
+        };
+        let org_ven = ven_source.retrieve(&id, &Some(user.client_id()?)).await?;
+
+        let update = BlVenRequest {
+            client_id: org_ven.content.client_id,
+            // VEN clients are not allowed to change their targets
+            targets: org_ven.content.targets,
+            ven_name: update.ven_name,
+            attributes: update.attributes,
+        };
+        ven_source
+            .update(&id, update, &Some(user.client_id()?))
+            .await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_vens_bl' or 'write_vens_ven' scope",
+        ));
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN updated");
@@ -562,9 +578,9 @@ mod tests {
         let vens = [
             VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "".to_string(), None, vec![])),
             VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, vec![])),
-            VenRequest::VenVenRequest(VenVenRequest{attributes: None, ven_name: "".to_string()}),
-            VenRequest::VenVenRequest(VenVenRequest{attributes: None, ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()}),
-                                     ];
+            VenRequest::VenVenRequest(VenVenRequest { attributes: None, ven_name: "".to_string() }),
+            VenRequest::VenVenRequest(VenVenRequest { attributes: None, ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string() }),
+        ];
 
         for ven in &vens {
             let (status, error) = test
