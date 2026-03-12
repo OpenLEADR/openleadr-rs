@@ -142,7 +142,7 @@ impl Display for Identifier {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ObjectType {
     Program,
@@ -151,19 +151,6 @@ pub enum ObjectType {
     Subscription,
     Ven,
     Resource,
-}
-
-impl ObjectType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ObjectType::Program => "PROGRAM",
-            ObjectType::Event => "EVENT",
-            ObjectType::Report => "REPORT",
-            ObjectType::Subscription => "SUBSCRIPTION",
-            ObjectType::Ven => "VEN",
-            ObjectType::Resource => "RESOURCE",
-        }
-    }
 }
 
 /// An ISO 8601 formatted duration

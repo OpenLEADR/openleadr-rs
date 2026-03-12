@@ -9,7 +9,6 @@ use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     report::{ReportId, ReportRequest},
     resource::{BlResourceRequest, Resource, ResourceId},
-    subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     target::Target,
     ven::{BlVenRequest, Ven, VenId},
     ClientId, Event, Program, Report,
@@ -123,18 +122,6 @@ pub trait ResourceCrud:
 {
 }
 
-pub trait SubscriptionCrud:
-    Crud<
-    Type = Subscription,
-    Id = SubscriptionId,
-    NewType = SubscriptionRequest,
-    Error = AppError,
-    Filter = crate::api::subscription::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
-{
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct UserDetails {
     pub(crate) id: String,
@@ -194,7 +181,6 @@ pub trait DataSource: Send + Sync + 'static {
     fn vens(&self) -> Arc<dyn VenCrud>;
     fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy>;
     fn resources(&self) -> Arc<dyn ResourceCrud>;
-    fn subscriptions(&self) -> Arc<dyn SubscriptionCrud>;
     #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource>;
     fn connection_active(&self) -> bool;
