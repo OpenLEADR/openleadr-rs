@@ -67,11 +67,20 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_ven): ValidatedJson<VenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
-    // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
-    //  See also https://github.com/oadr3-org/specification/discussions/371
-    let new_ven = match new_ven {
-        VenRequest::BlVenRequest(new_ven) => new_ven,
-        VenRequest::VenVenRequest(new_ven) => BlVenRequest {
+    let ven = if user.scope.contains(Scope::WriteVensBl) {
+        let VenRequest::BlVenRequest(new_ven) = new_ven else {
+            return Err(AppError::BadRequest(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client",
+            ));
+        };
+        ven_source.create(new_ven, &None).await?
+    } else if user.scope.contains(Scope::WriteVensVen) {
+        let VenRequest::VenVenRequest(new_ven) = new_ven else {
+            return Err(AppError::BadRequest(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client",
+            ));
+        };
+        let new_ven = BlVenRequest {
             client_id: user.client_id()?,
             // There cannot be another VEN object with the user.client_id() yet and a VEN isn't
             // allowed to assign its own targets. Therefore, we have to initialize the targets with an empty
@@ -79,13 +88,12 @@ pub async fn add(
             targets: vec![],
             ven_name: new_ven.ven_name,
             attributes: new_ven.attributes,
-        },
-    };
-
-    let ven = if user.scope.contains(Scope::WriteVens) {
-        ven_source.create(new_ven, &None).await?
+        };
+        ven_source.create(new_ven, &Some(user.client_id()?)).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_vens_bl' or 'write_vens_ven' scope",
+        ));
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN added");
@@ -99,27 +107,35 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<VenRequest>,
 ) -> AppResponse<Ven> {
-    // FIXME: how to restrict client logics (aka VENs) from creating VENs for other clients?
-    //  See also https://github.com/oadr3-org/specification/discussions/371
-    let update = match update {
-        VenRequest::BlVenRequest(new_ven) => new_ven,
-        VenRequest::VenVenRequest(new_ven) => {
-            let org_ven = ven_source.retrieve(&id, &Some(user.client_id()?)).await?;
-
-            BlVenRequest {
-                client_id: org_ven.content.client_id,
-                // VEN clients are not allowed to change their targets
-                targets: org_ven.content.targets,
-                ven_name: new_ven.ven_name,
-                attributes: new_ven.attributes,
-            }
-        }
-    };
-
-    let ven = if user.scope.contains(Scope::WriteVens) {
+    let ven = if user.scope.contains(Scope::WriteVensBl) {
+        let VenRequest::BlVenRequest(update) = update else {
+            return Err(AppError::BadRequest(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client",
+            ));
+        };
         ven_source.update(&id, update, &None).await?
+    } else if user.scope.contains(Scope::WriteVensVen) {
+        let VenRequest::VenVenRequest(update) = update else {
+            return Err(AppError::BadRequest(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client",
+            ));
+        };
+        let org_ven = ven_source.retrieve(&id, &Some(user.client_id()?)).await?;
+
+        let update = BlVenRequest {
+            client_id: org_ven.content.client_id,
+            // VEN clients are not allowed to change their targets
+            targets: org_ven.content.targets,
+            ven_name: update.ven_name,
+            attributes: update.attributes,
+        };
+        ven_source
+            .update(&id, update, &Some(user.client_id()?))
+            .await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_vens_bl' or 'write_vens_ven' scope",
+        ));
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN updated");
@@ -132,12 +148,10 @@ pub async fn delete(
     Path(id): Path<VenId>,
     User(user): User,
 ) -> AppResponse<Ven> {
-    let ven = if user.scope.contains(Scope::WriteVens) {
-        // FIXME how to prevent VEN clients to delete other clients' VENs?
-        //  See also https://github.com/oadr3-org/specification/discussions/371
+    let ven = if user.scope.contains(Scope::WriteVensBl) {
         ven_source.delete(&id, &None).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN deleted");
@@ -224,7 +238,7 @@ mod tests {
                 "test-client",
                 Scope::all()
                     .into_iter()
-                    .filter(|s| *s != Scope::WriteVens)
+                    .filter(|s| !(*s == Scope::WriteVensBl || *s == Scope::WriteVensVen))
                     .collect(),
             )
             .await;
@@ -254,7 +268,7 @@ mod tests {
                 "ven-1-client-id",
                 Scope::all()
                     .into_iter()
-                    .filter(|s| *s != Scope::WriteVens)
+                    .filter(|s| !(*s == Scope::WriteVensBl || *s == Scope::WriteVensVen))
                     .collect(),
             )
             .await;
@@ -284,7 +298,7 @@ mod tests {
                 "test-client",
                 Scope::all()
                     .into_iter()
-                    .filter(|s| *s != Scope::WriteVens)
+                    .filter(|s| *s != Scope::WriteVensBl)
                     .collect(),
             )
             .await;
@@ -413,14 +427,11 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn add_edit_delete_ven(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled
+    async fn ven_can_add_and_edit_ven(db: PgPool) {
         let test = ApiTest::new(
             db,
             "test-client",
-            vec![Scope::WriteVens, Scope::ReadVenObjects],
+            vec![Scope::WriteVensVen, Scope::ReadVenObjects],
         )
         .await;
 
@@ -454,25 +465,117 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(ven.content.ven_name, "new-ven-2");
         assert_eq!(ven.id.as_str(), ven_id);
-
-        let (status, ven) = test
-            .request::<Ven>(Method::DELETE, &format!("/vens/{ven_id}"), Body::empty())
-            .await;
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(ven.id.as_str(), ven_id);
-
-        let (status, _) = test
-            .request::<Problem>(Method::GET, &format!("/vens/{ven_id}"), Body::empty())
-            .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[sqlx::test(fixtures("users", "vens"))]
-    async fn cannot_create_ven_with_conflicting_client_id(db: PgPool) {
+    async fn bl_can_add_ven(db: PgPool) {
+        let test = ApiTest::new(
+            db,
+            "test-client",
+            vec![Scope::WriteVensBl, Scope::ReadVenObjects],
+        )
+        .await;
+
+        let new_ven = r#"
+            {
+              "venName":"new-ven",
+              "objectType": "BL_VEN_REQUEST",
+              "clientID": "new-ven-client-id",
+              "targets": ["group-1", "private-value"]
+            }"#;
+        let (status, ven) = test
+            .request::<Ven>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(ven.content.ven_name, "new-ven");
+        assert_eq!(ven.content.client_id.as_str(), "new-ven-client-id");
+        assert_eq!(
+            ven.content.targets,
+            vec!["group-1".parse().unwrap(), "private-value".parse().unwrap()]
+        );
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn ven_cannot_send_bl_add_ven_request(db: PgPool) {
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensVen]).await;
+
+        let new_ven = r#"
+            {
+              "venName":"new-ven",
+              "objectType": "BL_VEN_REQUEST",
+              "clientID": "new-ven-client-id",
+              "targets": ["group-1", "private-value"]
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn bl_cannot_send_ven_add_ven_request(db: PgPool) {
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl]).await;
+
+        let new_ven = r#"
+            {
+              "venName":"new-ven",
+              "objectType": "VEN_VEN_REQUEST"
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn bl_can_edit_ven(db: PgPool) {
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl, Scope::ReadAll]).await;
+
+        let new_ven = r#"
+            {
+              "venName":"updated",
+              "objectType": "BL_VEN_REQUEST",
+              "clientID": "ven-1-client-id",
+              "targets": ["group-2"]
+            }"#;
+        let (status, ven) = test
+            .request::<Ven>(Method::PUT, "/vens/ven-1", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(ven.content.ven_name, "updated");
+        assert_eq!(ven.content.client_id.as_str(), "ven-1-client-id");
+        assert_eq!(ven.content.targets, vec!["group-2".parse().unwrap()]);
+
+        let (status, ven) = test
+            .request::<Ven>(Method::GET, "/vens/ven-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(ven.content.ven_name, "updated");
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn ven_cannot_create_ven_with_conflicting_client_id(db: PgPool) {
         // This VEN should not be able to create a new VEN object, as there already exists a VEN object with the same client_id
         // See also https://github.com/oadr3-org/specification/issues/374
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let new_ven = r#"{"venName":"new-ven", "objectType": "VEN_VEN_REQUEST"}"#;
         let (status, problem) = test
@@ -483,13 +586,91 @@ mod tests {
         assert_eq!(problem.status, StatusCode::CONFLICT);
     }
 
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn bl_cannot_create_ven_with_conflicting_client_id(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+
+        let new_ven = r#"
+          {
+            "venName":"new-ven",
+            "objectType": "BL_VEN_REQUEST",
+            "clientID": "ven-1-client-id"
+          }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::POST, "/vens", Body::from(new_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(problem.status, StatusCode::CONFLICT);
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn ven_cannot_send_bl_update_ven(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
+
+        let updated_ven = r#"
+            {
+              "venName":"updated-name",
+              "objectType": "BL_VEN_REQUEST",
+               "targets": ["group-2"],
+               "clientID": "ven-1-client-id"
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::PUT, "/vens/ven-1", Body::from(updated_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    async fn bl_cannot_send_ven_update_ven(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+
+        let updated_ven = r#"
+            {
+              "venName":"updated-name",
+              "objectType": "VEN_VEN_REQUEST"
+            }"#;
+        let (status, problem) = test
+            .request::<Problem>(Method::PUT, "/vens/ven-1", Body::from(updated_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem.detail,
+            Some(
+                "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client"
+                    .to_string()
+            )
+        )
+    }
+
+    #[sqlx::test(fixtures("users", "vens"))]
+    async fn ven_cannot_update_other_ven(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
+
+        let updated_ven = r#"
+            {
+              "venName":"updated-name",
+              "objectType": "VEN_VEN_REQUEST"
+            }"#;
+        let (status, _) = test
+            .request::<Problem>(Method::PUT, "/vens/ven-2", Body::from(updated_ven))
+            .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn ven_cannot_edit_their_targets(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled. Especially test that a VEN cannot
-        //  sneak in a "objectType": "BL_VEN_REQUEST"
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let updated_ven = r#"
             {
@@ -511,10 +692,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn bl_can_edit_ven_targets(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled. Especially grant BL level access
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
 
         let updated_ven = r#"
             {
@@ -534,10 +712,7 @@ mod tests {
 
     #[sqlx::test(fixtures("users", "vens"))]
     async fn cannot_update_client_id(db: PgPool) {
-        // TODO the scope write_vens is not separating between VEN and BL clients
-        //  See also https://github.com/oadr3-org/specification/discussions/371
-        //  Adopt the test as soon as this discussion is settled. Especially grant BL level access
-        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
 
         // Updating the client_id should fail
         let updated_ven = r#"
@@ -562,9 +737,9 @@ mod tests {
         let vens = [
             VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "".to_string(), None, vec![])),
             VenRequest::BlVenRequest(BlVenRequest::new("client_id".parse().unwrap(), "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string(), None, vec![])),
-            VenRequest::VenVenRequest(VenVenRequest{attributes: None, ven_name: "".to_string()}),
-            VenRequest::VenVenRequest(VenVenRequest{attributes: None, ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string()}),
-                                     ];
+            VenRequest::VenVenRequest(VenVenRequest { attributes: None, ven_name: "".to_string() }),
+            VenRequest::VenVenRequest(VenVenRequest { attributes: None, ven_name: "This is more than 128 characters long and should be rejected This is more than 128 characters long and should be rejected asdfasd".to_string() }),
+        ];
 
         for ven in &vens {
             let (status, error) = test

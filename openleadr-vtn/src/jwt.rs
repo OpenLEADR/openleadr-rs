@@ -100,7 +100,9 @@ pub enum Scope {
     WriteEvents,
     WriteReports,
     WriteSubscriptions,
-    WriteVens,
+    WriteVensBl,
+    #[serde(alias = "write_vens")]
+    WriteVensVen,
 
     #[cfg(feature = "internal-oauth")]
     /// This scope is not standard, but used to represent full access to manage the users
@@ -120,7 +122,9 @@ impl FromStr for Scope {
             "write_events" => Ok(Scope::WriteEvents),
             "write_reports" => Ok(Scope::WriteReports),
             "write_subscriptions" => Ok(Scope::WriteSubscriptions),
-            "write_vens" => Ok(Scope::WriteVens),
+            "write_vens_bl" => Ok(Scope::WriteVensBl),
+            "write_vens_ven" => Ok(Scope::WriteVensVen),
+            "write_vens" => Ok(Scope::WriteVensVen),
             #[cfg(feature = "internal-oauth")]
             "write_users" => Ok(Scope::WriteUsers),
             _ => Err(format!("Invalid scope: {}", s)),
@@ -552,7 +556,8 @@ mod test {
                 Scope::WriteEvents,
                 Scope::WriteReports,
                 Scope::WriteSubscriptions,
-                Scope::WriteVens,
+                Scope::WriteVensBl,
+                Scope::WriteVensVen,
                 Scope::WriteUsers,
             ]
         }

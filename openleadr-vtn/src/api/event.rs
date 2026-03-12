@@ -856,7 +856,7 @@ mod test {
             let token = jwt_test_token(
                 &state,
                 "ven-1-client-id",
-                vec![Scope::ReadTargets, Scope::WriteVens],
+                vec![Scope::ReadTargets, Scope::WriteVensVen],
             );
             let (status, _) = help_create_event(&mut app, &default_event_content(), &token).await;
             assert_eq!(status, StatusCode::FORBIDDEN);

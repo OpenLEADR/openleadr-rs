@@ -57,7 +57,8 @@ CREATE TYPE scope AS ENUM (
     'write_events',
     'write_reports',
     'write_subscriptions',
-    'write_vens',
+    'write_vens_bl',
+    'write_vens_ven',
     'write_users'
     );
 

@@ -277,7 +277,7 @@ pub mod test {
 
     #[sqlx::test]
     async fn not_found(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVens]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensVen]).await;
 
         let (status, _) = test
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
