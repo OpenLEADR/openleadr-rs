@@ -1,6 +1,6 @@
 ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 ![codecov](https://codecov.io/gh/OpenLEADR/openleadr-rs/graph/badge.svg?token=BKQ0QW9G8H)
-![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg?branch=main)
+[![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg)](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml)
 ![Crates.io Version](https://img.shields.io/crates/v/openleadr-vtn)
 
 # OpenADR 3.1 VTN server in Rust
