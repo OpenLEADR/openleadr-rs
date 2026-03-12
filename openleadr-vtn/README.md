@@ -12,6 +12,12 @@ This crate contains an OpenADR VTN implementation.
 The following contains information specific to the VTN application, i.e., the server.
 If you are interested in information about the whole project, please visit the [project level Readme](../README.md).
 
+## Deviations from the specification
+Version 3.1.0 of the OpenADR specification does not make a difference between a BL and VEN client with respect to the `write_vens` OAuth scope.
+The OpenLEADR implementation deviates from the specification by splitting the `write_vens` scope into two scopes: `write_vens_ven` and `write_vens_bl`.
+To be as compatible as possible with the specification, the `write_vens` scope is still supported as an alias for `write_vens_ven`.
+For detailed information, see the issue on the specification if you have access ([oadr3-org/specification#396](https://github.com/oadr3-org/specification/issues/396)).
+
 ## Getting started
 Your machine needs a recent version of Rust installed.
 Please refer to the [official installation website](https://rustup.rs/) for the setup.
