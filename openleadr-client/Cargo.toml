@@ -43,7 +43,7 @@ mdns = ["dep:mdns-sd"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
-openleadr-vtn.workspace = true
+openleadr-vtn = { path = "../openleadr-vtn" }
 tokio-test.workspace = true
 sqlx.workspace = true
 serial_test.workspace = true
