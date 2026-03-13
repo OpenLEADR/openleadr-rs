@@ -85,6 +85,7 @@ pub async fn add(
     info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event created");
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Create,
         AnyObject::Event(event.clone()),
@@ -112,6 +113,7 @@ pub async fn edit(
     info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event updated");
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Update,
         AnyObject::Event(event.clone()),
@@ -135,6 +137,7 @@ pub async fn delete(
     info!(%event.id, event.event_name=event.content.event_name, client_id = user.sub, "deleted event");
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Delete,
         AnyObject::Event(event.clone()),

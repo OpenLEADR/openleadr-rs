@@ -25,7 +25,7 @@ use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::SubscriptionCrud,
+    data_source::{EventCrud, SubscriptionCrud},
     error::AppError,
     jwt::{Scope, User},
     state::AppState,
@@ -248,6 +248,7 @@ fn get_50() -> i64 {
 }
 
 pub(crate) async fn notify(
+    event_source: &dyn EventCrud,
     notifier_state: &NotifierState,
     operation: Operation,
     object: AnyObject,
@@ -256,31 +257,50 @@ pub(crate) async fn notify(
         &*notifier_state.uuidv7_context.lock().await,
     ));
 
+    let event_program_id;
+    let target_program_id = match &object {
+        AnyObject::Program(program) => Some(&program.id),
+        AnyObject::Report(report) => {
+            if let Ok(event) = event_source.retrieve(&report.content.event_id, &None).await {
+                event_program_id = event.content.program_id;
+                Some(&event_program_id)
+            } else {
+                None
+            }
+        }
+        AnyObject::Event(event) => Some(&event.content.program_id),
+        AnyObject::Subscription(_) | AnyObject::Ven(_) | AnyObject::Resource(_) => None,
+    };
+
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 
     for subscription in notifier_state.subscriptions.lock().await.values() {
         // FIXME handle object privacy
 
+        let program_id = subscription.content.program_id.as_ref();
+
         for object_operation in &subscription.content.object_operations {
-            if object_operation.operations.contains(&operation)
-                // FIXME program_id
-                && object_operation.objects.contains(&object.kind())
+            if !object_operation.operations.contains(&operation)
+                || !object_operation.objects.contains(&object.kind())
+                || (program_id.is_some() && program_id != target_program_id)
             {
-                if let Some(tx) = notifier_state
-                    .websockets
-                    .lock()
-                    .await
-                    .get(&subscription.client_id)
-                {
-                    let _ = tx.send(Notification {
-                        id: uuid
-                            .to_string()
-                            .parse()
-                            .expect("uuid should always be a valid identifier"),
-                        operation,
-                        object: object.clone(),
-                    });
-                }
+                continue;
+            }
+
+            if let Some(tx) = notifier_state
+                .websockets
+                .lock()
+                .await
+                .get(&subscription.client_id)
+            {
+                let _ = tx.send(Notification {
+                    id: uuid
+                        .to_string()
+                        .parse()
+                        .expect("uuid should always be a valid identifier"),
+                    operation,
+                    object: object.clone(),
+                });
             }
         }
     }

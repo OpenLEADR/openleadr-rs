@@ -364,7 +364,6 @@ mod tests {
             "createdDateTime": "2023-06-15T09:30:00Z",
             "modificationDateTime": "2023-06-15T09:30:00Z",
             "objectType": "REPORT",
-            "programID": "object-999",
             "eventID": "object-999",
             "clientName": "VEN-999",
             "reportName": "Battery_usage_04112023",

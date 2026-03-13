@@ -14,7 +14,7 @@ use crate::{
         subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
         ValidatedQuery,
     },
-    data_source::ProgramCrud,
+    data_source::{EventCrud, ProgramCrud},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -80,6 +80,7 @@ pub async fn get(
 }
 
 pub async fn add(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(program_source): State<Arc<dyn ProgramCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
@@ -101,6 +102,7 @@ pub async fn add(
     );
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Create,
         AnyObject::Program(program.clone()),
@@ -111,6 +113,7 @@ pub async fn add(
 }
 
 pub async fn edit(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(program_source): State<Arc<dyn ProgramCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ProgramId>,
@@ -133,6 +136,7 @@ pub async fn edit(
     );
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Update,
         AnyObject::Program(program.clone()),
@@ -143,6 +147,7 @@ pub async fn edit(
 }
 
 pub async fn delete(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(program_source): State<Arc<dyn ProgramCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ProgramId>,
@@ -156,6 +161,7 @@ pub async fn delete(
     info!(%id, client_id = user.sub, "deleted program");
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Delete,
         AnyObject::Program(program.clone()),

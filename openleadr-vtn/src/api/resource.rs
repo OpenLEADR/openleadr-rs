@@ -20,7 +20,7 @@ use crate::{
         subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
         ValidatedQuery,
     },
-    data_source::{ResourceCrud, VenObjectPrivacy},
+    data_source::{EventCrud, ResourceCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -81,6 +81,7 @@ pub async fn get(
 }
 
 pub async fn add(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
@@ -132,6 +133,7 @@ pub async fn add(
     );
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Create,
         AnyObject::Resource(resource.clone()),
@@ -142,6 +144,7 @@ pub async fn add(
 }
 
 pub async fn edit(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
@@ -199,6 +202,7 @@ pub async fn edit(
     );
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Update,
         AnyObject::Resource(resource.clone()),
@@ -209,6 +213,7 @@ pub async fn edit(
 }
 
 pub async fn delete(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ResourceId>,
@@ -229,6 +234,7 @@ pub async fn delete(
     info!(%id, client_id = user.sub, "deleted resource");
 
     subscription::notify(
+        &*event_source,
         &notifier_state,
         Operation::Delete,
         AnyObject::Resource(resource.clone()),
