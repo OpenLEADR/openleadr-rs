@@ -3,32 +3,40 @@ INSERT INTO ven (id,
                  modification_date_time,
                  ven_name,
                  attributes,
-                 targets)
+                 targets,
+                 client_id)
 VALUES ('ven-1',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',
         'ven-1-name',
         NULL,
-        '[
-          {
-            "type": "GROUP",
-            "values": [
-              "group-1"
-            ]
-          },
-          {
-            "type": "PRIVATE_LABEL",
-            "values": [
-              "private value"
-            ]
-          }
-        ]'),
+        ARRAY ['group-1', 'private-value'],
+        'ven-1-client-id'),
        ('ven-2',
         '2024-07-25 08:31:10.776000 +00:00',
         '2024-07-25 08:31:10.776000 +00:00',
         'ven-2-name',
         NULL,
-        NULL);
-
-INSERT INTO user_ven (ven_id, user_id)
-VALUES ('ven-1', 'user-1');
+        ARRAY ['group-2']::text[],
+        'ven-2-client-id'),
+       ('ven-3',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-3-name',
+        NULL,
+        ARRAY ['group-1']::text[],
+        'ven-3-client-id'),
+       ('ven-4',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-4-name',
+        NULL,
+        ARRAY ['group-1', 'group-2']::text[],
+        'ven-4-client-id'),
+       ('ven-has-no-targets',
+        '2024-07-25 08:31:10.776000 +00:00',
+        '2024-07-25 08:31:10.776000 +00:00',
+        'ven-has-no-targets-name',
+        NULL,
+        ARRAY []::text[],
+        'ven-has-no-targets-client-id');

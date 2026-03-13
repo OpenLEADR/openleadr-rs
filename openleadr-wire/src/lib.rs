@@ -1,15 +1,17 @@
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
+
 //! Wire format definitions for OpenADR endpoints
 //!
 //! The types in this module model the messages sent over the wire in OpenADR 3.0.
 //! Most types are originally generated from the OpenAPI specification of OpenADR
 //! and manually modified to be more idiomatic.
 
-use std::fmt::Display;
-
 pub use event::Event;
 pub use program::Program;
 pub use report::Report;
 use serde::{de::Unexpected, Deserialize, Deserializer, Serialize, Serializer};
+use std::{fmt::Display, str::FromStr};
 pub use ven::Ven;
 
 pub mod event;
@@ -19,6 +21,7 @@ pub mod problem;
 pub mod program;
 pub mod report;
 pub mod resource;
+pub mod subscription;
 pub mod target;
 pub mod values_map;
 pub mod ven;
@@ -72,7 +75,8 @@ where
 }
 
 /// A string that matches `/^[a-zA-Z0-9_-]*$/` with length in 1..=128
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
+#[sqlx(transparent)]
 pub struct Identifier(#[serde(deserialize_with = "identifier")] String);
 
 impl<'de> Deserialize<'de> for Identifier {
@@ -80,11 +84,15 @@ impl<'de> Deserialize<'de> for Identifier {
     where
         D: Deserializer<'de>,
     {
-        let borrowed_str = <&str as Deserialize>::deserialize(deserializer)?;
+        let s: String = Deserialize::deserialize(deserializer)?;
 
-        borrowed_str.parse::<Identifier>().map_err(|e| {
-            serde::de::Error::invalid_value(Unexpected::Str(borrowed_str), &e.to_string().as_str())
-        })
+        match Self::validate(&s) {
+            Ok(()) => Ok(Identifier(s)),
+            Err(e) => Err(serde::de::Error::invalid_value(
+                Unexpected::Str(&s),
+                &e.to_string().as_str(),
+            )),
+        }
     }
 }
 
@@ -92,33 +100,37 @@ impl<'de> Deserialize<'de> for Identifier {
 pub enum IdentifierError {
     #[error("string length {0} outside of allowed range 1..=128")]
     InvalidLength(usize),
-    #[error("identifier contains characters besides [a-zA-Z0-9_-]")]
-    InvalidCharacter,
+    #[error("identifier contains characters besides [a-zA-Z0-9_-]: {0}")]
+    InvalidCharacter(String),
     #[error("this identifier name is not allowed: {0}")]
     ForbiddenName(String),
 }
 
 const FORBIDDEN_NAMES: &[&str] = &["null"];
 
-impl std::str::FromStr for Identifier {
+impl FromStr for Identifier {
     type Err = IdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::validate(s).map(|()| Identifier(s.to_string()))
+    }
+}
+
+impl Identifier {
+    fn validate(s: &str) -> Result<(), IdentifierError> {
         let is_valid_character = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
 
         if !(1..=128).contains(&s.len()) {
             Err(IdentifierError::InvalidLength(s.len()))
         } else if !s.bytes().all(is_valid_character) {
-            Err(IdentifierError::InvalidCharacter)
+            Err(IdentifierError::InvalidCharacter(s.to_string()))
         } else if FORBIDDEN_NAMES.contains(&s.to_ascii_lowercase().as_str()) {
             Err(IdentifierError::ForbiddenName(s.to_string()))
         } else {
-            Ok(Identifier(s.to_string()))
+            Ok(())
         }
     }
-}
 
-impl Identifier {
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -128,6 +140,17 @@ impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ObjectType {
+    Program,
+    Event,
+    Report,
+    Subscription,
+    Ven,
+    Resource,
 }
 
 /// An ISO 8601 formatted duration
@@ -335,9 +358,39 @@ pub enum Unit {
     Private(String),
 }
 
+// example: 249rj49jiej
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, sqlx::Type)]
+#[sqlx(transparent)]
+pub struct ClientId(pub(crate) Identifier);
+
+impl Display for ClientId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ClientId {
+    type Err = IdentifierError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+impl ClientId {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub fn new(identifier: &str) -> Option<Self> {
+        Some(Self(identifier.parse().ok()?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Attribute, DataQuality, Identifier, OperatingState, Unit};
+    use chrono::{DateTime, Utc};
 
     #[test]
     fn test_operating_state_serialization() {
@@ -502,5 +555,59 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("string length 0 outside of allowed range 1..=128"));
+    }
+
+    #[test]
+    fn deserialize_datetime() {
+        use serde::Deserialize;
+        // Thanks to https://tc39.es/proposal-uniform-interchange-date-parsing/cases.html
+
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct Test(#[serde(with = "super::serde_rfc3339")] DateTime<Utc>);
+
+        let valid_dates = [
+            "1972-06-30T23:59:60Z",
+            "2019-03-26T14:00:00.9Z",
+            "2019-03-26T14:00:00.4999Z",
+            "1969-03-26T14:00:00.4999Z",
+        ];
+
+        for valid in valid_dates {
+            assert_eq!(
+                serde_json::from_str::<Test>(&format!("\"{valid}\"")).unwrap(),
+                Test(valid.parse().unwrap())
+            );
+        }
+
+        let invalid_dates = [
+            "2019-03-26T14:00:00,999Z",
+            "2019-03-26T10:00-04",
+            "2019-03-26T14:00.9Z",
+            "20190326T1400Z",
+            "2019-02-30",
+            "2019-03-25T24:01Z",
+            "2019-03-26T14:00+24:00",
+            "2019-03-26Z",
+            "2019-03-26+01:00",
+            "2019-03-26-04:00",
+            "2019-03-26T10:00-0400",
+            "+0002019-03-26T14:00Z",
+            "+2019-03-26T14:00Z",
+            "002019-03-26T14:00Z",
+            "019-03-26T14:00Z",
+            "2019-03-26T10:00Q",
+            "2019-03-26T10:00T",
+            "2019-03-26Q",
+            "2019-03-26T",
+            "2019-03-26 14:00Z",
+            "2019-03-26T14:00:00.",
+        ];
+
+        for invalid in invalid_dates {
+            assert!(serde_json::from_str::<Test>(&format!("\"{invalid}\""))
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid RFC3339 string"));
+        }
     }
 }

@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.id,\n                   e.created_date_time,\n                   e.modification_date_time,\n                   e.program_id,\n                   e.event_name,\n                   e.priority,\n                   e.targets as \"targets:Vec<Target>\",\n                   e.report_descriptors,\n                   e.payload_descriptors,\n                   e.interval_period,\n                   e.intervals,\n                   e.duration\n            FROM event e\n            WHERE ($1::text IS NULL OR e.program_id like $1)\n              -- IF filter targets are empty, do not filter.\n              -- IF filter targets are not empty, filter only if they are in the event targets.\n              AND ($2::text[] IS NULL OR e.targets @> $2)\n            ORDER BY priority ASC, created_date_time DESC\n            OFFSET $3 LIMIT $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "program_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "report_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "payload_descriptors",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "interval_period",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "intervals",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "duration",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "6356bab066166231cd78aaa27ede327e3501cc85b1bd23f5614cd47863b7b5eb"
+}

@@ -1,20 +1,18 @@
 use crate::{
     api::resource::QueryParams,
-    data_source::{postgres::to_json_value, ResourceCrud, VenScopedCrud},
+    data_source::{postgres::to_json_value, Crud, ResourceCrud},
     error::AppError,
-    jwt::User,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    resource::{Resource, ResourceContent, ResourceId},
-    target::TargetEntry,
-    ven::VenId,
+    resource::{BlResourceRequest, Resource, ResourceId},
+    target::Target,
+    ClientId,
 };
 use sqlx::PgPool;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
-#[async_trait]
 impl ResourceCrud for PgResourceStorage {}
 
 pub(crate) struct PgResourceStorage {
@@ -33,9 +31,10 @@ pub(crate) struct PostgresResource {
     created_date_time: DateTime<Utc>,
     modification_date_time: DateTime<Utc>,
     resource_name: String,
-    ven_id: String,
     attributes: Option<serde_json::Value>,
-    targets: Option<serde_json::Value>,
+    targets: Vec<Target>,
+    ven_id: String,
+    client_id: String,
 }
 
 impl TryFrom<PostgresResource> for Resource {
@@ -49,68 +48,70 @@ impl TryFrom<PostgresResource> for Resource {
                 .inspect_err(|err| {
                     error!(
                         ?err,
-                        "Failed to deserialize JSON from DB to `Vec<PayloadDescriptor>`"
+                        "Failed to deserialize JSON from DB to `Vec<ValuesMap>`"
                     )
-                })
-                .map_err(AppError::SerdeJsonInternalServerError)?,
-        };
-        let targets = match value.targets {
-            None => None,
-            Some(t) => serde_json::from_value(t)
-                .inspect_err(|err| {
-                    error!(?err, "Failed to deserialize JSON from DB to `TargetMap`")
                 })
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
 
         Ok(Self {
             id: value.id.parse()?,
+            client_id: value.client_id.parse()?,
             created_date_time: value.created_date_time,
             modification_date_time: value.modification_date_time,
-            ven_id: value.ven_id.parse()?,
-            content: ResourceContent {
+            content: BlResourceRequest {
                 resource_name: value.resource_name,
+                ven_id: value.ven_id.parse()?,
                 attributes,
-                targets,
+                targets: value.targets,
             },
         })
     }
 }
 
 #[async_trait]
-impl VenScopedCrud for PgResourceStorage {
+impl Crud for PgResourceStorage {
     type Type = Resource;
     type Id = ResourceId;
-    type NewType = ResourceContent;
+    type NewType = BlResourceRequest;
     type Error = AppError;
     type Filter = QueryParams;
-    type PermissionFilter = User;
+    type PermissionFilter = Option<ClientId>;
 
     async fn create(
         &self,
         new: Self::NewType,
-        ven_id: VenId,
-        _user: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
-            INSERT INTO resource (
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets
-            )
-            VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
-            RETURNING *
+            WITH new_resource AS (INSERT INTO resource (
+                                                        id,
+                                                        created_date_time,
+                                                        modification_date_time,
+                                                        resource_name,
+                                                        ven_id,
+                                                        attributes,
+                                                        targets
+                )
+                VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
+                RETURNING
+                    id,
+                    created_date_time,
+                    modification_date_time,
+                    resource_name,
+                    ven_id,
+                    attributes,
+                    targets as "targets:Vec<Target>")
+            SELECT new_resource.*, v.client_id
+            FROM new_resource
+                     JOIN ven v ON v.id = new_resource.ven_id;
             "#,
             new.resource_name,
-            ven_id.as_str(),
+            new.ven_id.as_str(),
             to_json_value(new.attributes)?,
-            to_json_value(new.targets)?,
+            new.targets as _,
         )
         .fetch_one(&self.db)
         .await?
@@ -122,25 +123,27 @@ impl VenScopedCrud for PgResourceStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        ven_id: VenId,
-        _user: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let resource = sqlx::query_as!(
             PostgresResource,
             r#"
             SELECT
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets
-            FROM resource
-            WHERE id = $1 AND ven_id = $2
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
+                r.attributes,
+                r.targets as "targets:Vec<Target>",
+                v.client_id
+            FROM resource r
+                JOIN ven v on r.ven_id = v.id
+            WHERE r.id = $1
+              AND ($2::text IS NULL OR v.client_id = $2)
             "#,
             id.as_str(),
-            ven_id.as_str(),
+            client_id as _
         )
         .fetch_one(&self.db)
         .await?
@@ -151,46 +154,34 @@ impl VenScopedCrud for PgResourceStorage {
 
     async fn retrieve_all(
         &self,
-        ven_id: VenId,
         filter: &Self::Filter,
-        _user: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let target: Option<TargetEntry> = filter.targets.clone().into();
-        let target_values = target.as_ref().map(|t| t.values.clone());
-
         let res = sqlx::query_as!(
             PostgresResource,
             r#"
-            SELECT DISTINCT
-                r.id AS "id!", 
-                r.created_date_time AS "created_date_time!", 
-                r.modification_date_time AS "modification_date_time!",
-                r.resource_name AS "resource_name!",
-                r.ven_id AS "ven_id!",
+            SELECT
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
                 r.attributes,
-                r.targets
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             FROM resource r
-              LEFT JOIN LATERAL ( 
-                  
-                    SELECT targets.r_id,
-                           (t ->> 'type' = $3) AND
-                           (t -> 'values' ?| $4) AS target_test
-                    FROM (SELECT resource.id                            AS r_id,
-                                 jsonb_array_elements(resource.targets) AS t
-                          FROM resource) AS targets
-                  
-                   )
-                  ON r.id = r_id
-            WHERE r.ven_id = $1
+                JOIN ven v on r.ven_id = v.id
+            WHERE ($1::text IS NULL OR r.ven_id = $1)
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3 IS NULL OR $4 IS NULL OR target_test)
+                AND ($3::text[] IS NULL OR r.targets @> $3)
+                AND ($4::text IS NULL OR v.client_id = $4)
             ORDER BY r.created_date_time
             OFFSET $5 LIMIT $6
             "#,
-            ven_id.as_str(),
+            filter.ven_id as _,
             filter.resource_name,
-            target.as_ref().map(|t| t.label.as_str()),
-            target_values.as_deref(),
+            filter.targets.as_deref() as _,
+            client_id as _,
             filter.skip,
             filter.limit,
         )
@@ -200,11 +191,7 @@ impl VenScopedCrud for PgResourceStorage {
         .map(TryInto::try_into)
         .collect::<Result<Vec<_>, _>>()?;
 
-        trace!(
-            ven_id = ven_id.as_str(),
-            "retrieved {} resources",
-            res.len()
-        );
+        trace!("retrieved {} resources", res.len());
 
         Ok(res)
     }
@@ -212,32 +199,62 @@ impl VenScopedCrud for PgResourceStorage {
     async fn update(
         &self,
         id: &Self::Id,
-        ven_id: VenId,
         new: Self::NewType,
-        _user: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let mut tx = self.db.begin().await?;
+
+        let old_ven_id = sqlx::query_scalar!(
+            r#"
+            SELECT ven_id FROM resource WHERE id = $1
+            "#,
+            id.as_str()
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if old_ven_id != new.ven_id.as_str() {
+            let error = "Tried to update `ven_id` of resource. \
+            This is not allowed in the current version of openLEADR as the specification is not quite \
+            clear about if that should be allowed. If you disagree with that interpretation, please open \
+            an issue on GitHub.";
+            error!(resource_id = id.as_str(), "{}", error);
+            return Err(Self::Error::BadRequest(error));
+        }
+
         let resource: Resource = sqlx::query_as!(
             PostgresResource,
             r#"
-            UPDATE resource
+            UPDATE resource r
             SET modification_date_time = now(),
-                resource_name = $3,
-                ven_id = $4,
-                attributes = $5,
-                targets = $6
-            WHERE id = $1 AND ven_id = $2
-            RETURNING *
+                resource_name = $2,
+                attributes = $3,
+                targets = $4
+            FROM ven v
+            WHERE r.ven_id = v.id
+              AND r.id = $1
+              AND ($5::text IS NULL OR v.client_id = $5)
+            RETURNING
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
+                r.attributes,
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             "#,
             id.as_str(),
-            ven_id.as_str(),
             new.resource_name,
-            ven_id.as_str(),
             to_json_value(new.attributes)?,
-            to_json_value(new.targets)?
+            new.targets as _,
+            client_id as _
         )
-        .fetch_one(&self.db)
+        .fetch_one(&mut *tx)
         .await?
         .try_into()?;
+
+        tx.commit().await?;
 
         Ok(resource)
     }
@@ -245,78 +262,32 @@ impl VenScopedCrud for PgResourceStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        ven_id: VenId,
-        _user: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         Ok(sqlx::query_as!(
             PostgresResource,
             r#"
             DELETE FROM resource r
-            WHERE r.id = $1 AND r.ven_id = $2
-            RETURNING r.*
+                   USING ven v
+            WHERE r.ven_id = v.id
+              AND r.id = $1
+              AND ($2::text IS NULL OR v.client_id = $2)
+            RETURNING
+                r.id,
+                r.created_date_time,
+                r.modification_date_time,
+                r.resource_name,
+                r.ven_id,
+                r.attributes,
+                r.targets as "targets:Vec<Target>",
+                v.client_id
             "#,
             id.as_str(),
-            ven_id.as_str(),
+            client_id as _
         )
         .fetch_one(&self.db)
         .await?
         .try_into()?)
-    }
-}
-
-impl PgResourceStorage {
-    pub(crate) async fn retrieve_by_ven(
-        db: &PgPool,
-        ven_id: &VenId,
-    ) -> Result<Vec<Resource>, AppError> {
-        sqlx::query_as!(
-            PostgresResource,
-            r#"
-            SELECT
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets
-            FROM resource
-            WHERE ven_id = $1
-            "#,
-            ven_id.as_str(),
-        )
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()
-    }
-
-    pub(crate) async fn retrieve_by_vens(
-        db: &PgPool,
-        ven_ids: &[String],
-    ) -> Result<Vec<Resource>, AppError> {
-        sqlx::query_as!(
-            PostgresResource,
-            r#"
-            SELECT
-                id,
-                created_date_time,
-                modification_date_time,
-                resource_name,
-                ven_id,
-                attributes,
-                targets
-            FROM resource
-            WHERE ven_id = ANY($1)
-            "#,
-            ven_ids,
-        )
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()
     }
 }
 
@@ -325,8 +296,7 @@ impl PgResourceStorage {
 mod test {
     use crate::{
         api::{resource::QueryParams, TargetQueryParams},
-        data_source::{postgres::resource::PgResourceStorage, VenScopedCrud},
-        jwt::{AuthRole, User},
+        data_source::{postgres::resource::PgResourceStorage, Crud},
     };
     use sqlx::PgPool;
 
@@ -334,12 +304,19 @@ mod test {
         fn default() -> Self {
             Self {
                 resource_name: None,
-                targets: TargetQueryParams {
-                    target_type: None,
-                    values: None,
-                },
+                ven_id: None,
+                targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
+            }
+        }
+    }
+
+    impl QueryParams {
+        fn ven_id(ven_id: &str) -> QueryParams {
+            Self {
+                ven_id: Some(ven_id.parse().unwrap()),
+                ..Self::default()
             }
         }
     }
@@ -347,30 +324,47 @@ mod test {
     #[sqlx::test(fixtures("users", "vens", "resources"))]
     async fn retrieve_all(db: PgPool) {
         let repo = PgResourceStorage::from(db.clone());
-        let user = User(crate::jwt::Claims::new(vec![AuthRole::VenManager]));
 
         let resources = repo
-            .retrieve_all("ven-1".parse().unwrap(), &Default::default(), &user)
+            .retrieve_all(
+                &QueryParams::ven_id("ven-1"),
+                &Some("ven-1-client-id".parse().unwrap()),
+            )
             .await
             .unwrap();
         assert_eq!(resources.len(), 2);
 
         let resources = repo
-            .retrieve_all("ven-2".parse().unwrap(), &Default::default(), &user)
+            .retrieve_all(
+                &QueryParams::ven_id("ven-2"),
+                &Some("ven-2-client-id".parse().unwrap()),
+            )
             .await
             .unwrap();
         assert_eq!(resources.len(), 3);
 
         let filters = QueryParams {
             resource_name: Some("resource-1-name".to_string()),
+            ven_id: Some("ven-1".parse().unwrap()),
             ..Default::default()
         };
 
         let resources = repo
-            .retrieve_all("ven-1".parse().unwrap(), &filters, &user)
+            .retrieve_all(&filters, &Some("ven-1-client-id".parse().unwrap()))
             .await
             .unwrap();
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].content.resource_name, "resource-1-name");
+        assert_eq!(resources[0].client_id, "ven-1-client-id".parse().unwrap());
+
+        // Ensure a client cannot see resources of another client
+        let resources = repo
+            .retrieve_all(
+                &QueryParams::ven_id("ven-2"),
+                &Some("ven-1-client-id".parse().unwrap()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resources.len(), 0);
     }
 }

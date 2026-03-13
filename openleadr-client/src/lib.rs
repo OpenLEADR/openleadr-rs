@@ -1,24 +1,26 @@
 #![warn(missing_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
 
-//! # OpenADR 3.0 VEN client
+//! # OpenADR 3.1 VEN client
 //!
-//! This is a client library to interact with an OpenADR 3.0 complaint VTN server.
+//! This is a client library to interact with an OpenADR 3.1 complaint VTN server.
 //! It mainly wraps the HTTP REST interface into an easy-to-use Rust API.
 //!
 //! Basic usage
 //! ```no_run
-//! # use openleadr_client::{Client, ClientCredentials};
+//! # use openleadr_client::{Client, ClientCredentials, BusinessLogic};
 //! # use openleadr_wire::event::{EventInterval, EventType, EventValuesMap, Priority};
-//! # use openleadr_wire::program::ProgramContent;
+//! # use openleadr_wire::program::ProgramRequest;
 //! # use openleadr_wire::values_map::Value;
 //! # tokio_test::block_on(async {
 //! let credentials =
 //!     ClientCredentials::new("client_id".to_string(), "client_secret".to_string());
-//! let client = Client::with_url(
+//! let client = Client::<BusinessLogic>::with_url(
 //!     "https://your-vtn.com".parse().unwrap(),
 //!     Some(credentials),
 //! );
-//! let new_program = ProgramContent::new("example-program-name".to_string());
+//! let new_program = ProgramRequest::new("example-program-name".to_string());
 //! let example_program = client.create_program(new_program).await.unwrap();
 //! let mut new_event = example_program.new_event(vec![EventInterval {
 //!     id: 0,
@@ -37,12 +39,12 @@
 //! If you want to use a separate OAuth provider that is not built into the VTN server,
 //! you can do so as well.
 //! ```no_run
-//! # use openleadr_client::{Client, ClientCredentials};
+//! # use openleadr_client::{Client, ClientCredentials, BusinessLogic};
 //! # let credentials =
 //! #    ClientCredentials::new("client_id".to_string(), "client_secret".to_string());
 //! // optionally, you can build special configuration into the reqwest client here as well
 //! let reqwest_client = reqwest::Client::new();
-//! let client = Client::with_details(
+//! let client = Client::<BusinessLogic>::with_details(
 //!     "https://your-vtn.com".parse().unwrap(),
 //!     "https://your-oauth-provider.com".parse().unwrap(),
 //!     reqwest_client,
@@ -52,10 +54,11 @@
 
 mod error;
 mod event;
+#[cfg(feature = "mdns")]
+mod mdns;
 mod program;
 mod report;
 mod resource;
-mod target;
 mod timeline;
 mod ven;
 
@@ -64,6 +67,7 @@ use openleadr_wire::{event::EventId, Event, Ven};
 use std::{
     fmt::Debug,
     future::Future,
+    marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -74,19 +78,18 @@ use url::Url;
 
 pub use error::*;
 pub use event::*;
+#[cfg(feature = "mdns")]
+pub use mdns::*;
 pub use program::*;
 pub use report::*;
 pub use resource::*;
-pub use target::*;
 pub use timeline::*;
 pub use ven::*;
 
 use crate::error::Result;
-use openleadr_wire::ven::{VenContent, VenId};
-pub(crate) use openleadr_wire::{
-    event::EventContent,
-    program::{ProgramContent, ProgramId},
-    target::TargetType,
+use openleadr_wire::{
+    program::{ProgramId, ProgramRequest},
+    ven::{BlVenRequest, VenId, VenRequest, VenVenRequest},
     Program,
 };
 
@@ -109,8 +112,8 @@ pub trait HttpClient: Debug {
 /// If using the VTN of this project with the built-in OAuth authentication provider,
 /// the [`Client`] also allows managing the users.
 #[derive(Debug, Clone)]
-pub struct Client {
-    client_ref: Arc<ClientRef>,
+pub struct Client<K> {
+    client_ref: Arc<ClientRef<K>>,
 }
 
 /// Credentials necessary for authentication at the VTN
@@ -173,17 +176,30 @@ impl Debug for AuthToken {
     }
 }
 
+/// This trait is used to mark the kind of [`Client`] to use,
+/// either a [`BusinessLogic`], or a [`VirtualEndNode`]
+pub trait ClientKind: Copy {}
+#[derive(Copy, Clone, Debug)]
+/// Used to mark the kind of [`Client`], see also [`ClientKind`]
+pub struct BusinessLogic;
+impl ClientKind for BusinessLogic {}
+#[derive(Copy, Clone, Debug)]
+/// Used to mark the kind of [`Client`], see also [`ClientKind`]
+pub struct VirtualEndNode;
+impl ClientKind for VirtualEndNode {}
+
 #[derive(Debug)]
-struct ClientRef {
+struct ClientRef<K> {
     client: Box<dyn HttpClient + Send + Sync>,
     vtn_base_url: Url,
     oauth_base_url: Url,
     default_page_size: usize,
     auth_data: Option<ClientCredentials>,
     auth_token: RwLock<Option<AuthToken>>,
+    phantom: PhantomData<K>,
 }
 
-impl ClientRef {
+impl<K: ClientKind> ClientRef<K> {
     /// This ensures the client is authenticated.
     ///
     /// We follow the process according to RFC 6749, section 4.4 (client
@@ -393,14 +409,10 @@ pub struct PaginationOptions {
     pub limit: usize,
 }
 
-/// Filter based on TargetType and TargetValues as specified for various items.
+/// Filter based on Target as specified for various items.
 ///
 /// **Please note:** This does only filter based on what is stored in the `target` field of an item
-/// (e.g., [`ProgramContent::targets`]) and should not get interpreted by the server.
-/// For example, setting the [`TargetType`] to [`ProgramName`](TargetType::ProgramName)
-/// will not filter based on the [`program_name`](ProgramContent::program_name)
-/// value but only consider what is stored in the [`targets`](`ProgramContent::targets`)
-/// of that program.
+/// (e.g., [`ProgramRequest::targets`]) and should not get interpreted by the server.
 ///
 /// Unfortunately, the specification is not very clear about this behavior,
 /// so some servers might interpret it differently.
@@ -410,11 +422,11 @@ pub struct PaginationOptions {
 pub enum Filter<'a, S: AsRef<str>> {
     /// Do not apply any filtering
     None,
-    /// Filter by [`TargetType`] and a list of values.
+    /// Filter a list of [`Target`](openleadr_wire::target::Target).
     ///
     /// It will be encoded to the request as query parameters,
-    /// e.g., `/programs?targetType=GROUP&targetValues=Group-1&targetValues=Group-2`.
-    By(TargetType, &'a [S]),
+    /// e.g., `/programs?targets=group-1&targets=group-2`.
+    By(&'a [S]),
 }
 
 impl<'a> Filter<'a, &'static str> {
@@ -427,18 +439,38 @@ impl<'a> Filter<'a, &'static str> {
 impl<'a, S: AsRef<str>> Filter<'a, S> {
     pub(crate) fn to_query_params(&'a self) -> Vec<(&'a str, &'a str)> {
         let mut query = vec![];
-        if let Filter::By(ref target_label, target_values) = self {
-            query.push(("targetType", target_label.as_str()));
-
+        if let Filter::By(target_values) = self {
             for target_value in *target_values {
-                query.push(("targetValues", target_value.as_ref()));
+                query.push(("targets", target_value.as_ref()));
             }
         }
         query
     }
 }
 
-impl Client {
+impl Client<VirtualEndNode> {
+    /// Create a new VEN entity at the VTN.
+    pub async fn create_ven(&self, ven: VenVenRequest) -> Result<VenClient<VirtualEndNode>> {
+        let ven = self
+            .client_ref
+            .post("vens", &VenRequest::VenVenRequest(ven))
+            .await?;
+        Ok(VenClient::from_ven(self.client_ref.clone(), ven))
+    }
+}
+
+impl Client<BusinessLogic> {
+    /// Create a new VEN entity at the VTN.
+    pub async fn create_ven(&self, ven: BlVenRequest) -> Result<VenClient<BusinessLogic>> {
+        let ven = self
+            .client_ref
+            .post("vens", &VenRequest::BlVenRequest(ven))
+            .await?;
+        Ok(VenClient::from_ven(self.client_ref.clone(), ven))
+    }
+}
+
+impl<K: ClientKind> Client<K> {
     /// Create a new client for a VTN located at the specified URL.
     ///
     /// This assumes that the VTN also works as an OAuth provider
@@ -489,18 +521,22 @@ impl Client {
             default_page_size: 50,
             auth_data: auth,
             auth_token: RwLock::new(None),
+            phantom: PhantomData::<K>,
         };
         Self::new(client_ref)
     }
 
-    fn new(client_ref: ClientRef) -> Self {
+    fn new(client_ref: ClientRef<K>) -> Self {
         Client {
             client_ref: Arc::new(client_ref),
         }
     }
 
     /// Create a new program on the VTN.
-    pub async fn create_program(&self, program_content: ProgramContent) -> Result<ProgramClient> {
+    pub async fn create_program(
+        &self,
+        program_content: ProgramRequest,
+    ) -> Result<ProgramClient<K>> {
         let program = self.client_ref.post("programs", &program_content).await?;
         Ok(ProgramClient::from_program(self.clone(), program))
     }
@@ -510,7 +546,7 @@ impl Client {
         &self,
         filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
-    ) -> Result<Vec<ProgramClient>> {
+    ) -> Result<Vec<ProgramClient<K>>> {
         // convert query params
         let skip_str = pagination.skip.to_string();
         let limit_str = pagination.limit.to_string();
@@ -533,7 +569,7 @@ impl Client {
     pub async fn get_program_list(
         &self,
         filter: Filter<'_, impl AsRef<str> + Clone>,
-    ) -> Result<Vec<ProgramClient>> {
+    ) -> Result<Vec<ProgramClient<K>>> {
         self.client_ref
             .iterate_pages(|skip, limit| {
                 self.get_programs(filter.clone(), PaginationOptions { skip, limit })
@@ -542,7 +578,7 @@ impl Client {
     }
 
     /// Get a program by id
-    pub async fn get_program_by_id(&self, id: &ProgramId) -> Result<ProgramClient> {
+    pub async fn get_program_by_id(&self, id: &ProgramId) -> Result<ProgramClient<K>> {
         let program = self
             .client_ref
             .get(&format!("programs/{}", id.as_str()), &[])
@@ -553,13 +589,13 @@ impl Client {
 
     /// Low-level operation that gets a list of events from the VTN with the given query parameters
     ///
-    /// To automatically iterate pages, use [`self.get_event_list`]
+    /// To automatically iterate pages, use [`self.get_event_list`](Self::get_event_list)
     pub async fn get_events(
         &self,
         program_id: Option<&ProgramId>,
         filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
-    ) -> Result<Vec<EventClient>> {
+    ) -> Result<Vec<EventClient<K>>> {
         // convert query params
         let skip_str = pagination.skip.to_string();
         let limit_str = pagination.limit.to_string();
@@ -587,7 +623,7 @@ impl Client {
         &self,
         program_id: Option<&ProgramId>,
         filter: Filter<'_, impl AsRef<str> + Clone>,
-    ) -> Result<Vec<EventClient>> {
+    ) -> Result<Vec<EventClient<K>>> {
         self.client_ref
             .iterate_pages(|skip, limit| {
                 self.get_events(
@@ -600,7 +636,7 @@ impl Client {
     }
 
     /// Get an event by id
-    pub async fn get_event_by_id(&self, id: &EventId) -> Result<EventClient> {
+    pub async fn get_event_by_id(&self, id: &EventId) -> Result<EventClient<K>> {
         let event = self
             .client_ref
             .get(&format!("events/{}", id.as_str()), &[])
@@ -609,18 +645,12 @@ impl Client {
         Ok(EventClient::from_event(self.client_ref.clone(), event))
     }
 
-    /// Create a new VEN entity at the VTN. The content should be created with [`VenContent::new`].
-    pub async fn create_ven(&self, ven: VenContent) -> Result<VenClient> {
-        let ven = self.client_ref.post("vens", &ven).await?;
-        Ok(VenClient::from_ven(self.client_ref.clone(), ven))
-    }
-
     async fn get_vens(
         &self,
         skip: usize,
         limit: usize,
         filter: Filter<'_, impl AsRef<str>>,
-    ) -> Result<Vec<VenClient>> {
+    ) -> Result<Vec<VenClient<K>>> {
         let skip_str = skip.to_string();
         let limit_str = limit.to_string();
         let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
@@ -641,14 +671,14 @@ impl Client {
     pub async fn get_ven_list(
         &self,
         filter: Filter<'_, impl AsRef<str> + Clone>,
-    ) -> Result<Vec<VenClient>> {
+    ) -> Result<Vec<VenClient<K>>> {
         self.client_ref
             .iterate_pages(|skip, limit| self.get_vens(skip, limit, filter.clone()))
             .await
     }
 
     /// Get VEN by id from VTN
-    pub async fn get_ven_by_id(&self, id: &VenId) -> Result<VenClient> {
+    pub async fn get_ven_by_id(&self, id: &VenId) -> Result<VenClient<K>> {
         let ven = self
             .client_ref
             .get(&format!("vens/{}", id.as_str()), &[])
@@ -657,8 +687,8 @@ impl Client {
     }
 
     /// Get VEN by name from VTN.
-    /// According to the spec, a [`ven_name`](VenContent::ven_name) must be unique for the whole VTN instance.
-    pub async fn get_ven_by_name(&self, name: &str) -> Result<VenClient> {
+    /// According to the spec, a [`ven_name`](BlVenRequest::ven_name) must be unique for the whole VTN instance.
+    pub async fn get_ven_by_name(&self, name: &str) -> Result<VenClient<K>> {
         let mut vens: Vec<Ven> = self.client_ref.get("vens", &[("venName", name)]).await?;
         match vens[..] {
             [] => Err(Error::ObjectNotFound),

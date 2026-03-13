@@ -1,0 +1,19 @@
+name: Rust docs
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build_docs:
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          components: rust-docs
+          toolchain: 'stable'
+      - run: cargo doc --no-deps --all-features --workspace

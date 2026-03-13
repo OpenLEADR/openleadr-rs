@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use tracing::warn;
 
 use openleadr_wire::{
-    event::{EventContent, EventValuesMap, Priority},
+    event::{EventRequest, EventValuesMap, Priority},
     interval::IntervalPeriod,
     Program,
 };
@@ -58,7 +58,7 @@ impl Timeline {
     /// ```
     ///
     /// This function logs at `warn` level if provided with an [`Event`](crate::Event)
-    /// those [`program_id`](crate::EventContent::program_id) does not match with the [`Program::id`].
+    /// those [`program_id`](openleadr_wire::event::EventRequest::program_id) does not match with the [`Program::id`].
     /// The corresponding event will be ignored then building the timeline.
     ///
     /// This function also logs at `warn`
@@ -71,7 +71,7 @@ impl Timeline {
     /// If both are specified, the individual period takes precedence over the one specified in the event.
     /// If for an interval, there is no period present, and none specified in the event,
     /// then this function will return [`None`]
-    pub fn from_events(program: &Program, mut events: Vec<&EventContent>) -> Option<Self> {
+    pub fn from_events(program: &Program, mut events: Vec<&EventRequest>) -> Option<Self> {
         let mut data = Self::default();
 
         events.sort_by_key(|e| e.priority);
@@ -86,45 +86,47 @@ impl Timeline {
 
             let mut current_start = default_period.map(|p| p.start);
 
-            for event_interval in &event.intervals {
-                // use the event interval period when the interval doesn't specify one
-                let (start, duration, randomize_start) =
-                    match event_interval.interval_period.as_ref() {
-                        Some(IntervalPeriod {
-                            start,
-                            duration,
-                            randomize_start,
-                        }) => (start, duration, randomize_start),
-                        None => (
-                            &current_start?,
-                            &default_period?.duration,
-                            &default_period?.randomize_start,
-                        ),
+            if let Some(event_intervals) = &event.intervals {
+                for event_interval in event_intervals {
+                    // use the event interval period when the interval doesn't specify one
+                    let (start, duration, randomize_start) =
+                        match event_interval.interval_period.as_ref() {
+                            Some(IntervalPeriod {
+                                start,
+                                duration,
+                                randomize_start,
+                            }) => (start, duration, randomize_start),
+                            None => (
+                                &current_start?,
+                                &default_period?.duration,
+                                &default_period?.randomize_start,
+                            ),
+                        };
+
+                    let range = match duration {
+                        Some(duration) => *start..*start + duration.to_chrono_at_datetime(*start),
+                        None => *start..DateTime::<Utc>::MAX_UTC,
                     };
 
-                let range = match duration {
-                    Some(duration) => *start..*start + duration.to_chrono_at_datetime(*start),
-                    None => *start..DateTime::<Utc>::MAX_UTC,
-                };
+                    current_start = Some(range.end);
 
-                current_start = Some(range.end);
+                    let interval = InternalInterval {
+                        id: id as u32,
+                        randomize_start: randomize_start
+                            .as_ref()
+                            .map(|d| d.to_chrono_at_datetime(*start)),
+                        value_map: event_interval.payloads.clone(),
+                        priority: event.priority,
+                    };
 
-                let interval = InternalInterval {
-                    id: id as u32,
-                    randomize_start: randomize_start
-                        .as_ref()
-                        .map(|d| d.to_chrono_at_datetime(*start)),
-                    value_map: event_interval.payloads.clone(),
-                    priority: event.priority,
-                };
-
-                for (existing_range, existing) in data.data.overlapping(&range) {
-                    if existing.priority == event.priority {
-                        warn!(?existing_range, ?existing, new_range = ?range, new = ?interval, "Overlapping ranges with equal priority");
+                    for (existing_range, existing) in data.data.overlapping(&range) {
+                        if existing.priority == event.priority {
+                            warn!(?existing_range, ?existing, new_range = ?range, new = ?interval, "Overlapping ranges with equal priority");
+                        }
                     }
-                }
 
-                data.data.insert(range, interval);
+                    data.data.insert(range, interval);
+                }
             }
         }
 
@@ -252,7 +254,7 @@ mod test {
     use super::*;
     use openleadr_wire::{
         event::EventInterval,
-        program::{ProgramContent, ProgramId},
+        program::{ProgramId, ProgramRequest},
         values_map::Value,
     };
 
@@ -260,11 +262,9 @@ mod test {
         ProgramId::new("test-program-id").unwrap()
     }
 
-    fn test_event_content(range: Range<u32>, value: i64) -> EventContent {
-        EventContent::new(
-            test_program_id(),
-            vec![event_interval_with_value(range, value)],
-        )
+    fn test_event_content(range: Range<u32>, value: i64) -> EventRequest {
+        EventRequest::new(test_program_id())
+            .with_intervals(vec![event_interval_with_value(range, value)])
     }
 
     fn test_program(name: &str) -> Program {
@@ -272,7 +272,7 @@ mod test {
             id: test_program_id(),
             created_date_time: Default::default(),
             modification_date_time: Default::default(),
-            content: ProgramContent::new(name),
+            content: ProgramRequest::new(name),
         }
     }
 
@@ -421,7 +421,7 @@ mod test {
             ),
         ];
 
-        let mut event = EventContent::new(program.id.clone(), event_intervals);
+        let mut event = EventRequest::new(program.id.clone()).with_intervals(event_intervals);
 
         event.interval_period = Some(IntervalPeriod {
             start: DateTime::UNIX_EPOCH,
@@ -455,23 +455,20 @@ mod test {
         let event2 = {
             let range = 0..15;
             let value = 43;
-            EventContent::new(
-                test_program_id(),
-                vec![EventInterval {
-                    id: range.start as _,
-                    interval_period: Some(IntervalPeriod {
-                        start: DateTime::UNIX_EPOCH + Duration::hours(range.start.into()),
-                        duration: Some(openleadr_wire::Duration::hours(
-                            (range.end - range.start) as _,
-                        )),
-                        randomize_start: Some(openleadr_wire::Duration::hours(5.0)),
-                    }),
-                    payloads: vec![EventValuesMap {
-                        value_type: openleadr_wire::event::EventType::Price,
-                        values: vec![Value::Integer(value)],
-                    }],
+            EventRequest::new(test_program_id()).with_intervals(vec![EventInterval {
+                id: range.start as _,
+                interval_period: Some(IntervalPeriod {
+                    start: DateTime::UNIX_EPOCH + Duration::hours(range.start.into()),
+                    duration: Some(openleadr_wire::Duration::hours(
+                        (range.end - range.start) as _,
+                    )),
+                    randomize_start: Some(openleadr_wire::Duration::hours(5.0)),
+                }),
+                payloads: vec![EventValuesMap {
+                    value_type: openleadr_wire::event::EventType::Price,
+                    values: vec![Value::Integer(value)],
                 }],
-            )
+            }])
         };
 
         let tl = Timeline::from_events(&test_program("p"), vec![&event1, &event2]).unwrap();

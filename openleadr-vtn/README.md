@@ -1,9 +1,9 @@
 ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 ![codecov](https://codecov.io/gh/OpenLEADR/openleadr-rs/graph/badge.svg?token=BKQ0QW9G8H)
-![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg?branch=main)
+[![Checks](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml/badge.svg)](https://github.com/OpenLEADR/openleadr-rs/actions/workflows/checks.yml)
 ![Crates.io Version](https://img.shields.io/crates/v/openleadr-vtn)
 
-# OpenADR 3.0 VTN server in Rust
+# OpenADR 3.1 VTN server in Rust
 
 ![LF energy OpenLEADR logo](../openleadr-logo.svg)
 
@@ -11,6 +11,12 @@ This crate contains an OpenADR VTN implementation.
 
 The following contains information specific to the VTN application, i.e., the server.
 If you are interested in information about the whole project, please visit the [project level Readme](../README.md).
+
+## Deviations from the specification
+Version 3.1.0 of the OpenADR specification does not make a difference between a BL and VEN client with respect to the `write_vens` OAuth scope.
+The OpenLEADR implementation deviates from the specification by splitting the `write_vens` scope into two scopes: `write_vens_ven` and `write_vens_bl`.
+To be as compatible as possible with the specification, the `write_vens` scope is still supported as an alias for `write_vens_ven`.
+For detailed information, see the issue on the specification if you have access ([oadr3-org/specification#396](https://github.com/oadr3-org/specification/issues/396)).
 
 ## Getting started
 Your machine needs a recent version of Rust installed.
@@ -64,8 +70,9 @@ The OAuth configuration of the VTN is done via the following environment variabl
 - `OAUTH_PEM` (path to a PEM encoded public key file. Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
 - `OAUTH_JWKS_LOCATION` (path to the OAUTH server well known JWKS endpoint.  Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
 - `OAUTH_VALID_AUDIENCES` (specifies the list of valid audiences for token validation, ensuring that the token is intended for the correct recipient. Required when `OAUTH_TYPE` is `EXTERNAL`. Optional and defaults to an empty list when `OAUTH_TYPE` is `INTERNAL`, which will fail validation if an `aud` claim is present in the decoded access token.)
+- `OAUTH_TOKEN_URL` (URL to the OAUTH server token endpoint. For example `https://localhost:3000/auth/token` when using the internal OAuth provider. Required)
 
-The internal OAuth provider does only support `HMAC`.
+The internal OAuth provider does only support `HMAC` keys.
 
 **During compiletime**
 If you already know that you don't need the internal OAuth feature,
@@ -73,6 +80,26 @@ you can disable it during compilation with the feature flag `internal-oauth`, wh
 Therefore, run
 ```bash
 cargo build/run --bin openleadr-vtn --no-default-features --features=postgres [--release]
+```
+
+### Testing
+To run the tests, you need to start a postgres database and run the migrations:
+```bash
+docker compose up -d db
+cargo sqlx migrate run
+# alternatively, you can also reset the database to an empty state
+cargo sqlx db reset
+```
+
+Make sure the VTN has the necessary user accounts prepared to run the client (VEN) tests.
+For that, please apply the corresponding fixture
+```bash
+psql postgres://openadr:openadr@localhost:5432/openadr < fixtures/users.sql
+```
+
+Then, run the tests with the `live-db-test` feature enabled
+```bash
+cargo test --features=live-db-test [--workspace]
 ```
 
 ### Note on prepared SQL
