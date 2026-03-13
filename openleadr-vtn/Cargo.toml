@@ -51,7 +51,7 @@ mdns-sd = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 serial_test.workspace = true
 serde_html_form = "0.4.0"
-openleadr-client.workspace = true
+openleadr-client = { path = "../openleadr-client" }
 
 [features]
 default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd"]
