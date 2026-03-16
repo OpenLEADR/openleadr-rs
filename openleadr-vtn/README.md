@@ -60,7 +60,7 @@ to allow for an easy setup.
 The OpenADR specification does not require this feature but mentions that there must exist some OAuth provider somewhere.
 Generally, the idea of OAuth is to decouple the authorization from the resource server, here the VTN.
 Therefore, the OAuth provider feature is optional.
-You can either disable it during compile time or runtime.
+If you want to use it, you need to enable it during compile time. Otherwise you need to disable it during runtime.
 
 **During runtime**
 The OAuth configuration of the VTN is done via the following environment variables:
@@ -75,11 +75,10 @@ The OAuth configuration of the VTN is done via the following environment variabl
 The internal OAuth provider does only support `HMAC` keys.
 
 **During compiletime**
-If you already know that you don't need the internal OAuth feature,
-you can disable it during compilation with the feature flag `internal-oauth`, which is enabled by default.
+If you need the internal OAuth feature, you can enable it during compilation with the feature flag `internal-oauth`.
 Therefore, run
 ```bash
-cargo build/run --bin openleadr-vtn --no-default-features --features=postgres [--release]
+cargo build/run --bin openleadr-vtn --features=internal-oauth [--release]
 ```
 
 ### Testing
