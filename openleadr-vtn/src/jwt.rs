@@ -195,6 +195,8 @@ pub(crate) struct Claims {
     iat: Option<i64>,
     /// (not before time): Time before which the JWT must not be accepted for processing
     nbf: Option<i64>,
+    /// (audience): Recipient the JWT is intended for (the VTN)
+    aud: Option<Vec<String>>,
     #[serde(default, alias = "roles")]
     pub(crate) scope: Scopes,
 }
@@ -325,11 +327,19 @@ impl JwtManager {
         let now = chrono::Utc::now();
         let exp = now + expires_in;
 
+        let aud = if let Some(aud) = &self.validation.aud.as_ref() {
+            let mut aud = aud.iter().cloned().collect::<Vec<_>>();
+            aud.sort();
+            Some(aud)
+        } else {
+            None
+        };
         let claims = Claims {
+            sub: client_id,
             exp: exp.timestamp(),
             iat: Some(now.timestamp()),
             nbf: Some(now.timestamp()),
-            sub: client_id,
+            aud,
             scope: scope.into(),
         };
 
