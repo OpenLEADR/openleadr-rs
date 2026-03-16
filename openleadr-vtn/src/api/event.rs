@@ -12,11 +12,15 @@ use validator::Validate;
 use openleadr_wire::{
     event::{EventId, EventRequest},
     program::ProgramId,
+    subscription::{AnyObject, Operation},
     Event,
 };
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
+    api::{
+        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
+        ValidatedQuery,
+    },
     data_source::EventCrud,
     error::AppError,
     jwt::{Scope, User},
@@ -66,6 +70,7 @@ pub async fn get(
 
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_event): ValidatedJson<EventRequest>,
 ) -> Result<(StatusCode, Json<Event>), AppError> {
@@ -79,11 +84,20 @@ pub async fn add(
 
     info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event created");
 
+    subscription::notify(
+        &*event_source,
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Event(event.clone()),
+    )
+    .await;
+
     Ok((StatusCode::CREATED, Json(event)))
 }
 
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<EventId>,
     User(user): User,
     ValidatedJson(content): ValidatedJson<EventRequest>,
@@ -98,11 +112,20 @@ pub async fn edit(
 
     info!(%event.id, event_name=event.content.event_name, client_id = user.sub, "event updated");
 
+    subscription::notify(
+        &*event_source,
+        &notifier_state,
+        Operation::Update,
+        AnyObject::Event(event.clone()),
+    )
+    .await;
+
     Ok(Json(event))
 }
 
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<EventId>,
     User(user): User,
 ) -> AppResponse<Event> {
@@ -112,6 +135,15 @@ pub async fn delete(
 
     let event = event_source.delete(&id, &Some(user.client_id()?)).await?;
     info!(%event.id, event.event_name=event.content.event_name, client_id = user.sub, "deleted event");
+
+    subscription::notify(
+        &*event_source,
+        &notifier_state,
+        Operation::Delete,
+        AnyObject::Event(event.clone()),
+    )
+    .await;
+
     Ok(Json(event))
 }
 

@@ -1,29 +1,39 @@
 use std::{collections::HashMap, sync::Arc};
 
 use axum::{
-    extract::{Path, State},
+    extract::{
+        ws::{Message, WebSocketUpgrade},
+        Path, State,
+    },
+    response::Response,
     Json,
 };
 use openleadr_wire::{
     program::ProgramId,
-    subscription::{Subscription, SubscriptionId, SubscriptionRequest},
-    ObjectType,
+    subscription::{
+        AnyObject, Notification, NotifiersResponse, Operation, Subscription, SubscriptionId,
+        SubscriptionRequest,
+    },
+    ClientId, ObjectType,
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, trace};
+use uuid::{ContextV7, Uuid};
 use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::SubscriptionCrud,
+    data_source::{EventCrud, SubscriptionCrud},
     error::AppError,
     jwt::{Scope, User},
     state::AppState,
 };
 
 pub(crate) struct NotifierState {
+    uuidv7_context: Arc<Mutex<ContextV7>>,
+    websockets: Mutex<HashMap<ClientId, mpsc::UnboundedSender<Notification>>>,
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
 }
 
@@ -45,6 +55,8 @@ impl NotifierState {
             .await?;
 
         Ok(Self {
+            uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
+            websockets: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(
                 subscriptions
                     .into_iter()
@@ -233,6 +245,101 @@ pub struct QueryParams {
 
 fn get_50() -> i64 {
     50
+}
+
+pub(crate) async fn notify(
+    event_source: &dyn EventCrud,
+    notifier_state: &NotifierState,
+    operation: Operation,
+    object: AnyObject,
+) {
+    let uuid = Uuid::new_v7(uuid::Timestamp::now(
+        &*notifier_state.uuidv7_context.lock().await,
+    ));
+
+    let event_program_id;
+    let target_program_id = match &object {
+        AnyObject::Program(program) => Some(&program.id),
+        AnyObject::Report(report) => {
+            if let Ok(event) = event_source.retrieve(&report.content.event_id, &None).await {
+                event_program_id = event.content.program_id;
+                Some(&event_program_id)
+            } else {
+                None
+            }
+        }
+        AnyObject::Event(event) => Some(&event.content.program_id),
+        AnyObject::Subscription(_) | AnyObject::Ven(_) | AnyObject::Resource(_) => None,
+    };
+
+    trace!(id = %object.id(), object = ?object, "notify {operation:?}");
+
+    for subscription in notifier_state.subscriptions.lock().await.values() {
+        // FIXME handle object privacy
+
+        let program_id = subscription.content.program_id.as_ref();
+
+        for object_operation in &subscription.content.object_operations {
+            if !object_operation.operations.contains(&operation)
+                || !object_operation.objects.contains(&object.kind())
+                || (program_id.is_some() && program_id != target_program_id)
+            {
+                continue;
+            }
+
+            if let Some(tx) = notifier_state
+                .websockets
+                .lock()
+                .await
+                .get(&subscription.client_id)
+            {
+                let _ = tx.send(Notification {
+                    id: uuid
+                        .to_string()
+                        .parse()
+                        .expect("uuid should always be a valid identifier"),
+                    operation,
+                    object: object.clone(),
+                });
+            }
+        }
+    }
+}
+
+pub(crate) async fn notifier_get() -> Json<NotifiersResponse> {
+    Json(NotifiersResponse { websocket: true })
+}
+
+pub(crate) async fn notifier_websocket_get(
+    State(notifier_state): State<Arc<NotifierState>>,
+    User(user): User,
+    ws: WebSocketUpgrade,
+) -> Result<Response, AppError> {
+    let client_id = user.client_id()?;
+
+    let mut websockets = notifier_state.websockets.lock().await;
+    if websockets.contains_key(&client_id) {
+        return Err(AppError::Conflict(
+            "websocket connection already open".to_owned(),
+            None,
+        ));
+    }
+    let (tx, mut rx) = mpsc::unbounded_channel(); // FIXME use bounded channel
+    websockets.insert(client_id.clone(), tx);
+    drop(websockets);
+
+    Ok(ws.on_upgrade(|mut socket| async move {
+        while let Some(msg) = rx.recv().await {
+            if socket
+                .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+        notifier_state.websockets.lock().await.remove(&client_id);
+    }))
 }
 
 #[cfg(test)]

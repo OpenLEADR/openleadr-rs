@@ -9,11 +9,17 @@ use serde::Deserialize;
 use tracing::{info, trace};
 use validator::Validate;
 
-use openleadr_wire::ven::{BlVenRequest, Ven, VenId, VenRequest};
+use openleadr_wire::{
+    subscription::{AnyObject, Operation},
+    ven::{BlVenRequest, Ven, VenId, VenRequest},
+};
 
 use crate::{
-    api::{AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery},
-    data_source::VenCrud,
+    api::{
+        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
+        ValidatedQuery,
+    },
+    data_source::{EventCrud, VenCrud},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -63,7 +69,9 @@ pub async fn get(
 }
 
 pub async fn add(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_ven): ValidatedJson<VenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
@@ -98,11 +106,21 @@ pub async fn add(
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN added");
 
+    subscription::notify(
+        &*event_source,
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Ven(ven.clone()),
+    )
+    .await;
+
     Ok((StatusCode::CREATED, Json(ven)))
 }
 
 pub async fn edit(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<VenId>,
     User(user): User,
     ValidatedJson(update): ValidatedJson<VenRequest>,
@@ -140,11 +158,21 @@ pub async fn edit(
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN updated");
 
+    subscription::notify(
+        &*event_source,
+        &notifier_state,
+        Operation::Update,
+        AnyObject::Ven(ven.clone()),
+    )
+    .await;
+
     Ok(Json(ven))
 }
 
 pub async fn delete(
+    State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<VenId>,
     User(user): User,
 ) -> AppResponse<Ven> {
@@ -155,6 +183,14 @@ pub async fn delete(
     };
 
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN deleted");
+
+    subscription::notify(
+        &*event_source,
+        &notifier_state,
+        Operation::Delete,
+        AnyObject::Ven(ven.clone()),
+    )
+    .await;
 
     Ok(Json(ven))
 }
