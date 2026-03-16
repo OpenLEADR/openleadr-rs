@@ -306,8 +306,12 @@ pub(crate) async fn notify(
     }
 }
 
-pub(crate) async fn notifier_get() -> Json<NotifiersResponse> {
-    Json(NotifiersResponse { websocket: true })
+pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersResponse>, AppError> {
+    if !user.scope.contains(Scope::ReadAll) {
+        return Err(AppError::Forbidden("Missing 'read_all' scope"));
+    }
+
+    Ok(Json(NotifiersResponse { websocket: true }))
 }
 
 pub(crate) async fn notifier_websocket_get(
@@ -315,6 +319,10 @@ pub(crate) async fn notifier_websocket_get(
     User(user): User,
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
+    if !user.scope.contains(Scope::ReadAll) {
+        return Err(AppError::Forbidden("Missing 'read_all' scope"));
+    }
+
     let client_id = user.client_id()?;
 
     let mut websockets = notifier_state.websockets.lock().await;
