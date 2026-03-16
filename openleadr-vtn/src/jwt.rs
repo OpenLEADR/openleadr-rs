@@ -15,7 +15,9 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
+#[cfg(feature = "internal-oauth")]
+use jsonwebtoken::EncodingKey;
+use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use tracing::{trace, warn};
 
 use derive_more::AsRef;
@@ -26,12 +28,14 @@ use serde::{
     de::{DeserializeOwned, Visitor},
     Deserialize, Deserializer, Serialize,
 };
-use std::{env, fmt, str::FromStr};
+use std::{fmt, str::FromStr};
 
 pub struct JwtManager {
     #[cfg(feature = "internal-oauth")]
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
+    jwks_location: Option<String>,
+    key_type: OAuthKeyType,
     validation: Validation,
     token_url: Url,
 }
@@ -268,33 +272,41 @@ impl<'de> Deserialize<'de> for Scopes {
 }
 
 impl JwtManager {
-    /// Create a new JWT manager with a specific encoding and decoding key
-    pub fn new(
-        encoding_key: Option<EncodingKey>,
+    /// Create a new JWT manager with a specific decoding key
+    pub(crate) fn new(
         decoding_key: Option<DecodingKey>,
+        jwks_location: Option<String>,
+        key_type: OAuthKeyType,
         validation: Validation,
         token_url: Url,
     ) -> Self {
-        if !cfg!(feature = "internal-oauth") && encoding_key.is_some() {
-            panic!("You should not provide a JWT encoding key as the 'internal-oauth' feature is disabled. \
-            Please recompile with the 'internal-oauth' feature enabled if you want to use it.");
+        Self {
+            #[cfg(feature = "internal-oauth")]
+            encoding_key: None,
+            decoding_key,
+            jwks_location,
+            key_type,
+            validation,
+            token_url,
         }
-        #[cfg(feature = "internal-oauth")]
-        {
-            Self {
-                encoding_key,
-                decoding_key,
-                validation,
-                token_url,
-            }
-        }
-        #[cfg(not(feature = "internal-oauth"))]
-        {
-            Self {
-                decoding_key,
-                validation,
-                token_url,
-            }
+    }
+
+    /// Create a new JWT manager with a specific encoding and decoding key
+    #[cfg(feature = "internal-oauth")]
+    pub(crate) fn new_internal_auth(
+        encoding_key: EncodingKey,
+        decoding_key: DecodingKey,
+        key_type: OAuthKeyType,
+        validation: Validation,
+        token_url: Url,
+    ) -> Self {
+        Self {
+            encoding_key: Some(encoding_key),
+            decoding_key: Some(decoding_key),
+            jwks_location: None,
+            key_type,
+            validation,
+            token_url,
         }
     }
 
@@ -425,12 +437,11 @@ impl JwtManager {
     /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
     pub async fn fetch_keys_with_kid(&self) -> Vec<(Option<String>, DecodingKey)> {
         let mut keys = Vec::new();
-        let key_type: OAuthKeyType = env::var("OAUTH_KEY_TYPE").ok().map(|k| k.parse().expect("Invalid value for OAUTH_KEY_TYPE environment variable. Allowed are HMAC, RSA, EC, and ED.")).unwrap();
 
-        match key_type {
+        match self.key_type {
             OAuthKeyType::Hmac => {}
             OAuthKeyType::Rsa => {
-                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
+                let jwks_location = self.jwks_location.as_ref().expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
                 let rsa_params = reqwest::get(jwks_location)
                     .await
                     .expect("Could not reach OAUTH_JWKS_LOCATION");
@@ -455,7 +466,7 @@ impl JwtManager {
                 }
             }
             OAuthKeyType::Ec => {
-                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
+                let jwks_location = self.jwks_location.as_ref().expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
                 let ec_params = reqwest::get(jwks_location)
                     .await
                     .expect("Could not reach OAUTH_JWKS_LOCATION");
@@ -480,7 +491,7 @@ impl JwtManager {
                 }
             }
             OAuthKeyType::Ed => {
-                let jwks_location = env::var("OAUTH_JWKS_LOCATION").expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
+                let jwks_location = self.jwks_location.as_ref().expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
                 let ed_params = reqwest::get(jwks_location)
                     .await
                     .expect("Could not reach OAUTH_JWKS_LOCATION");

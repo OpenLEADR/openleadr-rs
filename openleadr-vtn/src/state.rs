@@ -27,7 +27,9 @@ use base64::{
     engine::{general_purpose::PAD, GeneralPurpose},
     Engine,
 };
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
+#[cfg(feature = "internal-oauth")]
+use jsonwebtoken::EncodingKey;
+use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use openleadr_wire::oauth::AuthServerInfo;
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
@@ -40,7 +42,7 @@ use std::{
     sync::Arc,
 };
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -99,7 +101,7 @@ fn audiences_from_env() -> Result<Vec<String>, VarError> {
     })
 }
 
-pub(crate) fn hmac_from_env() -> Result<Vec<u8>, VarError> {
+fn hmac_from_env() -> Result<Vec<u8>, VarError> {
     env::var("OAUTH_BASE64_SECRET").map(|base64_secret| {
         let secret = GeneralPurpose::new(&alphabet::STANDARD, PAD)
             .decode(base64_secret)
@@ -136,6 +138,7 @@ fn signing_algorithms_from_key_type(key_type: &OAuthKeyType) -> Vec<Algorithm> {
     }
 }
 
+#[cfg(feature = "internal-oauth")]
 fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     if let Some(k_type) = key_type {
         if k_type != OAuthKeyType::Hmac {
@@ -144,7 +147,7 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     }
 
     let secret = hmac_from_env().unwrap_or_else(|_| {
-        warn!("Generating random secret as OAUTH_BASE64_SECRET env var was not found");
+        tracing::warn!("Generating random secret as OAUTH_BASE64_SECRET env var was not found");
         let secret: [u8; 32] = rand::random();
         secret.to_vec()
     });
@@ -156,10 +159,11 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
         Vec::<String>::new()
     });
 
+    let key_type: OAuthKeyType = key_type.unwrap_or(OAuthKeyType::Hmac);
+
     let mut validation = Validation::default();
     validation.validate_nbf = true;
-    validation.algorithms =
-        signing_algorithms_from_key_type(&key_type.unwrap_or(OAuthKeyType::Hmac));
+    validation.algorithms = signing_algorithms_from_key_type(&key_type);
     validation.set_audience(&valid_audiences);
 
     let token_url: Url = env::var("OAUTH_TOKEN_URL")
@@ -167,9 +171,10 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
         .parse()
         .expect("OAUTH_TOKEN_URL environment variable must be a valid URL");
 
-    JwtManager::new(
-        Some(EncodingKey::from_secret(&secret)),
-        Some(DecodingKey::from_secret(&secret)),
+    JwtManager::new_internal_auth(
+        EncodingKey::from_secret(&secret),
+        DecodingKey::from_secret(&secret),
+        key_type,
         validation,
         token_url,
     )
@@ -256,7 +261,13 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
         .parse()
         .expect("OAUTH_TOKEN_URL environment variable must be a valid URL");
 
-    JwtManager::new(None, key, validation, token_url)
+    JwtManager::new(
+        key,
+        oauth_jwks_location.ok(),
+        key_type,
+        validation,
+        token_url,
+    )
 }
 
 impl AppState {
@@ -272,7 +283,14 @@ impl AppState {
         let key_type: Option<OAuthKeyType> = env::var("OAUTH_KEY_TYPE").ok().map(|k| k.parse().expect("Invalid value for OAUTH_KEY_TYPE environment variable. Allowed are HMAC, RSA, EC, and ED."));
 
         let jwt_manager = match oauth_type {
+            #[cfg(feature = "internal-oauth")]
             OAuthType::Internal => internal_oauth_from_env(key_type),
+            #[cfg(not(feature = "internal-oauth"))]
+            OAuthType::Internal => {
+                panic!("Can't use internal OAuth provider as the 'internal-oauth' feature is disabled. \
+            Please recompile with the 'internal-oauth' feature enabled if you want to use it or set \
+            OAUTH_TYPE to EXTERNAL if you want to use an external OAuth provider.");
+            }
             OAuthType::External => external_oauth_from_env(key_type).await,
         };
 
