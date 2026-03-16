@@ -142,6 +142,7 @@ fn signing_algorithms_from_key_type(key_type: &OAuthKeyType) -> Vec<Algorithm> {
 
 fn validation_from_key_type_and_env(key_type: &OAuthKeyType) -> Validation {
     let mut validation = Validation::default();
+    validation.set_required_spec_claims(&["exp", "aud"]);
     validation.validate_nbf = true;
     validation.algorithms = signing_algorithms_from_key_type(key_type);
     validation.set_audience(&audiences_from_env());
