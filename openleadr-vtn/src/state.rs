@@ -94,13 +94,10 @@ impl FromStr for OAuthKeyType {
     }
 }
 
-fn audiences_from_env() -> Vec<String> {
-    #[expect(clippy::ok_expect, reason = ".ok() gives a better panic message")]
-    let audience_str = env::var("OAUTH_VALID_AUDIENCES")
-        .ok()
-        .expect("OAUTH_VALID_AUDIENCES environment variable must be set");
+fn audiences_from_env() -> Option<Vec<String>> {
+    let audience_str = env::var("OAUTH_VALID_AUDIENCES").ok()?;
     // Split the string by commas and collect into a vector
-    audience_str.split(',').map(|s| s.to_string()).collect()
+    Some(audience_str.split(',').map(|s| s.to_string()).collect())
 }
 
 fn hmac_from_env() -> Result<Vec<u8>, VarError> {
@@ -142,10 +139,12 @@ fn signing_algorithms_from_key_type(key_type: &OAuthKeyType) -> Vec<Algorithm> {
 
 fn validation_from_key_type_and_env(key_type: &OAuthKeyType) -> Validation {
     let mut validation = Validation::default();
-    validation.set_required_spec_claims(&["exp", "aud"]);
     validation.validate_nbf = true;
     validation.algorithms = signing_algorithms_from_key_type(key_type);
-    validation.set_audience(&audiences_from_env());
+    if let Some(audiences) = audiences_from_env() {
+        validation.set_required_spec_claims(&["exp", "aud"]);
+        validation.set_audience(&audiences);
+    }
     validation
 }
 
@@ -583,7 +582,6 @@ mod test {
         #[serial]
         async fn implicit_internal_oauth() {
             clean_env();
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
             env::set_var(
                 "OAUTH_BASE64_SECRET",
@@ -597,7 +595,6 @@ mod test {
         async fn explicit_internal_oauth() {
             clean_env();
             env::set_var("OAUTH_TYPE", "INTERNAL");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
             env::set_var(
                 "OAUTH_BASE64_SECRET",
@@ -613,7 +610,6 @@ mod test {
             env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
             env::set_var("OAUTH_TYPE", "INTERNAL");
             env::set_var("OAUTH_KEY_TYPE", "HMAC");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             env::set_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
@@ -665,7 +661,6 @@ mod test {
         }
 
         #[tokio::test]
-        #[should_panic(expected = "OAUTH_VALID_AUDIENCES environment variable must be set")]
         #[serial]
         async fn external_missing_valid_audiences_oauth() {
             clean_env();
