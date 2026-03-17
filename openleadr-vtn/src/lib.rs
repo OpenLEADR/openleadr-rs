@@ -25,6 +25,8 @@ pub struct VtnConfig {
     pub mdns_server_name: String,
     pub mdns_base_path: String,
     pub mqtt_url: Option<String>,
+    pub mqtt_username: Option<String>,
+    pub mqtt_password: Option<String>,
 }
 
 impl VtnConfig {
@@ -45,6 +47,8 @@ impl VtnConfig {
                 .unwrap_or_else(|_| "openleadr-vtn".to_string()),
             mdns_base_path: std::env::var("MDNS_BASE_PATH").unwrap_or_else(|_| "".to_string()),
             mqtt_url: std::env::var("MQTT_URL").ok(),
+            mqtt_username: std::env::var("MQTT_USERNAME").ok(),
+            mqtt_password: std::env::var("MQTT_PASSWORD").ok(),
         }
     }
 }
