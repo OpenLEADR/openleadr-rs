@@ -1,5 +1,4 @@
-use std::time::Duration;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 
 #[cfg(feature = "experimental-websockets")]
 use axum::{
@@ -8,14 +7,15 @@ use axum::{
 };
 use axum::{
     extract::{Path, State},
+    routing::MethodRouter,
     Json,
 };
 use openleadr_wire::{
     program::ProgramId,
     subscription::{
         AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, Notification,
-        NotifiersResponse, Operation, SerializationType, Subscription, SubscriptionId,
-        SubscriptionRequest,
+        NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse, Operation,
+        SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
     },
     ClientId, ObjectType,
 };
@@ -393,6 +393,107 @@ pub(crate) async fn notifier_websocket_get(
         }
         notifier_state.websockets.lock().await.remove(&client_id);
     }))
+}
+
+pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
+    axum::Router::new()
+        // BL-only routes
+        .route("/topics/programs", mqtt_route_any("programs/", true))
+        .route("/topics/events", mqtt_route_bl("events/", true))
+        .route("/topics/reports", mqtt_route_bl("reports/", true))
+        //.route("/topics/subscriptions", mqtt_route_bl("subscriptions/", true))
+        .route("/topics/vens", mqtt_route_bl("vens/", true))
+        .route("/topics/resources", mqtt_route_bl("resources/", true))
+        // per-program routes
+        .route(
+            "/topics/programs/{program_id}",
+            mqtt_route_by_program_id("programs/", false),
+        )
+        .route(
+            "/topics/programs/{program_id}/events",
+            mqtt_route_by_program_id("events/program/", true),
+        )
+        // per-VEN routes
+        .route("/topics/vens/{ven_id}", mqtt_route_by_ven_id("", false))
+        .route(
+            "/topics/vens/{ven_id}/events",
+            mqtt_route_by_ven_id("events/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/programs",
+            mqtt_route_by_ven_id("programs/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/resources",
+            mqtt_route_by_ven_id("resources/", true),
+        )
+}
+
+fn mqtt_route_any(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(move || async move {
+        Json(NotifierTopicsResponse {
+            topics: NotifierOperationsTopics {
+                create: subscribe_create.then_some(format!("{base_topic}create")),
+                update: format!("{base_topic}update"),
+                delete: format!("{base_topic}delete"),
+                all: Some(format!("{base_topic}+")),
+            },
+        })
+    })
+}
+
+fn mqtt_route_bl(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(move || async move {
+        // FIXME check BL client
+        Json(NotifierTopicsResponse {
+            topics: NotifierOperationsTopics {
+                create: subscribe_create.then_some(format!("{base_topic}create")),
+                update: format!("{base_topic}update"),
+                delete: format!("{base_topic}delete"),
+                all: Some(format!("{base_topic}+")),
+            },
+        })
+    })
+}
+
+fn mqtt_route_by_program_id(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(move |Path(program_id): Path<String>| async move {
+        // FIXME validate that authenticated user may access program
+        Json(NotifierTopicsResponse {
+            topics: NotifierOperationsTopics {
+                create: subscribe_create.then_some(format!("{base_topic}{program_id}/create")),
+                update: format!("{base_topic}{program_id}/update"),
+                delete: format!("{base_topic}{program_id}/delete"),
+                all: Some(format!("{base_topic}{program_id}/+")),
+            },
+        })
+    })
+}
+
+fn mqtt_route_by_ven_id(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(move |Path(ven_id): Path<String>| async move {
+        // FIXME validate that ven matches authenticated user
+        Json(NotifierTopicsResponse {
+            topics: NotifierOperationsTopics {
+                create: subscribe_create.then_some(format!("{base_topic}vens/{ven_id}/create")),
+                update: format!("{base_topic}vens/{ven_id}/update"),
+                delete: format!("{base_topic}vens/{ven_id}/delete"),
+                all: Some(format!("{base_topic}vens/{ven_id}/+")),
+            },
+        })
+    })
 }
 
 #[cfg(test)]
