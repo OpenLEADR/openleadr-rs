@@ -7,9 +7,10 @@ COPY . .
 RUN apk add cmake g++ make openssl3-dev libgcc
 
 # Don't depend on live sqlx during build use cached .sqlx
-RUN SQLX_OFFLINE=true RUSTFLAGS="-Ctarget-feature=-crt-static" \
-    cargo build --release --bin openleadr-vtn --features internal-oauth
-RUN cp /app/target/release/openleadr-vtn /app/openleadr-vtn
+RUN --mount=type=cache,target=/app/target \
+    SQLX_OFFLINE=true RUSTFLAGS="-Ctarget-feature=-crt-static" \
+    cargo build --bin openleadr-vtn --features internal-oauth && \
+    cp /app/target/debug/openleadr-vtn /app/openleadr-vtn
 
 FROM alpine:latest AS final
 

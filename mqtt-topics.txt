@@ -1,0 +1,15 @@
+programs/#            BL       |
+programs/+            everyone |
+programs/vens/$VEN/+  VEN      | /notifiers/push-mqtt/topics/programs/{programID}
+
+events/#              BL       |
+events/+              everyone |
+events/vens/$VEN/+    VEN      | /notifiers/push-mqtt/topics/programs/{programID}/events
+
+vens/#                BL       | /notifiers/push-mqtt/topics/vens
+vens/$VEN/+           VEN      | /notifiers/push-mqtt/topics/vens/{venID}
+
+resources/#           BL       | /notifiers/push-mqtt/topics/resources
+resources/vens/$VEN/+ VEN      | /notifiers/push-mqtt/topics/vens/{venID}/resources
+
+reports/#             BL       | /notifiers/push-mqtt/topics/reports
