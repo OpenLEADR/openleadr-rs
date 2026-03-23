@@ -35,12 +35,13 @@ services:
       - database-data:/var/lib/postgresql/
 
   mqtt:
-    image: docker.io/rabbitmq:4
+    image: docker.io/rabbitmq:4-management
     environment:
       RABBITMQ_DEFAULT_USER: ${MQTT_USERNAME}
       RABBITMQ_DEFAULT_PASS: ${MQTT_PASSWORD}
     ports:
       - ${MQTT_PORT}:1883
+      - 15672:15672
     command: "sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt; rabbitmq-server'"
 
 volumes:
