@@ -27,6 +27,7 @@ pub struct VtnConfig {
     pub mqtt_url: Option<String>,
     pub mqtt_username: Option<String>,
     pub mqtt_password: Option<String>,
+    pub mqtt_topic_prefix: String,
 }
 
 impl VtnConfig {
@@ -49,6 +50,7 @@ impl VtnConfig {
             mqtt_url: std::env::var("MQTT_URL").ok(),
             mqtt_username: std::env::var("MQTT_USERNAME").ok(),
             mqtt_password: std::env::var("MQTT_PASSWORD").ok(),
+            mqtt_topic_prefix: String::new(),
         }
     }
 }

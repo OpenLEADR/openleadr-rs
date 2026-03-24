@@ -304,6 +304,7 @@ impl AppState {
                 .as_ref()
                 .expect("MQTT_PASSWORD environment variable must be set.")
                 .clone(),
+            config.mqtt_topic_prefix.clone(),
         )
         .await
         .expect("failed to retrieve subscriptions from database");

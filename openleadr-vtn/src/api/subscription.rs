@@ -42,6 +42,7 @@ pub(crate) struct NotifierState {
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
     mqtt_url: String,
     mqtt_client: paho_mqtt::AsyncClient,
+    mqtt_topic_prefix: String,
 }
 
 impl NotifierState {
@@ -50,6 +51,7 @@ impl NotifierState {
         mqtt_url: String,
         mqtt_username: String,
         mqtt_password: String,
+        mqtt_topic_prefix: String,
     ) -> Result<Self, AppError> {
         let subscriptions = storage
             .retrieve_all(
@@ -89,6 +91,7 @@ impl NotifierState {
             ),
             mqtt_url,
             mqtt_client,
+            mqtt_topic_prefix,
         })
     }
 }
@@ -321,7 +324,10 @@ pub(crate) async fn notify(
         notifier_state
             .mqtt_client
             .publish(paho_mqtt::Message::new(
-                format!("{topic_base}{operation_str}",),
+                format!(
+                    "{}{topic_base}{operation_str}",
+                    notifier_state.mqtt_topic_prefix
+                ),
                 &*mqtt_push_notification,
                 QoS::AtMostOnce,
             ))
@@ -479,67 +485,82 @@ fn mqtt_route_any(
     base_topic: &'static str,
     subscribe_create: bool,
 ) -> MethodRouter<AppState, Infallible> {
-    axum::routing::get(move || async move {
-        Json(NotifierTopicsResponse {
-            topics: NotifierOperationsTopics {
-                create: subscribe_create.then_some(format!("{base_topic}create")),
-                update: format!("{base_topic}update"),
-                delete: format!("{base_topic}delete"),
-                all: Some(format!("{base_topic}+")),
-            },
-        })
-    })
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>| async move {
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create.then_some(format!("{prefix}{base_topic}create")),
+                    update: format!("{prefix}{base_topic}update"),
+                    delete: format!("{prefix}{base_topic}delete"),
+                    all: Some(format!("{prefix}{base_topic}+")),
+                },
+            })
+        },
+    )
 }
 
 fn mqtt_route_bl(
     base_topic: &'static str,
     subscribe_create: bool,
 ) -> MethodRouter<AppState, Infallible> {
-    axum::routing::get(move || async move {
-        // FIXME check BL client
-        Json(NotifierTopicsResponse {
-            topics: NotifierOperationsTopics {
-                create: subscribe_create.then_some(format!("{base_topic}create")),
-                update: format!("{base_topic}update"),
-                delete: format!("{base_topic}delete"),
-                all: Some(format!("{base_topic}+")),
-            },
-        })
-    })
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>| async move {
+            // FIXME check BL client
+
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create.then_some(format!("{prefix}{base_topic}create")),
+                    update: format!("{prefix}{base_topic}update"),
+                    delete: format!("{prefix}{base_topic}delete"),
+                    all: Some(format!("{prefix}{base_topic}+")),
+                },
+            })
+        },
+    )
 }
 
 fn mqtt_route_by_program_id(
     base_topic: &'static str,
     subscribe_create: bool,
 ) -> MethodRouter<AppState, Infallible> {
-    axum::routing::get(move |Path(program_id): Path<String>| async move {
-        // FIXME validate that authenticated user may access program
-        Json(NotifierTopicsResponse {
-            topics: NotifierOperationsTopics {
-                create: subscribe_create.then_some(format!("{base_topic}{program_id}/create")),
-                update: format!("{base_topic}{program_id}/update"),
-                delete: format!("{base_topic}{program_id}/delete"),
-                all: Some(format!("{base_topic}{program_id}/+")),
-            },
-        })
-    })
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>, Path(program_id): Path<String>| async move {
+            // FIXME validate that authenticated user may access program
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create
+                        .then_some(format!("{prefix}{base_topic}{program_id}/create")),
+                    update: format!("{prefix}{base_topic}{program_id}/update"),
+                    delete: format!("{prefix}{base_topic}{program_id}/delete"),
+                    all: Some(format!("{prefix}{base_topic}{program_id}/+")),
+                },
+            })
+        },
+    )
 }
 
 fn mqtt_route_by_ven_id(
     base_topic: &'static str,
     subscribe_create: bool,
 ) -> MethodRouter<AppState, Infallible> {
-    axum::routing::get(move |Path(ven_id): Path<String>| async move {
-        // FIXME validate that ven matches authenticated user
-        Json(NotifierTopicsResponse {
-            topics: NotifierOperationsTopics {
-                create: subscribe_create.then_some(format!("{base_topic}vens/{ven_id}/create")),
-                update: format!("{base_topic}vens/{ven_id}/update"),
-                delete: format!("{base_topic}vens/{ven_id}/delete"),
-                all: Some(format!("{base_topic}vens/{ven_id}/+")),
-            },
-        })
-    })
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>, Path(ven_id): Path<String>| async move {
+            // FIXME validate that ven matches authenticated user
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create
+                        .then_some(format!("{prefix}{base_topic}vens/{ven_id}/create")),
+                    update: format!("{prefix}{base_topic}vens/{ven_id}/update"),
+                    delete: format!("{prefix}{base_topic}vens/{ven_id}/delete"),
+                    all: Some(format!("{prefix}{base_topic}vens/{ven_id}/+")),
+                },
+            })
+        },
+    )
 }
 
 #[cfg(test)]

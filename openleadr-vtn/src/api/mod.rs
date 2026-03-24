@@ -125,7 +125,9 @@ pub mod test {
     impl ApiTest {
         pub(crate) async fn new(db: PgPool, client_id: impl Display, scope: Vec<Scope>) -> Self {
             let store = PostgresStorage::new(db).unwrap();
-            let app_state = AppState::new(store, &VtnConfig::from_env()).await;
+            let mut vtn_config = VtnConfig::from_env();
+            vtn_config.mqtt_topic_prefix = uuid::Uuid::new_v4().to_string() + "/";
+            let app_state = AppState::new(store, &vtn_config).await;
 
             let token = app_state
                 .jwt_manager
