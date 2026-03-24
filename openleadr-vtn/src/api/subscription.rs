@@ -566,7 +566,15 @@ fn mqtt_route_by_ven_id(
 #[cfg(test)]
 mod test {
     use axum::body::Body;
-    use openleadr_wire::{problem::Problem, subscription::Subscription};
+    use openleadr_wire::{
+        problem::Problem,
+        program::ProgramRequest,
+        resource::{BlResourceRequest, Resource, ResourceRequest},
+        subscription::{MqttPushNotification, Operation, Subscription},
+        ven::{BlVenRequest, VenRequest},
+        ObjectType, Program, Ven,
+    };
+    use paho_mqtt::QoS;
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
@@ -720,4 +728,120 @@ mod test {
     }
 
     // FIXME add edit and delete tests
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn mqtt_business_logic(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-100-client-id",
+            vec![
+                Scope::WriteVensBl,
+                Scope::WriteSubscriptions,
+                Scope::WritePrograms,
+                Scope::ReadAll,
+            ],
+        )
+        .await;
+
+        let vtn_config = server.vtn_config();
+        let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new()).unwrap();
+        mqtt_client
+            .connect(
+                paho_mqtt::ConnectOptionsBuilder::new()
+                    .server_uris(&[&vtn_config.mqtt_url.as_ref().unwrap()])
+                    .user_name(vtn_config.mqtt_username.as_ref().unwrap())
+                    .password(vtn_config.mqtt_password.as_ref().unwrap())
+                    .finalize(),
+            )
+            .await
+            .unwrap();
+        mqtt_client
+            .subscribe(
+                format!("{}#", vtn_config.mqtt_topic_prefix),
+                QoS::ExactlyOnce,
+            )
+            .await
+            .unwrap();
+        let mqtt_rx = mqtt_client.start_consuming();
+
+        let expect_msg = |id: &str, object_type: ObjectType, operation: Operation, topic: &str| {
+            let msg = mqtt_rx.recv().unwrap().unwrap();
+            assert!(msg.topic().ends_with(topic), "{msg}");
+            let msg_data: MqttPushNotification = serde_json::from_slice(msg.payload()).unwrap();
+            assert_eq!(msg_data.id.as_str(), id);
+            assert_eq!(msg_data.object_type, object_type);
+            assert_eq!(msg_data.operation, operation);
+        };
+
+        let (status, ven) = server
+            .request::<Ven>(
+                Method::POST,
+                "/vens",
+                Body::from(
+                    serde_json::to_vec(&VenRequest::BlVenRequest(BlVenRequest {
+                        client_id: "ven-100-client-id".parse().unwrap(),
+                        targets: vec![],
+                        ven_name: "ven-100".to_owned(),
+                        attributes: None,
+                    }))
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        expect_msg(
+            ven.id.as_str(),
+            ObjectType::Ven,
+            Operation::Create,
+            "/vens/create",
+        );
+
+        let (status, program) = server
+            .request::<Program>(
+                Method::POST,
+                "/programs",
+                Body::from(
+                    serde_json::to_vec(&ProgramRequest {
+                        program_name: "program_name".to_string(),
+                        interval_period: None,
+                        program_descriptions: None,
+                        payload_descriptors: None,
+                        attributes: None,
+                        targets: vec![],
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        expect_msg(
+            program.id.as_str(),
+            ObjectType::Program,
+            Operation::Create,
+            "/programs/create",
+        );
+
+        let (status, resource) = server
+            .request::<Resource>(
+                Method::POST,
+                "/resources",
+                Body::from(
+                    serde_json::to_vec(&ResourceRequest::BlResourceRequest(BlResourceRequest {
+                        targets: vec![],
+                        resource_name: "my_resource100".to_string(),
+                        ven_id: ven.id,
+                        attributes: None,
+                    }))
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        expect_msg(
+            resource.id.as_str(),
+            ObjectType::Resource,
+            Operation::Create,
+            "/resources/create",
+        );
+    }
 }
