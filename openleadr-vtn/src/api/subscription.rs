@@ -10,15 +10,17 @@ use axum::{
     routing::MethodRouter,
     Json,
 };
+use chrono::Utc;
 use openleadr_wire::{
     program::ProgramId,
     subscription::{
-        AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, Notification,
-        NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse, Operation,
-        SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
+        AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, MqttPushNotification,
+        Notification, NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse,
+        Operation, SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
     },
-    ClientId, ObjectType,
+    ClientId, Identifier, ObjectType,
 };
+use paho_mqtt::QoS;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex};
@@ -277,9 +279,13 @@ pub(crate) async fn notify(
     operation: Operation,
     object: AnyObject,
 ) {
-    let uuid = Uuid::new_v7(uuid::Timestamp::now(
+    let uuid: Identifier = Uuid::new_v7(uuid::Timestamp::now(
         &*notifier_state.uuidv7_context.lock().await,
-    ));
+    ))
+    .to_string()
+    .parse()
+    .expect("uuid should always be a valid identifier");
+    let notification_date_time = Utc::now();
 
     let event_program_id;
     let target_program_id = match &object {
@@ -297,6 +303,49 @@ pub(crate) async fn notify(
     };
 
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
+
+    let operation_str = match operation {
+        Operation::Create => "create",
+        Operation::Update => "update",
+        Operation::Delete => "delete",
+    };
+    let mqtt_push_notification = serde_json::to_vec(&MqttPushNotification {
+        id: object.id(),
+        notification_id: uuid.clone(),
+        object_type: object.kind(),
+        operation,
+        notification_date_time,
+    })
+    .unwrap();
+    let publish_mqtt_push = |topic_base: &'static str| async move {
+        notifier_state
+            .mqtt_client
+            .publish(paho_mqtt::Message::new(
+                format!("{topic_base}{operation_str}",),
+                &*mqtt_push_notification,
+                QoS::AtMostOnce,
+            ))
+            .await
+            .unwrap()
+    };
+
+    // FIXME publish the rest of the necessary messages
+    match &object {
+        AnyObject::Ven(ven) => {
+            publish_mqtt_push("vens/").await;
+        }
+        AnyObject::Resource(resource) => {
+            publish_mqtt_push("resources/").await;
+        }
+        AnyObject::Program(program) => {
+            publish_mqtt_push("programs/").await;
+        }
+        AnyObject::Event(event) => {
+            publish_mqtt_push("events/").await;
+        }
+        AnyObject::Report(_) => publish_mqtt_push("reports/").await,
+        AnyObject::Subscription(_) => {}
+    }
 
     for subscription in notifier_state.subscriptions.lock().await.values() {
         // FIXME handle object privacy
@@ -318,10 +367,7 @@ pub(crate) async fn notify(
                 .get(&subscription.client_id)
             {
                 let _ = tx.send(Notification {
-                    id: uuid
-                        .to_string()
-                        .parse()
-                        .expect("uuid should always be a valid identifier"),
+                    id: uuid.clone(),
                     operation,
                     object: object.clone(),
                 });
