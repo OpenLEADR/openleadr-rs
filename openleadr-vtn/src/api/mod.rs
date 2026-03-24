@@ -118,6 +118,7 @@ pub mod test {
     use tower::ServiceExt;
 
     pub(crate) struct ApiTest {
+        vtn_config: VtnConfig,
         router: Router,
         token: String,
     }
@@ -140,7 +141,11 @@ pub mod test {
 
             let router = app_state.into_router();
 
-            Self { router, token }
+            Self {
+                vtn_config,
+                router,
+                token,
+            }
         }
 
         pub(crate) async fn request<T: DeserializeOwned>(
@@ -197,6 +202,10 @@ pub mod test {
                 .unwrap();
 
             response.status()
+        }
+
+        pub(crate) fn vtn_config(&self) -> &VtnConfig {
+            &self.vtn_config
         }
     }
 
