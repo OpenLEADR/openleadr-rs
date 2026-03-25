@@ -320,36 +320,46 @@ pub(crate) async fn notify(
         notification_date_time,
     })
     .unwrap();
-    let publish_mqtt_push = |topic_base: &'static str| async move {
-        notifier_state
-            .mqtt_client
-            .publish(paho_mqtt::Message::new(
-                format!(
-                    "{}{topic_base}{operation_str}",
-                    notifier_state.mqtt_topic_prefix
-                ),
-                &*mqtt_push_notification,
-                QoS::AtMostOnce,
-            ))
-            .await
-            .unwrap()
-    };
+    macro_rules! publish_mqtt_push {
+        ($topic_base:expr) => {
+            notifier_state
+                .mqtt_client
+                .publish(paho_mqtt::Message::new(
+                    format!(
+                        "{}{}{operation_str}",
+                        notifier_state.mqtt_topic_prefix, $topic_base,
+                    ),
+                    &*mqtt_push_notification,
+                    QoS::AtMostOnce,
+                ))
+                .await
+                .unwrap()
+        };
+    }
 
     // FIXME publish the rest of the necessary messages
     match &object {
         AnyObject::Ven(ven) => {
-            publish_mqtt_push("vens/").await;
+            publish_mqtt_push!("vens/");
+            if operation != Operation::Create {
+                publish_mqtt_push!(&format!("vens/{}/", ven.id));
+            }
         }
         AnyObject::Resource(resource) => {
-            publish_mqtt_push("resources/").await;
+            publish_mqtt_push!("resources/");
+            publish_mqtt_push!(&format!("vens/{}/resources/", resource.content.ven_id));
         }
         AnyObject::Program(program) => {
-            publish_mqtt_push("programs/").await;
+            publish_mqtt_push!("programs/");
+            publish_mqtt_push!(&format!("programs/{}/", program.id));
+            // FIXME VEN
         }
         AnyObject::Event(event) => {
-            publish_mqtt_push("events/").await;
+            publish_mqtt_push!("events/");
+            publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
+            // FIXME VEN
         }
-        AnyObject::Report(_) => publish_mqtt_push("reports/").await,
+        AnyObject::Report(_) => publish_mqtt_push!("reports/"),
         AnyObject::Subscription(_) => {}
     }
 
@@ -565,6 +575,9 @@ fn mqtt_route_by_ven_id(
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+
     use axum::body::Body;
     use openleadr_wire::{
         problem::Problem,
@@ -764,14 +777,25 @@ mod test {
             .unwrap();
         let mqtt_rx = mqtt_client.start_consuming();
 
-        let expect_msg = |id: &str, object_type: ObjectType, operation: Operation, topic: &str| {
-            let msg = mqtt_rx.recv().unwrap().unwrap();
-            assert!(msg.topic().ends_with(topic), "{msg}");
-            let msg_data: MqttPushNotification = serde_json::from_slice(msg.payload()).unwrap();
-            assert_eq!(msg_data.id.as_str(), id);
-            assert_eq!(msg_data.object_type, object_type);
-            assert_eq!(msg_data.operation, operation);
-        };
+        let expect_msg =
+            |id: &str, object_type: ObjectType, operation: Operation, topics: &[&str]| {
+                let mut topics = topics.into_iter().copied().collect::<BTreeSet<&str>>();
+                while !topics.is_empty() {
+                    let msg = mqtt_rx.recv().unwrap().unwrap();
+                    if !topics.remove(
+                        msg.topic()
+                            .strip_prefix(&vtn_config.mqtt_topic_prefix)
+                            .unwrap(),
+                    ) {
+                        panic!("{msg}");
+                    }
+                    let msg_data: MqttPushNotification =
+                        serde_json::from_slice(msg.payload()).unwrap();
+                    assert_eq!(msg_data.id.as_str(), id);
+                    assert_eq!(msg_data.object_type, object_type);
+                    assert_eq!(msg_data.operation, operation);
+                }
+            };
 
         let (status, ven) = server
             .request::<Ven>(
@@ -793,7 +817,7 @@ mod test {
             ven.id.as_str(),
             ObjectType::Ven,
             Operation::Create,
-            "/vens/create",
+            &["vens/create"],
         );
 
         let (status, program) = server
@@ -818,7 +842,7 @@ mod test {
             program.id.as_str(),
             ObjectType::Program,
             Operation::Create,
-            "/programs/create",
+            &["programs/create"],
         );
 
         let (status, resource) = server
@@ -829,7 +853,7 @@ mod test {
                     serde_json::to_vec(&ResourceRequest::BlResourceRequest(BlResourceRequest {
                         targets: vec![],
                         resource_name: "my_resource100".to_string(),
-                        ven_id: ven.id,
+                        ven_id: ven.id.clone(),
                         attributes: None,
                     }))
                     .unwrap(),
@@ -841,7 +865,15 @@ mod test {
             resource.id.as_str(),
             ObjectType::Resource,
             Operation::Create,
-            "/resources/create",
+            &[
+                "resources/create",
+                &format!("vens/{}/resources/create", ven.id),
+            ],
         );
+
+        match mqtt_rx.recv_timeout(Duration::from_millis(50)) {
+            Err(_) => {}
+            Ok(msg) => panic!("stray message {msg:?}"),
+        }
     }
 }
