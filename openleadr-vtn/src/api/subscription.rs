@@ -1,4 +1,9 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    convert::Infallible,
+    sync::Arc,
+    time::Duration,
+};
 
 #[cfg(feature = "experimental-websockets")]
 use axum::{
@@ -30,7 +35,7 @@ use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::{EventCrud, SubscriptionCrud},
+    data_source::{EventCrud, SubscriptionCrud, VenCrud},
     error::AppError,
     jwt::{Scope, User},
     state::AppState,
@@ -277,6 +282,7 @@ fn get_50() -> i64 {
 }
 
 pub(crate) async fn notify(
+    ven_source: &dyn VenCrud,
     event_source: &dyn EventCrud,
     notifier_state: &NotifierState,
     operation: Operation,
@@ -337,6 +343,31 @@ pub(crate) async fn notify(
         };
     }
 
+    macro_rules! publish_mqtt_push_by_targets {
+        ($kind:literal, $targets:expr) => {
+            let mut vens = BTreeSet::new();
+            for target in &$targets {
+                if let Ok(new_vens) = ven_source
+                    .retrieve_all(
+                        &super::ven::QueryParams {
+                            ven_name: None,
+                            targets: crate::api::TargetQueryParams(Some(vec![target.clone()])),
+                            skip: 0,
+                            limit: i64::MAX,
+                        },
+                        &None,
+                    )
+                    .await
+                {
+                    vens.extend(new_vens.into_iter().map(|ven| ven.id));
+                }
+            }
+            for ven in vens {
+                publish_mqtt_push!(format!("vens/{ven}/{}/", $kind));
+            }
+        };
+    }
+
     match &object {
         AnyObject::Ven(ven) => {
             publish_mqtt_push!("vens/");
@@ -352,15 +383,17 @@ pub(crate) async fn notify(
             publish_mqtt_push!(&format!("programs/{}/", program.id));
             if program.content.targets.is_empty() {
                 publish_mqtt_push!("programs/"); // Public event
+            } else {
+                publish_mqtt_push_by_targets!("programs", program.content.targets);
             }
-            // FIXME publish to VEN
         }
         AnyObject::Event(event) => {
             publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
             if event.content.targets.is_empty() {
                 publish_mqtt_push!("events/");
+            } else {
+                publish_mqtt_push_by_targets!("events", event.content.targets);
             }
-            // FIXME publish to VEN
         }
         AnyObject::Report(_) => publish_mqtt_push!("reports/"),
         AnyObject::Subscription(_) => {}
@@ -581,8 +614,7 @@ fn mqtt_route_by_ven_id(
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeSet;
-    use std::time::Duration;
+    use std::{collections::BTreeSet, time::Duration};
 
     use axum::body::Body;
     use openleadr_wire::{
@@ -787,7 +819,10 @@ mod test {
             |id: &str, object_type: ObjectType, operation: Operation, topics: &[&str]| {
                 let mut topics = topics.into_iter().copied().collect::<BTreeSet<&str>>();
                 while !topics.is_empty() {
-                    let msg = mqtt_rx.recv().unwrap().unwrap();
+                    let msg = mqtt_rx
+                        .recv_timeout(Duration::from_millis(50))
+                        .unwrap()
+                        .unwrap();
                     if !topics.remove(
                         msg.topic()
                             .strip_prefix(&vtn_config.mqtt_topic_prefix)
@@ -801,6 +836,10 @@ mod test {
                     assert_eq!(msg_data.object_type, object_type);
                     assert_eq!(msg_data.operation, operation);
                 }
+                match mqtt_rx.recv_timeout(Duration::from_millis(50)) {
+                    Err(_) => {}
+                    Ok(msg) => panic!("stray message {msg:?}"),
+                }
             };
 
         let (status, ven) = server
@@ -810,7 +849,7 @@ mod test {
                 Body::from(
                     serde_json::to_vec(&VenRequest::BlVenRequest(BlVenRequest {
                         client_id: "ven-100-client-id".parse().unwrap(),
-                        targets: vec![],
+                        targets: vec!["target-1".parse().unwrap()],
                         ven_name: "ven-100".to_owned(),
                         attributes: None,
                     }))
@@ -848,7 +887,38 @@ mod test {
             program.id.as_str(),
             ObjectType::Program,
             Operation::Create,
-            &["programs/create"],
+            &[
+                "programs/create",
+                &format!("programs/{}/create", program.id),
+            ],
+        );
+
+        let (status, program) = server
+            .request::<Program>(
+                Method::POST,
+                "/programs",
+                Body::from(
+                    serde_json::to_vec(&ProgramRequest {
+                        program_name: "program_name2".to_string(),
+                        interval_period: None,
+                        program_descriptions: None,
+                        payload_descriptors: None,
+                        attributes: None,
+                        targets: vec!["target-1".parse().unwrap(), "target-2".parse().unwrap()],
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        expect_msg(
+            program.id.as_str(),
+            ObjectType::Program,
+            Operation::Create,
+            &[
+                &format!("programs/{}/create", program.id),
+                &format!("vens/{}/programs/create", ven.id),
+            ],
         );
 
         let (status, resource) = server
@@ -876,10 +946,5 @@ mod test {
                 &format!("vens/{}/resources/create", ven.id),
             ],
         );
-
-        match mqtt_rx.recv_timeout(Duration::from_millis(50)) {
-            Err(_) => {}
-            Ok(msg) => panic!("stray message {msg:?}"),
-        }
     }
 }
