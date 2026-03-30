@@ -337,7 +337,6 @@ pub(crate) async fn notify(
         };
     }
 
-    // FIXME publish the rest of the necessary messages
     match &object {
         AnyObject::Ven(ven) => {
             publish_mqtt_push!("vens/");
@@ -350,14 +349,18 @@ pub(crate) async fn notify(
             publish_mqtt_push!(&format!("vens/{}/resources/", resource.content.ven_id));
         }
         AnyObject::Program(program) => {
-            publish_mqtt_push!("programs/");
             publish_mqtt_push!(&format!("programs/{}/", program.id));
-            // FIXME VEN
+            if program.content.targets.is_empty() {
+                publish_mqtt_push!("programs/"); // Public event
+            }
+            // FIXME publish to VEN
         }
         AnyObject::Event(event) => {
-            publish_mqtt_push!("events/");
             publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
-            // FIXME VEN
+            if event.content.targets.is_empty() {
+                publish_mqtt_push!("events/");
+            }
+            // FIXME publish to VEN
         }
         AnyObject::Report(_) => publish_mqtt_push!("reports/"),
         AnyObject::Subscription(_) => {}
@@ -459,22 +462,24 @@ pub(crate) async fn notifier_websocket_get(
 
 pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
     axum::Router::new()
+        // Public routes
+        .route("/topics/programs", mqtt_route_public("programs/", true))
+        .route("/topics/events", mqtt_route_public("events/", true))
+        //
         // BL-only routes
-        .route("/topics/programs", mqtt_route_any("programs/", true))
-        .route("/topics/events", mqtt_route_bl("events/", true))
         .route("/topics/reports", mqtt_route_bl("reports/", true))
         //.route("/topics/subscriptions", mqtt_route_bl("subscriptions/", true))
         .route("/topics/vens", mqtt_route_bl("vens/", true))
         .route("/topics/resources", mqtt_route_bl("resources/", true))
-        // per-program routes
         .route(
             "/topics/programs/{program_id}",
-            mqtt_route_by_program_id("programs/", false),
+            mqtt_route_bl_by_program_id("programs/", false),
         )
         .route(
             "/topics/programs/{program_id}/events",
-            mqtt_route_by_program_id("events/program/", true),
+            mqtt_route_bl_by_program_id("events/program/", true),
         )
+        //
         // per-VEN routes
         .route("/topics/vens/{ven_id}", mqtt_route_by_ven_id("", false))
         .route(
@@ -491,7 +496,7 @@ pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
         )
 }
 
-fn mqtt_route_any(
+fn mqtt_route_public(
     base_topic: &'static str,
     subscribe_create: bool,
 ) -> MethodRouter<AppState, Infallible> {
@@ -531,13 +536,14 @@ fn mqtt_route_bl(
     )
 }
 
-fn mqtt_route_by_program_id(
+fn mqtt_route_bl_by_program_id(
     base_topic: &'static str,
     subscribe_create: bool,
 ) -> MethodRouter<AppState, Infallible> {
     axum::routing::get(
         move |State(notifier_state): State<Arc<NotifierState>>, Path(program_id): Path<String>| async move {
-            // FIXME validate that authenticated user may access program
+            // FIXME check BL client
+
             let prefix = &notifier_state.mqtt_topic_prefix;
             Json(NotifierTopicsResponse {
                 topics: NotifierOperationsTopics {
