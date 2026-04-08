@@ -340,8 +340,11 @@ impl AppState {
                     .delete(subscription::delete),
             )
             .route("/auth/server", get(auth_server_handler))
-            .route("/notifiers", get(subscription::notifier_get))
-            .route("/notifiers/ws", get(subscription::notifier_websocket_get));
+            .route("/notifiers", get(subscription::notifier_get));
+        #[cfg(feature = "experimental-websockets")]
+        {
+            router = router.route("/notifiers/ws", get(subscription::notifier_websocket_get));
+        }
         #[cfg(feature = "internal-oauth")]
         {
             router = router

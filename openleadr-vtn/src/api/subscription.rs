@@ -1,11 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
+#[cfg(feature = "experimental-websockets")]
 use axum::{
-    extract::{
-        ws::{Message, WebSocketUpgrade},
-        Path, State,
-    },
+    extract::ws::{Message, WebSocketUpgrade},
     response::Response,
+};
+use axum::{
+    extract::{Path, State},
     Json,
 };
 use openleadr_wire::{
@@ -311,9 +312,12 @@ pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersRespo
         return Err(AppError::Forbidden("Missing 'read_all' scope"));
     }
 
-    Ok(Json(NotifiersResponse { websocket: true }))
+    Ok(Json(NotifiersResponse {
+        websocket: cfg!(feature = "experimental-websockets"),
+    }))
 }
 
+#[cfg(feature = "experimental-websockets")]
 pub(crate) async fn notifier_websocket_get(
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
