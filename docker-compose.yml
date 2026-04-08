@@ -9,8 +9,12 @@ services:
       RUST_LOG: openleadr_vtn=trace,sqlx=info,debug
       OAUTH_TOKEN_URL: http://localhost:3000/auth/token
       DATABASE_URL: postgres://openadr:openadr@db:5432/openadr
+      MQTT_URL: mqtt://mqtt:1883
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
     depends_on:
       - db
+      - mqtt
 
   db:
     image: ghcr.io/tweedegolf/postgres:18
@@ -29,6 +33,15 @@ services:
       - ${PG_PORT}:5432
     volumes:
       - database-data:/var/lib/postgresql/
+
+  mqtt:
+    image: docker.io/rabbitmq:4
+    environment:
+      RABBITMQ_DEFAULT_USER: ${MQTT_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${MQTT_PASSWORD}
+    ports:
+      - ${MQTT_PORT}:1883
+    command: "sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt; rabbitmq-server'"
 
 volumes:
   database-data:
