@@ -331,6 +331,7 @@ pub(crate) async fn notifier_websocket_get(
 
     let mut websockets = notifier_state.websockets.lock().await;
     if websockets.contains_key(&client_id) {
+        // FIXME close existing connection instead
         return Err(AppError::Conflict(
             "websocket connection already open".to_owned(),
             None,
