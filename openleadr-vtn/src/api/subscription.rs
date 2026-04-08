@@ -417,6 +417,8 @@ pub(crate) async fn notify(
 pub(crate) async fn notifier_get(User(_): User) -> Result<Json<NotifiersResponse>, AppError> {
     Ok(Json(NotifiersResponse {
         websocket: cfg!(feature = "experimental-websockets"),
+        mqtt: None,
+        push_mqtt: None,
     }))
 }
 
