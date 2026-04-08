@@ -14,7 +14,7 @@ use crate::{
         subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
         ValidatedQuery,
     },
-    data_source::{EventCrud, ProgramCrud},
+    data_source::{EventCrud, ProgramCrud, VenCrud},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -80,6 +80,7 @@ pub async fn get(
 }
 
 pub async fn add(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(program_source): State<Arc<dyn ProgramCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
@@ -102,6 +103,7 @@ pub async fn add(
     );
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &notifier_state,
         Operation::Create,
@@ -113,6 +115,7 @@ pub async fn add(
 }
 
 pub async fn edit(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(program_source): State<Arc<dyn ProgramCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
@@ -136,6 +139,7 @@ pub async fn edit(
     );
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &notifier_state,
         Operation::Update,
@@ -147,6 +151,7 @@ pub async fn edit(
 }
 
 pub async fn delete(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(program_source): State<Arc<dyn ProgramCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
@@ -161,6 +166,7 @@ pub async fn delete(
     info!(%id, client_id = user.sub, "deleted program");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &notifier_state,
         Operation::Delete,

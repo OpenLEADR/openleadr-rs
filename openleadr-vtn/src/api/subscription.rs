@@ -1,5 +1,9 @@
-use std::time::Duration;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    convert::Infallible,
+    sync::Arc,
+    time::Duration,
+};
 
 #[cfg(feature = "experimental-websockets")]
 use axum::{
@@ -8,16 +12,20 @@ use axum::{
 };
 use axum::{
     extract::{Path, State},
+    routing::MethodRouter,
     Json,
 };
+use chrono::Utc;
 use openleadr_wire::{
     program::ProgramId,
     subscription::{
-        AnyObject, Notification, NotifiersResponse, Operation, Subscription, SubscriptionId,
-        SubscriptionRequest,
+        AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, MqttPushNotification,
+        Notification, NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse,
+        Operation, SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
     },
-    ClientId, ObjectType,
+    ClientId, Identifier, ObjectType,
 };
+use paho_mqtt::QoS;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex};
@@ -27,7 +35,7 @@ use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::{EventCrud, SubscriptionCrud},
+    data_source::{EventCrud, SubscriptionCrud, VenCrud},
     error::AppError,
     jwt::{Scope, User},
     state::AppState,
@@ -274,14 +282,19 @@ fn get_50() -> i64 {
 }
 
 pub(crate) async fn notify(
+    ven_source: &dyn VenCrud,
     event_source: &dyn EventCrud,
     notifier_state: &NotifierState,
     operation: Operation,
     object: AnyObject,
 ) {
-    let uuid = Uuid::new_v7(uuid::Timestamp::now(
+    let uuid: Identifier = Uuid::new_v7(uuid::Timestamp::now(
         &*notifier_state.uuidv7_context.lock().await,
-    ));
+    ))
+    .to_string()
+    .parse()
+    .expect("uuid should always be a valid identifier");
+    let notification_date_time = Utc::now();
 
     let event_program_id;
     let target_program_id = match &object {
@@ -299,6 +312,92 @@ pub(crate) async fn notify(
     };
 
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
+
+    let operation_str = match operation {
+        Operation::Create => "create",
+        Operation::Update => "update",
+        Operation::Delete => "delete",
+    };
+    let mqtt_push_notification = serde_json::to_vec(&MqttPushNotification {
+        id: object.id(),
+        notification_id: uuid.clone(),
+        object_type: object.kind(),
+        operation,
+        notification_date_time,
+    })
+    .unwrap();
+    macro_rules! publish_mqtt_push {
+        ($topic_base:expr) => {
+            notifier_state
+                .mqtt_client
+                .publish(paho_mqtt::Message::new(
+                    format!(
+                        "{}{}{operation_str}",
+                        notifier_state.mqtt_topic_prefix, $topic_base,
+                    ),
+                    &*mqtt_push_notification,
+                    QoS::AtMostOnce,
+                ))
+                .await
+                .unwrap()
+        };
+    }
+
+    macro_rules! publish_mqtt_push_by_targets {
+        ($kind:literal, $targets:expr) => {
+            let mut vens = BTreeSet::new();
+            for target in &$targets {
+                if let Ok(new_vens) = ven_source
+                    .retrieve_all(
+                        &super::ven::QueryParams {
+                            ven_name: None,
+                            targets: crate::api::TargetQueryParams(Some(vec![target.clone()])),
+                            skip: 0,
+                            limit: i64::MAX,
+                        },
+                        &None,
+                    )
+                    .await
+                {
+                    vens.extend(new_vens.into_iter().map(|ven| ven.id));
+                }
+            }
+            for ven in vens {
+                publish_mqtt_push!(format!("vens/{ven}/{}/", $kind));
+            }
+        };
+    }
+
+    match &object {
+        AnyObject::Ven(ven) => {
+            publish_mqtt_push!("vens/");
+            if operation != Operation::Create {
+                publish_mqtt_push!(&format!("vens/{}/", ven.id));
+            }
+        }
+        AnyObject::Resource(resource) => {
+            publish_mqtt_push!("resources/");
+            publish_mqtt_push!(&format!("vens/{}/resources/", resource.content.ven_id));
+        }
+        AnyObject::Program(program) => {
+            publish_mqtt_push!(&format!("programs/{}/", program.id));
+            if program.content.targets.is_empty() {
+                publish_mqtt_push!("programs/"); // Public event
+            } else {
+                publish_mqtt_push_by_targets!("programs", program.content.targets);
+            }
+        }
+        AnyObject::Event(event) => {
+            publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
+            if event.content.targets.is_empty() {
+                publish_mqtt_push!("events/");
+            } else {
+                publish_mqtt_push_by_targets!("events", event.content.targets);
+            }
+        }
+        AnyObject::Report(_) => publish_mqtt_push!("reports/"),
+        AnyObject::Subscription(_) => {}
+    }
 
     for subscription in notifier_state.subscriptions.lock().await.values() {
         // FIXME handle object privacy
@@ -320,10 +419,7 @@ pub(crate) async fn notify(
                 .get(&subscription.client_id)
             {
                 let _ = tx.send(Notification {
-                    id: uuid
-                        .to_string()
-                        .parse()
-                        .expect("uuid should always be a valid identifier"),
+                    id: uuid.clone(),
                     operation,
                     object: object.clone(),
                 });
@@ -332,7 +428,10 @@ pub(crate) async fn notify(
     }
 }
 
-pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersResponse>, AppError> {
+pub(crate) async fn notifier_get(
+    State(notifier_state): State<Arc<NotifierState>>,
+    User(user): User,
+) -> Result<Json<NotifiersResponse>, AppError> {
     if !user.scope.contains(Scope::ReadAll) {
         return Err(AppError::Forbidden("Missing 'read_all' scope"));
     }
@@ -340,7 +439,13 @@ pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersRespo
     Ok(Json(NotifiersResponse {
         websocket: cfg!(feature = "experimental-websockets"),
         mqtt: None,
-        push_mqtt: None,
+        push_mqtt: Some(MqttNotifierBindingObject {
+            uris: vec![notifier_state.mqtt_url.clone()],
+            serialization: SerializationType::Json,
+            authentication: MqttNotifierAuthentication::Oauth2BearerToken {
+                username: "{clientID}".to_owned(),
+            },
+        }),
     }))
 }
 
@@ -380,6 +485,125 @@ pub(crate) async fn notifier_websocket_get(
         }
         notifier_state.websockets.lock().await.remove(&client_id);
     }))
+}
+
+pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
+    axum::Router::new()
+        // Public routes
+        .route("/topics/programs", mqtt_route_public("programs/", true))
+        .route("/topics/events", mqtt_route_public("events/", true))
+        //
+        // BL-only routes
+        .route("/topics/reports", mqtt_route_bl("reports/", true))
+        //.route("/topics/subscriptions", mqtt_route_bl("subscriptions/", true))
+        .route("/topics/vens", mqtt_route_bl("vens/", true))
+        .route("/topics/resources", mqtt_route_bl("resources/", true))
+        .route(
+            "/topics/programs/{program_id}",
+            mqtt_route_bl_by_program_id("programs/", false),
+        )
+        .route(
+            "/topics/programs/{program_id}/events",
+            mqtt_route_bl_by_program_id("events/program/", true),
+        )
+        //
+        // per-VEN routes
+        .route("/topics/vens/{ven_id}", mqtt_route_by_ven_id("", false))
+        .route(
+            "/topics/vens/{ven_id}/events",
+            mqtt_route_by_ven_id("events/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/programs",
+            mqtt_route_by_ven_id("programs/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/resources",
+            mqtt_route_by_ven_id("resources/", true),
+        )
+}
+
+fn mqtt_route_public(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>| async move {
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create.then_some(format!("{prefix}{base_topic}create")),
+                    update: format!("{prefix}{base_topic}update"),
+                    delete: format!("{prefix}{base_topic}delete"),
+                    all: Some(format!("{prefix}{base_topic}+")),
+                },
+            })
+        },
+    )
+}
+
+fn mqtt_route_bl(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>| async move {
+            // FIXME check BL client
+
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create.then_some(format!("{prefix}{base_topic}create")),
+                    update: format!("{prefix}{base_topic}update"),
+                    delete: format!("{prefix}{base_topic}delete"),
+                    all: Some(format!("{prefix}{base_topic}+")),
+                },
+            })
+        },
+    )
+}
+
+fn mqtt_route_bl_by_program_id(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>, Path(program_id): Path<String>| async move {
+            // FIXME check BL client
+
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create
+                        .then_some(format!("{prefix}{base_topic}{program_id}/create")),
+                    update: format!("{prefix}{base_topic}{program_id}/update"),
+                    delete: format!("{prefix}{base_topic}{program_id}/delete"),
+                    all: Some(format!("{prefix}{base_topic}{program_id}/+")),
+                },
+            })
+        },
+    )
+}
+
+fn mqtt_route_by_ven_id(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>, Path(ven_id): Path<String>| async move {
+            // FIXME validate that ven matches authenticated user
+            let prefix = &notifier_state.mqtt_topic_prefix;
+            Json(NotifierTopicsResponse {
+                topics: NotifierOperationsTopics {
+                    create: subscribe_create
+                        .then_some(format!("{prefix}{base_topic}vens/{ven_id}/create")),
+                    update: format!("{prefix}{base_topic}vens/{ven_id}/update"),
+                    delete: format!("{prefix}{base_topic}vens/{ven_id}/delete"),
+                    all: Some(format!("{prefix}{base_topic}vens/{ven_id}/+")),
+                },
+            })
+        },
+    )
 }
 
 #[cfg(test)]
