@@ -1,6 +1,9 @@
 #[cfg(feature = "internal-oauth")]
 use crate::api::auth;
-use crate::data_source::{ResourceGroupCrud, SubscriptionCrud};
+use crate::{
+    VtnConfig,
+    data_source::{ResourceGroupCrud, SubscriptionCrud},
+};
 #[cfg(feature = "internal-oauth")]
 use crate::{api::user, data_source::AuthSource};
 #[cfg(feature = "internal-oauth")]
@@ -264,7 +267,7 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
 }
 
 impl AppState {
-    pub async fn new<S: DataSource>(storage: S) -> Self {
+    pub async fn new<S: DataSource>(storage: S, config: &VtnConfig) -> Self {
         let oauth_type: OAuthType = env::var("OAUTH_TYPE")
             .inspect_err(|_|{
             info!("Did not find OAUTH_TYPE environment variable, using internal OAuth provider.")}
@@ -289,9 +292,27 @@ impl AppState {
             OAuthType::External => external_oauth_from_env(key_type).await,
         };
 
-        let notifier = subscription::NotifierState::load_from_storage(&*storage.subscriptions())
-            .await
-            .expect("failed to retrieve subscriptions from database");
+        let notifier = subscription::NotifierState::load_from_storage(
+            &*storage.subscriptions(),
+            config
+                .mqtt_url
+                .as_ref()
+                .expect("MQTT_URL environment variable must be set.")
+                .clone(),
+            config
+                .mqtt_username
+                .as_ref()
+                .expect("MQTT_USERNAME environment variable must be set.")
+                .clone(),
+            config
+                .mqtt_password
+                .as_ref()
+                .expect("MQTT_PASSWORD environment variable must be set.")
+                .clone(),
+            config.mqtt_topic_prefix.clone(),
+        )
+        .await
+        .expect("failed to retrieve subscriptions from database");
 
         Self {
             storage: Arc::new(storage),
@@ -605,7 +626,7 @@ mod test {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
             set_env_var("OAUTH_BASE64_SECRET", "1234");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -614,7 +635,7 @@ mod test {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
             set_env_var("OAUTH_BASE64_SECRET", "&");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -625,7 +646,7 @@ mod test {
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -637,7 +658,7 @@ mod test {
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -650,7 +671,7 @@ mod test {
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -664,7 +685,7 @@ mod test {
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -677,7 +698,7 @@ mod test {
             set_env_var("OAUTH_TYPE", "EXTERNAL");
             set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             set_env_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -690,7 +711,7 @@ mod test {
             set_env_var("OAUTH_TYPE", "EXTERNAL");
             set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             set_env_var("OAUTH_KEY_TYPE", "RSA");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -700,7 +721,7 @@ mod test {
             set_env_var("OAUTH_TYPE", "EXTERNAL");
             set_env_var("OAUTH_KEY_TYPE", "RSA");
             set_env_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -711,7 +732,7 @@ mod test {
             set_env_var("OAUTH_KEY_TYPE", "RSA");
             set_env_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
             set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -723,7 +744,7 @@ mod test {
             set_env_var("OAUTH_KEY_TYPE", "EC");
             set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             set_env_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
 
         #[tokio::test]
@@ -735,7 +756,7 @@ mod test {
             set_env_var("OAUTH_KEY_TYPE", "ED");
             set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             set_env_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
-            AppState::new(MockDataSource {}).await;
+            AppState::new(MockDataSource {}, &VtnConfig::from_env()).await;
         }
     }
 }

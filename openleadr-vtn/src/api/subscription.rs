@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::{
     Json,
@@ -32,15 +32,26 @@ use crate::{
     state::AppState,
 };
 
+struct MqttState {
+    url: String,
+    client: paho_mqtt::AsyncClient,
+    topic_prefix: String,
+}
+
 pub(crate) struct NotifierState {
     uuidv7_context: Arc<Mutex<ContextV7>>,
     websockets: Mutex<HashMap<ClientId, (mpsc::UnboundedSender<Notification>, Claims)>>,
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
+    mqtt_state: Option<MqttState>,
 }
 
 impl NotifierState {
     pub(crate) async fn load_from_storage(
         storage: &dyn SubscriptionCrud,
+        mqtt_url: String,
+        mqtt_username: String,
+        mqtt_password: String,
+        mqtt_topic_prefix: String,
     ) -> Result<Self, AppError> {
         let subscriptions = storage
             .retrieve_all(
@@ -55,6 +66,20 @@ impl NotifierState {
             )
             .await?;
 
+        let mqtt_client =
+            paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new()).expect("TODO");
+        mqtt_client
+            .connect(
+                paho_mqtt::ConnectOptionsBuilder::new()
+                    .server_uris(&[&mqtt_url])
+                    .user_name(mqtt_username)
+                    .password(mqtt_password)
+                    .automatic_reconnect(Duration::from_millis(1), Duration::from_secs(16))
+                    .finalize(),
+            )
+            .await
+            .expect("TODO");
+
         Ok(Self {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(HashMap::new()),
@@ -64,6 +89,11 @@ impl NotifierState {
                     .map(|subscription| (subscription.id.clone(), subscription))
                     .collect(),
             ),
+            mqtt_state: Some(MqttState {
+                url: mqtt_url,
+                client: mqtt_client,
+                topic_prefix: mqtt_topic_prefix,
+            }),
         })
     }
 }
@@ -687,6 +717,7 @@ mod test {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(websockets),
             subscriptions: Mutex::new(subscriptions),
+            mqtt_state: None,
         };
 
         notify(
