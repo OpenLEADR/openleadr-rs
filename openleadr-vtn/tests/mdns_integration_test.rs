@@ -15,6 +15,10 @@ async fn test_vtn_client_mdns_discovery() {
         mdns_service_type: "_openadr3._tcp.local.".to_string(),
         mdns_server_name: "test-vtn-integration".to_string(),
         mdns_base_path: "".to_string(),
+        mqtt_url: Some("mqtt://localhost:1883".to_string()),
+        mqtt_username: Some("user".to_string()),
+        mqtt_password: Some("password".to_string()),
+        mqtt_topic_prefix: String::new(),
     };
 
     // Simulate VTN registration

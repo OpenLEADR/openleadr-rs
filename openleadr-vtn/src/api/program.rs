@@ -196,7 +196,7 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
-    use crate::{data_source::PostgresStorage, state::AppState};
+    use crate::{VtnConfig, data_source::PostgresStorage, state::AppState};
     use std::str::FromStr;
 
     use crate::api::test::*;
@@ -257,7 +257,7 @@ mod test {
             programs.push(p);
         }
 
-        (AppState::new(store).await, programs)
+        (AppState::new(store, &VtnConfig::from_env()).await, programs)
     }
 
     async fn help_get(app: &mut Router, token: &str, id: &str) -> Response<Body> {
