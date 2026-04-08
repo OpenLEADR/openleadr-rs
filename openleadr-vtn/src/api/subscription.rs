@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 #[cfg(feature = "experimental-websockets")]
@@ -36,11 +37,18 @@ pub(crate) struct NotifierState {
     uuidv7_context: Arc<Mutex<ContextV7>>,
     websockets: Mutex<HashMap<ClientId, mpsc::UnboundedSender<Notification>>>,
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
+    mqtt_url: String,
+    mqtt_client: paho_mqtt::AsyncClient,
+    mqtt_topic_prefix: String,
 }
 
 impl NotifierState {
     pub(crate) async fn load_from_storage(
         storage: &dyn SubscriptionCrud,
+        mqtt_url: String,
+        mqtt_username: String,
+        mqtt_password: String,
+        mqtt_topic_prefix: String,
     ) -> Result<Self, AppError> {
         let subscriptions = storage
             .retrieve_all(
@@ -55,6 +63,20 @@ impl NotifierState {
             )
             .await?;
 
+        let mqtt_client =
+            paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new()).expect("TODO");
+        mqtt_client
+            .connect(
+                paho_mqtt::ConnectOptionsBuilder::new()
+                    .server_uris(&[&mqtt_url])
+                    .user_name(mqtt_username)
+                    .password(mqtt_password)
+                    .automatic_reconnect(Duration::from_millis(1), Duration::from_secs(5)) // FIXME is this a sensible interval?
+                    .finalize(),
+            )
+            .await
+            .expect("TODO");
+
         Ok(Self {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(HashMap::new()),
@@ -64,6 +86,9 @@ impl NotifierState {
                     .map(|subscription| (subscription.id.clone(), subscription))
                     .collect(),
             ),
+            mqtt_url,
+            mqtt_client,
+            mqtt_topic_prefix,
         })
     }
 }

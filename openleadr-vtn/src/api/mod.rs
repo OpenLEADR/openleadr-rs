@@ -103,7 +103,7 @@ pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoR
 
 #[cfg(test)]
 pub mod test {
-    use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState};
+    use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState, VtnConfig};
     use axum::{
         body::Body,
         http::{self, Request, StatusCode},
@@ -125,7 +125,9 @@ pub mod test {
     impl ApiTest {
         pub(crate) async fn new(db: PgPool, client_id: impl Display, scope: Vec<Scope>) -> Self {
             let store = PostgresStorage::new(db).unwrap();
-            let app_state = AppState::new(store).await;
+            let mut vtn_config = VtnConfig::from_env();
+            vtn_config.mqtt_topic_prefix = uuid::Uuid::new_v4().to_string() + "/";
+            let app_state = AppState::new(store, &vtn_config).await;
 
             let token = app_state
                 .jwt_manager
@@ -216,7 +218,7 @@ pub mod test {
 
     pub(crate) async fn state(db: PgPool) -> AppState {
         let store = PostgresStorage::new(db).unwrap();
-        AppState::new(store).await
+        AppState::new(store, &VtnConfig::from_env()).await
     }
 
     #[sqlx::test]

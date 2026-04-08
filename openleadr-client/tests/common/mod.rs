@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use openleadr_client::{Client, ClientCredentials, ClientKind, HttpClient, ProgramClient};
-use openleadr_vtn::{data_source::PostgresStorage, state::AppState};
+use openleadr_vtn::{data_source::PostgresStorage, state::AppState, VtnConfig};
 use openleadr_wire::program::ProgramRequest;
 use reqwest::{Method, RequestBuilder, Response};
 use sqlx::PgPool;
@@ -109,7 +109,9 @@ async fn local_vtn_test_client<K: ClientKind>(db: PgPool, auth_role: AuthRole) -
     let cred = default_credentials(auth_role);
     let storage = PostgresStorage::new(db).unwrap();
 
-    let router = AppState::new(storage).await.into_router();
+    let router = AppState::new(storage, &VtnConfig::from_env())
+        .await
+        .into_router();
     TestContext {
         client: MockClientRef::new(router).into_client(Some(cred)),
     }
@@ -122,7 +124,7 @@ pub async fn setup_mock_client<K: ClientKind>(db: PgPool) -> Client<K> {
 
     let storage = PostgresStorage::new(db).unwrap();
 
-    let app_state = AppState::new(storage).await;
+    let app_state = AppState::new(storage, &VtnConfig::from_env()).await;
 
     MockClientRef::new(app_state.into_router()).into_client(Some(client_credentials))
 }
