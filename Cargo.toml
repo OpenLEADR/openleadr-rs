@@ -65,3 +65,4 @@ serial_test = "3.4.0"
 iso_currency = { version = "0.5.3", features = ["with-serde"] }
 
 mdns-sd = "0.18.1"
+paho-mqtt = "0.13.3"
