@@ -21,6 +21,7 @@ pub mod problem;
 pub mod program;
 pub mod report;
 pub mod resource;
+pub mod resource_group;
 pub mod subscription;
 pub mod target;
 pub mod values_map;
