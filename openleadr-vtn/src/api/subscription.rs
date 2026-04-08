@@ -12,7 +12,8 @@ use axum::{
 use openleadr_wire::{
     program::ProgramId,
     subscription::{
-        AnyObject, Notification, NotifiersResponse, Operation, Subscription, SubscriptionId,
+        AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, Notification,
+        NotifiersResponse, Operation, SerializationType, Subscription, SubscriptionId,
         SubscriptionRequest,
     },
     ClientId, ObjectType,
@@ -36,11 +37,13 @@ pub(crate) struct NotifierState {
     uuidv7_context: Arc<Mutex<ContextV7>>,
     websockets: Mutex<HashMap<ClientId, mpsc::UnboundedSender<Notification>>>,
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
+    mqtt_url: String,
 }
 
 impl NotifierState {
     pub(crate) async fn load_from_storage(
         storage: &dyn SubscriptionCrud,
+        mqtt_url: String,
     ) -> Result<Self, AppError> {
         let subscriptions = storage
             .retrieve_all(
@@ -64,6 +67,7 @@ impl NotifierState {
                     .map(|subscription| (subscription.id.clone(), subscription))
                     .collect(),
             ),
+            mqtt_url,
         })
     }
 }
@@ -307,13 +311,30 @@ pub(crate) async fn notify(
     }
 }
 
-pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersResponse>, AppError> {
+pub(crate) async fn notifier_get(
+    State(notifier_state): State<Arc<NotifierState>>,
+    User(user): User,
+) -> Result<Json<NotifiersResponse>, AppError> {
     if !user.scope.contains(Scope::ReadAll) {
         return Err(AppError::Forbidden("Missing 'read_all' scope"));
     }
 
     Ok(Json(NotifiersResponse {
         websocket: cfg!(feature = "experimental-websockets"),
+        mqtt: Some(MqttNotifierBindingObject {
+            uris: vec![notifier_state.mqtt_url.clone()],
+            serialization: SerializationType::Json,
+            authentication: MqttNotifierAuthentication::Oauth2BearerToken {
+                username: "{clientID}".to_owned(),
+            },
+        }),
+        push_mqtt: Some(MqttNotifierBindingObject {
+            uris: vec![notifier_state.mqtt_url.clone()],
+            serialization: SerializationType::Json,
+            authentication: MqttNotifierAuthentication::Oauth2BearerToken {
+                username: "{clientID}".to_owned(),
+            },
+        }),
     }))
 }
 

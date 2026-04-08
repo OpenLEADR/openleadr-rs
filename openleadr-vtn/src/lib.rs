@@ -24,19 +24,7 @@ pub struct VtnConfig {
     pub mdns_service_type: String,
     pub mdns_server_name: String,
     pub mdns_base_path: String,
-}
-
-impl Default for VtnConfig {
-    fn default() -> Self {
-        Self {
-            port: 3000,
-            mdns_ip_address: "127.0.0.1".to_string(),
-            mdns_host_name: "vtn.local.".to_string(),
-            mdns_service_type: "_openadr3._tcp.local.".to_string(),
-            mdns_server_name: "openleadr-vtn".to_string(),
-            mdns_base_path: "".to_string(),
-        }
-    }
+    pub mqtt_url: Option<String>,
 }
 
 impl VtnConfig {
@@ -56,6 +44,7 @@ impl VtnConfig {
             mdns_server_name: std::env::var("MDNS_SERVER_NAME")
                 .unwrap_or_else(|_| "openleadr-vtn".to_string()),
             mdns_base_path: std::env::var("MDNS_BASE_PATH").unwrap_or_else(|_| "".to_string()),
+            mqtt_url: std::env::var("MQTT_URL").ok(),
         }
     }
 }
@@ -86,7 +75,7 @@ impl VtnServer {
             warn!("Database migration failed: {}", e);
         }
 
-        let state = AppState::new(storage).await;
+        let state = AppState::new(storage, &config).await;
         let router = state.into_router();
 
         #[cfg(any(
