@@ -431,6 +431,12 @@ pub(crate) async fn notify(
             Operation::Update => "update",
             Operation::Delete => "delete",
         };
+        let mqtt_notification = serde_json::to_vec(&Notification {
+            id: uuid.clone(),
+            operation,
+            object: object.clone(),
+        })
+        .unwrap();
         let mqtt_push_notification = serde_json::to_vec(&MqttPushNotification {
             id: object.id(),
             notification_id: uuid.clone(),
@@ -440,17 +446,29 @@ pub(crate) async fn notify(
         })
         .unwrap();
         macro_rules! publish_mqtt_push {
-            ($topic_base:expr) => {
+            ($topic_base:expr) => {{
                 mqtt_state
                     .client
                     .publish(paho_mqtt::Message::new(
                         format!("{}{}{operation_str}", mqtt_state.topic_prefix, $topic_base,),
+                        &*mqtt_notification,
+                        QoS::AtMostOnce,
+                    ))
+                    .await
+                    .unwrap();
+                mqtt_state
+                    .client
+                    .publish(paho_mqtt::Message::new(
+                        format!(
+                            "{}push/{}{operation_str}",
+                            mqtt_state.topic_prefix, $topic_base,
+                        ),
                         &*mqtt_push_notification,
                         QoS::AtMostOnce,
                     ))
                     .await
                     .unwrap()
-            };
+            }};
         }
 
         macro_rules! publish_mqtt_push_by_targets {
@@ -546,7 +564,16 @@ pub(crate) async fn notifier_get(
 ) -> Result<Json<NotifiersResponse>, AppError> {
     Ok(Json(NotifiersResponse {
         websocket: cfg!(feature = "experimental-websockets"),
-        mqtt: None,
+        mqtt: notifier_state
+            .mqtt_state
+            .as_ref()
+            .map(|mqtt_state| MqttNotifierBindingObject {
+                uris: vec![mqtt_state.url.clone()],
+                serialization: SerializationType::Json,
+                authentication: MqttNotifierAuthentication::Oauth2BearerToken {
+                    username: "{clientID}".to_owned(),
+                },
+            }),
         push_mqtt: notifier_state
             .mqtt_state
             .as_ref()
@@ -594,7 +621,7 @@ pub(crate) async fn notifier_websocket_get(
     }))
 }
 
-pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
+pub(crate) fn mqtt_notifier() -> axum::Router<AppState> {
     axum::Router::new()
         // Public routes
         .route("/topics/programs", mqtt_route_public("programs/", true))
@@ -627,6 +654,48 @@ pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
         .route(
             "/topics/vens/{ven_id}/resources",
             mqtt_route_by_ven_id("resources/", true),
+        )
+}
+
+pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
+    axum::Router::new()
+        // Public routes
+        .route(
+            "/topics/programs",
+            mqtt_route_public("push/programs/", true),
+        )
+        .route("/topics/events", mqtt_route_public("push/events/", true))
+        //
+        // BL-only routes
+        .route("/topics/reports", mqtt_route_bl("push/reports/", true))
+        //.route("/topics/subscriptions", mqtt_route_bl("push/subscriptions/", true))
+        .route("/topics/vens", mqtt_route_bl("push/vens/", true))
+        .route("/topics/resources", mqtt_route_bl("push/resources/", true))
+        .route(
+            "/topics/programs/{program_id}",
+            mqtt_route_bl_by_program_id("push/programs/", false),
+        )
+        .route(
+            "/topics/programs/{program_id}/events",
+            mqtt_route_bl_by_program_id("push/events/program/", true),
+        )
+        //
+        // per-VEN routes
+        .route(
+            "/topics/vens/{ven_id}",
+            mqtt_route_by_ven_id("push/", false),
+        )
+        .route(
+            "/topics/vens/{ven_id}/events",
+            mqtt_route_by_ven_id("push/events/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/programs",
+            mqtt_route_by_ven_id("push/programs/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/resources",
+            mqtt_route_by_ven_id("push/resources/", true),
         )
 }
 
@@ -1853,7 +1922,7 @@ mod test {
             .unwrap();
         mqtt_client
             .subscribe(
-                format!("{}#", vtn_config.mqtt_topic_prefix),
+                format!("{}push/#", vtn_config.mqtt_topic_prefix),
                 QoS::ExactlyOnce,
             )
             .await
@@ -1906,7 +1975,7 @@ mod test {
             ven.id.as_str(),
             ObjectType::Ven,
             Operation::Create,
-            &["vens/create"],
+            &["push/vens/create"],
         );
 
         let (status, program) = server
@@ -1932,8 +2001,8 @@ mod test {
             ObjectType::Program,
             Operation::Create,
             &[
-                "programs/create",
-                &format!("programs/{}/create", program.id),
+                "push/programs/create",
+                &format!("push/programs/{}/create", program.id),
             ],
         );
 
@@ -1960,8 +2029,8 @@ mod test {
             ObjectType::Program,
             Operation::Create,
             &[
-                &format!("programs/{}/create", program.id),
-                &format!("vens/{}/programs/create", ven.id),
+                &format!("push/programs/{}/create", program.id),
+                &format!("push/vens/{}/programs/create", ven.id),
             ],
         );
 
@@ -1986,8 +2055,8 @@ mod test {
             ObjectType::Resource,
             Operation::Create,
             &[
-                "resources/create",
-                &format!("vens/{}/resources/create", ven.id),
+                "push/resources/create",
+                &format!("push/vens/{}/resources/create", ven.id),
             ],
         );
     }
