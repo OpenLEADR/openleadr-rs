@@ -10,6 +10,7 @@ use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     report::{ReportId, ReportRequest},
     resource::{BlResourceRequest, Resource, ResourceId},
+    resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId},
     subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     target::Target,
     ven::{BlVenRequest, Ven, VenId},
@@ -120,6 +121,21 @@ pub trait ResourceCrud:
         Filter = crate::api::resource::QueryParams,
         PermissionFilter = Option<ClientId>,
     >
+{
+}
+
+pub trait ResourceGroupCrud:
+    Crud<
+    Type = ResourceGroup,
+    Id = ResourceGroupId,
+    NewType = BlResourceGroupRequest,
+    Error = AppError,
+    Filter = crate::api::resource_group::QueryParams,
+
+    // TODO: klopt deze PermissionFilter
+    // Since resource groups are managed by the BL role, they have no VEN or client ID
+    PermissionFilter = Option<ClientId>,
+>
 {
 }
 

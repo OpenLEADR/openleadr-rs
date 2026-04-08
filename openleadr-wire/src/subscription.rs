@@ -10,7 +10,7 @@ use validator::Validate;
 
 use crate::{
     ClientId, Event, Identifier, IdentifierError, ObjectType, Program, Report, Ven,
-    program::ProgramId, resource::Resource,
+    program::ProgramId, resource::Resource, resource_group::ResourceGroup,
 };
 
 /// Server provided representation of subscription
@@ -157,6 +157,7 @@ pub enum AnyObject {
     Subscription(Subscription),
     Ven(Ven),
     Resource(Resource),
+    ResourceGroup(ResourceGroup),
 }
 
 impl AnyObject {
@@ -168,6 +169,7 @@ impl AnyObject {
             AnyObject::Subscription(subscription) => subscription.id.0.clone(),
             AnyObject::Ven(ven) => ven.id.0.clone(),
             AnyObject::Resource(resource) => resource.id.0.clone(),
+            AnyObject::ResourceGroup(resource_group) => resource_group.id.0.clone(),
         }
     }
 
@@ -179,6 +181,7 @@ impl AnyObject {
             AnyObject::Subscription(_) => ObjectType::Subscription,
             AnyObject::Ven(_) => ObjectType::Ven,
             AnyObject::Resource(_) => ObjectType::Resource,
+            AnyObject::ResourceGroup(_) => ObjectType::ResourceGroup,
         }
     }
 }
