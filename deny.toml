@@ -18,7 +18,8 @@ allow = [
     "OpenSSL",
     "Zlib",
     "CDLA-Permissive-2.0",
-    "BSD-2-Clause"
+    "BSD-2-Clause",
+    "EPL-2.0"
 ]
 
 [[licenses.clarify]]

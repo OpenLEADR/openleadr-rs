@@ -36,7 +36,7 @@ jobs:
           - rust: "stable"
             target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
-            features: "--no-default-features --features=postgres,live-db-test"
+            features: "--no-default-features --features=postgres,live-db-test,vendored-ssl"
 
     steps:
       - name: Checkout sources
