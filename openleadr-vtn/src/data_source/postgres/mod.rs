@@ -25,6 +25,7 @@ mod event;
 mod program;
 mod report;
 mod resource;
+mod resource_group;
 mod subscription;
 #[cfg(feature = "internal-oauth")]
 mod user;

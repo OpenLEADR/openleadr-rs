@@ -133,6 +133,7 @@ pub async fn edit(
         // VEN clients are not allowed to specify the targets of their resources
         targets: orig_resource_group.content.targets,
         attributes: update.attributes,
+        children: vec![],
     };
 
     let resource_group = resource_group_source
@@ -227,6 +228,7 @@ mod test {
                 resource_group_name: "".to_string(),
                 attributes: None,
                 targets: vec![],
+                children: vec![],
             },
             BlResourceGroupRequest {
                 resource_group_name: "This is more than 128 characters long and should be \
@@ -235,6 +237,7 @@ mod test {
                     .to_string(),
                 attributes: None,
                 targets: vec![],
+                children: vec![],
             },
         ];
 

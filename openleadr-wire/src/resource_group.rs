@@ -32,8 +32,6 @@ pub struct ResourceGroup {
     #[serde(flatten)]
     #[validate(nested)]
     pub content: BlResourceGroupRequest,
-
-    pub children: Vec<ResourceGroupChild>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,6 +54,8 @@ pub struct BlResourceGroupRequest {
     pub resource_group_name: String,
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
+
+    pub children: Vec<ResourceGroupChild>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
@@ -114,8 +114,8 @@ mod test {
                 attributes: None,
                 targets: vec!["resource_group_0999".parse().unwrap()],
                 resource_group_name: "RESOURCE_GROUP_0999".to_string(),
+                children: vec![],
             },
-            children: Vec::new(),
         };
 
         assert_eq!(expected, parsed);
@@ -157,6 +157,7 @@ mod test {
                 targets: vec![],
                 resource_group_name: "RESOURCE_0999".to_string(),
                 attributes: None,
+                children: vec![],
             }
         );
     }
