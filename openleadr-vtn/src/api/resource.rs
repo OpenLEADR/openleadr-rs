@@ -20,7 +20,7 @@ use crate::{
         AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery, subscription,
         subscription::NotifierState,
     },
-    data_source::{EventCrud, ResourceCrud, VenObjectPrivacy},
+    data_source::{EventCrud, ResourceCrud, VenCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -80,7 +80,12 @@ pub async fn get(
     Ok(Json(resource))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Handler which uses many aspects of the state"
+)]
 pub async fn add(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
@@ -134,6 +139,7 @@ pub async fn add(
     );
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
@@ -150,6 +156,7 @@ pub async fn add(
     reason = "This is a handler which needs a lot of the state."
 )]
 pub async fn edit(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
@@ -209,6 +216,7 @@ pub async fn edit(
     );
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
@@ -221,6 +229,7 @@ pub async fn edit(
 }
 
 pub async fn delete(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
@@ -243,6 +252,7 @@ pub async fn delete(
     info!(%id, client_id = user.sub, "deleted resource");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,

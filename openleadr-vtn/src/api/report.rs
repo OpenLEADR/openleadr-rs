@@ -22,7 +22,7 @@ use crate::{
         AppResponse, ValidatedJson, ValidatedQuery,
         subscription::{self, NotifierState},
     },
-    data_source::{EventCrud, ReportCrud, VenObjectPrivacy},
+    data_source::{EventCrud, ReportCrud, VenCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -73,8 +73,9 @@ pub async fn get(
     Ok(Json(report))
 }
 
-#[instrument(skip(user, event_source, privacy, report_source, notifier_state))]
+#[instrument(skip(user, ven_source, event_source, privacy, report_source, notifier_state))]
 pub async fn add(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(report_source): State<Arc<dyn ReportCrud>>,
@@ -93,6 +94,7 @@ pub async fn add(
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report created");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
@@ -104,8 +106,13 @@ pub async fn add(
     Ok((StatusCode::CREATED, Json(report)))
 }
 
-#[instrument(skip(user, event_source, privacy, report_source, notifier_state))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Handler which uses many aspects of the state"
+)]
+#[instrument(skip(user, ven_source, event_source, privacy, report_source, notifier_state))]
 pub async fn edit(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(report_source): State<Arc<dyn ReportCrud>>,
@@ -125,6 +132,7 @@ pub async fn edit(
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report updated");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
@@ -136,8 +144,9 @@ pub async fn edit(
     Ok(Json(report))
 }
 
-#[instrument(skip(user, event_source, privacy, report_source, notifier_state))]
+#[instrument(skip(user, ven_source, event_source, privacy, report_source, notifier_state))]
 pub async fn delete(
+    State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
     State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(report_source): State<Arc<dyn ReportCrud>>,
@@ -159,6 +168,7 @@ pub async fn delete(
     info!(%id, report_name=?report.content.report_name, client_id = user.sub, "deleted report");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,

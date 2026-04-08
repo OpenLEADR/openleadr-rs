@@ -1,22 +1,31 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    convert::Infallible,
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
     Json,
     extract::{Path, State},
+    routing::MethodRouter,
 };
 #[cfg(feature = "experimental-websockets")]
 use axum::{
     extract::ws::{Message, WebSocketUpgrade},
     response::Response,
 };
+use chrono::Utc;
 use openleadr_wire::{
-    ClientId, ObjectType,
+    ClientId, Identifier, ObjectType,
     program::ProgramId,
     subscription::{
-        AnyObject, Notification, NotifiersResponse, Operation, Subscription, SubscriptionId,
-        SubscriptionRequest,
+        AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, MqttPushNotification,
+        Notification, NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse,
+        Operation, SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
     },
 };
+use paho_mqtt::QoS;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::sync::{Mutex, mpsc};
@@ -26,7 +35,7 @@ use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::{EventCrud, SubscriptionCrud, VenObjectPrivacy},
+    data_source::{EventCrud, SubscriptionCrud, VenCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Claims, Scope, User},
     state::AppState,
@@ -381,15 +390,20 @@ async fn privacy_filter_object(
 }
 
 pub(crate) async fn notify(
+    ven_source: &dyn VenCrud,
     event_source: &dyn EventCrud,
     privacy: &dyn VenObjectPrivacy,
     notifier_state: &NotifierState,
     operation: Operation,
     object: AnyObject,
 ) {
-    let uuid = Uuid::new_v7(uuid::Timestamp::now(
+    let uuid: Identifier = Uuid::new_v7(uuid::Timestamp::now(
         &*notifier_state.uuidv7_context.lock().await,
-    ));
+    ))
+    .to_string()
+    .parse()
+    .expect("uuid should always be a valid identifier");
+    let notification_date_time = Utc::now();
 
     let event_program_id;
     let target_program_id = match &object {
@@ -411,6 +425,92 @@ pub(crate) async fn notify(
 
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 
+    if let Some(mqtt_state) = &notifier_state.mqtt_state {
+        let operation_str = match operation {
+            Operation::Create => "create",
+            Operation::Update => "update",
+            Operation::Delete => "delete",
+        };
+        let mqtt_push_notification = serde_json::to_vec(&MqttPushNotification {
+            id: object.id(),
+            notification_id: uuid.clone(),
+            object_type: object.kind(),
+            operation,
+            notification_date_time,
+        })
+        .unwrap();
+        macro_rules! publish_mqtt_push {
+            ($topic_base:expr) => {
+                mqtt_state
+                    .client
+                    .publish(paho_mqtt::Message::new(
+                        format!("{}{}{operation_str}", mqtt_state.topic_prefix, $topic_base,),
+                        &*mqtt_push_notification,
+                        QoS::AtMostOnce,
+                    ))
+                    .await
+                    .unwrap()
+            };
+        }
+
+        macro_rules! publish_mqtt_push_by_targets {
+            ($kind:literal, $targets:expr) => {
+                let mut vens = BTreeSet::new();
+                for target in &$targets {
+                    if let Ok(new_vens) = ven_source
+                        .retrieve_all(
+                            &super::ven::QueryParams {
+                                ven_name: None,
+                                targets: crate::api::TargetQueryParams(Some(vec![target.clone()])),
+                                skip: 0,
+                                limit: i64::MAX,
+                            },
+                            &None,
+                        )
+                        .await
+                    {
+                        vens.extend(new_vens.into_iter().map(|ven| ven.id));
+                    }
+                }
+                for ven in vens {
+                    publish_mqtt_push!(format!("vens/{ven}/{}/", $kind));
+                }
+            };
+        }
+
+        match &object {
+            AnyObject::Ven(ven) => {
+                publish_mqtt_push!("vens/");
+                if operation != Operation::Create {
+                    publish_mqtt_push!(&format!("vens/{}/", ven.id));
+                }
+            }
+            AnyObject::Resource(resource) => {
+                publish_mqtt_push!("resources/");
+                publish_mqtt_push!(&format!("vens/{}/resources/", resource.content.ven_id));
+            }
+            AnyObject::ResourceGroup(_) => {}
+            AnyObject::Program(program) => {
+                publish_mqtt_push!(&format!("programs/{}/", program.id));
+                if program.content.targets.is_empty() {
+                    publish_mqtt_push!("programs/"); // Public event
+                } else {
+                    publish_mqtt_push_by_targets!("programs", program.content.targets);
+                }
+            }
+            AnyObject::Event(event) => {
+                publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
+                if event.content.targets.is_empty() {
+                    publish_mqtt_push!("events/");
+                } else {
+                    publish_mqtt_push_by_targets!("events", event.content.targets);
+                }
+            }
+            AnyObject::Report(_) => publish_mqtt_push!("reports/"),
+            AnyObject::Subscription(_) => {}
+        }
+    }
+
     for subscription in notifier_state.subscriptions.lock().await.values() {
         let program_id = subscription.content.program_id.as_ref();
 
@@ -431,10 +531,7 @@ pub(crate) async fn notify(
                     privacy_filter_object(&object, privacy, &subscription.client_id, claims).await
             {
                 let _ = tx.send(Notification {
-                    id: uuid
-                        .to_string()
-                        .parse()
-                        .expect("uuid should always be a valid identifier"),
+                    id: uuid.clone(),
                     operation,
                     object: object.clone(),
                 });
@@ -443,12 +540,23 @@ pub(crate) async fn notify(
     }
 }
 
-// Require logging in, but no special permissions beyond that.
-pub(crate) async fn notifier_get(User(_): User) -> Result<Json<NotifiersResponse>, AppError> {
+pub(crate) async fn notifier_get(
+    State(notifier_state): State<Arc<NotifierState>>,
+    User(_): User,
+) -> Result<Json<NotifiersResponse>, AppError> {
     Ok(Json(NotifiersResponse {
         websocket: cfg!(feature = "experimental-websockets"),
         mqtt: None,
-        push_mqtt: None,
+        push_mqtt: notifier_state
+            .mqtt_state
+            .as_ref()
+            .map(|mqtt_state| MqttNotifierBindingObject {
+                uris: vec![mqtt_state.url.clone()],
+                serialization: SerializationType::Json,
+                authentication: MqttNotifierAuthentication::Oauth2BearerToken {
+                    username: "{clientID}".to_owned(),
+                },
+            }),
     }))
 }
 
@@ -486,6 +594,157 @@ pub(crate) async fn notifier_websocket_get(
     }))
 }
 
+pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
+    axum::Router::new()
+        // Public routes
+        .route("/topics/programs", mqtt_route_public("programs/", true))
+        .route("/topics/events", mqtt_route_public("events/", true))
+        //
+        // BL-only routes
+        .route("/topics/reports", mqtt_route_bl("reports/", true))
+        //.route("/topics/subscriptions", mqtt_route_bl("subscriptions/", true))
+        .route("/topics/vens", mqtt_route_bl("vens/", true))
+        .route("/topics/resources", mqtt_route_bl("resources/", true))
+        .route(
+            "/topics/programs/{program_id}",
+            mqtt_route_bl_by_program_id("programs/", false),
+        )
+        .route(
+            "/topics/programs/{program_id}/events",
+            mqtt_route_bl_by_program_id("events/program/", true),
+        )
+        //
+        // per-VEN routes
+        .route("/topics/vens/{ven_id}", mqtt_route_by_ven_id("", false))
+        .route(
+            "/topics/vens/{ven_id}/events",
+            mqtt_route_by_ven_id("events/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/programs",
+            mqtt_route_by_ven_id("programs/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/resources",
+            mqtt_route_by_ven_id("resources/", true),
+        )
+}
+
+fn mqtt_route_public(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>| async move {
+            match &notifier_state.mqtt_state {
+                Some(mqtt_state) => {
+                    let prefix = &mqtt_state.topic_prefix;
+                    Ok(Json(NotifierTopicsResponse {
+                        topics: NotifierOperationsTopics {
+                            create: subscribe_create
+                                .then_some(format!("{prefix}{base_topic}create")),
+                            update: format!("{prefix}{base_topic}update"),
+                            delete: format!("{prefix}{base_topic}delete"),
+                            all: Some(format!("{prefix}{base_topic}+")),
+                        },
+                    }))
+                }
+                None => Err(AppError::NotFound),
+            }
+        },
+    )
+}
+
+fn mqtt_route_bl(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>| async move {
+            // We deliberately do not do access control here since these topic
+            // paths are completely predictable anyway. Therefore, doing access
+            // control can only create the false impression that hiding the
+            // names of these topics provides a level of security which is not
+            // real.
+            match &notifier_state.mqtt_state {
+                Some(mqtt_state) => {
+                    let prefix = &mqtt_state.topic_prefix;
+                    Ok(Json(NotifierTopicsResponse {
+                        topics: NotifierOperationsTopics {
+                            create: subscribe_create
+                                .then_some(format!("{prefix}{base_topic}create")),
+                            update: format!("{prefix}{base_topic}update"),
+                            delete: format!("{prefix}{base_topic}delete"),
+                            all: Some(format!("{prefix}{base_topic}+")),
+                        },
+                    }))
+                }
+                None => Err(AppError::NotFound),
+            }
+        },
+    )
+}
+
+fn mqtt_route_bl_by_program_id(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>, Path(program_id): Path<String>| async move {
+            // We deliberately do not do access control here since these topic
+            // paths are completely predictable anyway. Therefore, doing access
+            // control can only create the false impression that hiding the
+            // names of these topics provides a level of security which is not
+            // real.
+            match &notifier_state.mqtt_state {
+                Some(mqtt_state) => {
+                    let prefix = &mqtt_state.topic_prefix;
+                    Ok(Json(NotifierTopicsResponse {
+                        topics: NotifierOperationsTopics {
+                            create: subscribe_create
+                                .then_some(format!("{prefix}{base_topic}{program_id}/create")),
+                            update: format!("{prefix}{base_topic}{program_id}/update"),
+                            delete: format!("{prefix}{base_topic}{program_id}/delete"),
+                            all: Some(format!("{prefix}{base_topic}{program_id}/+")),
+                        },
+                    }))
+                }
+                None => Err(AppError::NotFound),
+            }
+        },
+    )
+}
+
+fn mqtt_route_by_ven_id(
+    base_topic: &'static str,
+    subscribe_create: bool,
+) -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(notifier_state): State<Arc<NotifierState>>, Path(ven_id): Path<String>| async move {
+            // We deliberately do not do access control here since these topic
+            // paths are completely predictable anyway. Therefore, doing access
+            // control can only create the false impression that hiding the
+            // names of these topics provides a level of security which is not
+            // real.
+            match &notifier_state.mqtt_state {
+                Some(mqtt_state) => {
+                    let prefix = &mqtt_state.topic_prefix;
+                    Ok(Json(NotifierTopicsResponse {
+                        topics: NotifierOperationsTopics {
+                            create: subscribe_create
+                                .then_some(format!("{prefix}{base_topic}vens/{ven_id}/create")),
+                            update: format!("{prefix}{base_topic}vens/{ven_id}/update"),
+                            delete: format!("{prefix}{base_topic}vens/{ven_id}/delete"),
+                            all: Some(format!("{prefix}{base_topic}vens/{ven_id}/+")),
+                        },
+                    }))
+                }
+                None => Err(AppError::NotFound),
+            }
+        },
+    )
+}
+
 #[cfg(test)]
 mod test {
     use std::{collections::HashMap, sync::Arc};
@@ -515,11 +774,11 @@ mod test {
 
     use crate::{
         api::{
-            event::QueryParams,
+            self,
             subscription::{NotifierState, notify, privacy_filter_object},
             test::ApiTest,
         },
-        data_source::{Crud, EventCrud, VenObjectPrivacy},
+        data_source::{Crud, EventCrud, VenCrud, VenObjectPrivacy},
         error::AppError,
         jwt::{Claims, Scope},
     };
@@ -587,7 +846,7 @@ mod test {
         type Id = EventId;
         type NewType = EventRequest;
         type Error = AppError;
-        type Filter = QueryParams;
+        type Filter = api::event::QueryParams;
         type PermissionFilter = Option<ClientId>;
 
         async fn create(
@@ -629,6 +888,57 @@ mod test {
     }
 
     impl EventCrud for TestEventCrud {}
+
+    struct TestVenCrud;
+
+    #[async_trait]
+    impl Crud for TestVenCrud {
+        type Type = Ven;
+        type Id = VenId;
+        type NewType = BlVenRequest;
+        type Error = AppError;
+        type Filter = api::ven::QueryParams;
+        type PermissionFilter = Option<ClientId>;
+
+        async fn create(
+            &self,
+            _new: Self::NewType,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+        async fn retrieve(
+            &self,
+            _id: &Self::Id,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+        async fn retrieve_all(
+            &self,
+            _filter: &Self::Filter,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Vec<Self::Type>, Self::Error> {
+            unimplemented!()
+        }
+        async fn update(
+            &self,
+            _id: &Self::Id,
+            _new: Self::NewType,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+        async fn delete(
+            &self,
+            _id: &Self::Id,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+    }
+
+    impl VenCrud for TestVenCrud {}
 
     #[tokio::test]
     async fn subscription_filtering() {
@@ -721,6 +1031,7 @@ mod test {
         };
 
         notify(
+            &TestVenCrud,
             &TestEventCrud,
             &TestVenObjectPrivacyTargets,
             &state,
@@ -751,6 +1062,7 @@ mod test {
         assert!(test_client_c_rx.try_recv().is_err());
 
         notify(
+            &TestVenCrud,
             &TestEventCrud,
             &TestVenObjectPrivacyTargets,
             &state,
@@ -781,6 +1093,7 @@ mod test {
         assert!(test_client_c_rx.try_recv().is_err());
 
         notify(
+            &TestVenCrud,
             &TestEventCrud,
             &TestVenObjectPrivacyTargets,
             &state,
