@@ -378,6 +378,7 @@ impl AppState {
         {
             router = router.route("/notifiers/ws", get(subscription::notifier_websocket_get));
         }
+        router = router.nest("/notifiers/push-mqtt", subscription::push_mqtt_notifier());
         #[cfg(feature = "internal-oauth")]
         {
             router = router

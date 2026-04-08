@@ -108,6 +108,7 @@ pub async fn add(
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN added");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
@@ -162,6 +163,7 @@ pub async fn edit(
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN updated");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
@@ -192,6 +194,7 @@ pub async fn delete(
     info!(%ven.id, ven.ven_name=ven.content.ven_name, client_id = user.sub, "VEN deleted");
 
     subscription::notify(
+        &*ven_source,
         &*event_source,
         &*privacy,
         &notifier_state,
