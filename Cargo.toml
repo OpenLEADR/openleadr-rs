@@ -20,7 +20,7 @@ description = "An OpenADR 3.1 VTN/VEN implementation"
 keywords = ["energy", "openadr", "lf-energy"]
 
 [workspace.dependencies]
-openleadr-wire = { version = "0.2.0", path = "openleadr-wire" }
+openleadr-wire = { version = "0.2.1", path = "openleadr-wire" }
 
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
