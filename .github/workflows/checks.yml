@@ -59,7 +59,7 @@ jobs:
           targets: "${{ matrix.target }}"
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@e9e8e031bcd90cdbe8ac6bb1d376f8596e587fbf # v2.70.2
+        uses: taiki-e/install-action@0abfcd587b70a713fdaa7fb502c885e2112acb15 # v2.75.7
         with:
           tool: cargo-llvm-cov
 
@@ -114,7 +114,7 @@ jobs:
           toolchain: nightly
 
       - name: Install udeps
-        uses: taiki-e/install-action@e9e8e031bcd90cdbe8ac6bb1d376f8596e587fbf # v2.70.2
+        uses: taiki-e/install-action@0abfcd587b70a713fdaa7fb502c885e2112acb15 # v2.75.7
         with:
           tool: cargo-udeps
 
@@ -195,6 +195,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979
+      - uses: EmbarkStudios/cargo-deny-action@175dc7fd4fb85ec8f46948fb98f44db001149081
         with:
           arguments: --workspace --all-features
