@@ -1,13 +1,13 @@
 #[cfg(feature = "internal-oauth")]
 use crate::api::auth;
-use crate::data_source::SubscriptionCrud;
+use crate::data_source::{ResourceGroupCrud, SubscriptionCrud};
 #[cfg(feature = "internal-oauth")]
 use crate::{api::user, data_source::AuthSource};
 #[cfg(feature = "internal-oauth")]
 use axum::routing::{delete, post};
 
 use crate::{
-    api::{event, healthcheck, program, report, resource, subscription, ven},
+    api::{event, healthcheck, program, report, resource, resource_group, subscription, ven},
     data_source::{
         DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud, VenObjectPrivacy,
     },
@@ -17,8 +17,7 @@ use crate::{
 use axum::{
     Json,
     extract::{FromRef, Request, State},
-    middleware,
-    middleware::Next,
+    middleware::{self, Next},
     response::IntoResponse,
     routing::get,
 };
@@ -325,6 +324,16 @@ impl AppState {
                 "/vens/{id}",
                 get(ven::get).put(ven::edit).delete(ven::delete),
             )
+            .route(
+                "/resource_groups",
+                get(resource_group::get_all).post(resource_group::add),
+            )
+            .route(
+                "/resource_groups/{id}",
+                get(resource_group::get)
+                    .put(resource_group::edit)
+                    .delete(resource_group::delete),
+            )
             .route("/resources", get(resource::get_all).post(resource::add))
             .route(
                 "/resources/{id}",
@@ -439,6 +448,12 @@ impl FromRef<AppState> for Arc<dyn ResourceCrud> {
     }
 }
 
+impl FromRef<AppState> for Arc<dyn ResourceGroupCrud> {
+    fn from_ref(state: &AppState) -> Self {
+        state.storage.resource_groups()
+    }
+}
+
 impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
     fn from_ref(state: &AppState) -> Self {
         state.storage.subscriptions()
@@ -479,6 +494,10 @@ mod test {
         }
 
         fn resources(&self) -> Arc<dyn ResourceCrud> {
+            unimplemented!()
+        }
+
+        fn resource_groups(&self) -> Arc<dyn ResourceGroupCrud> {
             unimplemented!()
         }
 
