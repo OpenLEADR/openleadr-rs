@@ -6,12 +6,11 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    resource::ResourceId,
     resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupChild, ResourceGroupId},
     target::Target,
     ClientId,
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use tracing::{error, trace, warn};
 
 impl ResourceGroupCrud for PgResourceGroupStorage {}
@@ -67,96 +66,90 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
     }
 }
 
-impl PgResourceGroupStorage {
-    async fn get_resource_group_children(
-        &self,
-        rg: &ResourceGroup,
-    ) -> Result<Vec<ResourceGroupChild>, <PgResourceGroupStorage as Crud>::Error> {
-        let mut rg_children: Vec<_> = sqlx::query!(
-            r#"
-                SELECT rg_child_rg_id FROM rg_child_rg
-                WHERE rg_parent_rg_id = $1
-            "#,
-            rg.id.as_str()
-        )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(|r| {
-            // TODO: should this use expect?
-            let rg_id = ResourceGroupId::new(&r.rg_child_rg_id).expect(&format!(
-                "{} is not a valid ResourceGroupId",
-                r.rg_child_rg_id
-            ));
-            ResourceGroupChild::ResourceGroup(rg_id)
-        })
-        .collect();
+async fn get_resource_group_children(
+    tx: &mut Transaction<'_, Postgres>,
+    rg: &ResourceGroup,
+) -> Result<Vec<ResourceGroupChild>, <PgResourceGroupStorage as Crud>::Error> {
+    let mut rg_children = sqlx::query!(
+        r#"
+        SELECT rg_child_rg_id FROM rg_child_rg
+        WHERE rg_parent_rg_id = $1
+        "#,
+        rg.id.as_str()
+    )
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|r| {
+        r.rg_child_rg_id
+            .parse()
+            .map(ResourceGroupChild::ResourceGroup)
+    })
+    .collect::<Result<Vec<_>, _>>()?;
 
-        let ven_children = sqlx::query!(
-            r#"
-                SELECT rg_child_ven_resource_id FROM rg_child_ven_resource
-                WHERE rg_parent_rg_id = $1
-            "#,
-            rg.id.as_str()
-        )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(|r| {
-            let ven_id = ResourceId::new(&r.rg_child_ven_resource_id).expect(&format!(
-                "{} is not a valid ResourceId",
-                r.rg_child_ven_resource_id
-            ));
-            ResourceGroupChild::VenResource(ven_id)
-        });
+    let ven_children = sqlx::query!(
+        r#"
+        SELECT rg_child_ven_resource_id FROM rg_child_ven_resource
+        WHERE rg_parent_rg_id = $1
+        "#,
+        rg.id.as_str()
+    )
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|r| {
+        r.rg_child_ven_resource_id
+            .parse()
+            .map(ResourceGroupChild::VenResource)
+    })
+    .collect::<Result<Vec<_>, _>>()?;
 
-        rg_children.extend(ven_children);
-        Ok(rg_children)
-    }
+    rg_children.extend(ven_children);
+    Ok(rg_children)
+}
 
-    async fn insert_resource_group_children(
-        &self,
-        rg_id: &ResourceGroupId,
-        children: &[ResourceGroupChild],
-    ) -> Result<(), <PgResourceGroupStorage as Crud>::Error> {
-        let (rg_children, ven_children) = children.iter().fold(
-            (Vec::new(), Vec::new()),
-            |(mut rg_children, mut ven_children), child| match child {
-                ResourceGroupChild::ResourceGroup(id) => {
-                    rg_children.push(id.to_string());
-                    (rg_children, ven_children)
-                }
-                ResourceGroupChild::VenResource(id) => {
-                    ven_children.push(id.to_string());
-                    (rg_children, ven_children)
-                }
-            },
-        );
+async fn insert_resource_group_children(
+    tx: &mut Transaction<'_, Postgres>,
+    rg_id: &ResourceGroupId,
+    children: &[ResourceGroupChild],
+) -> Result<(), <PgResourceGroupStorage as Crud>::Error> {
+    let (rg_children, ven_children) = children.iter().fold(
+        (Vec::new(), Vec::new()),
+        |(mut rg_children, mut ven_children), child| match child {
+            ResourceGroupChild::ResourceGroup(id) => {
+                rg_children.push(id.to_string());
+                (rg_children, ven_children)
+            }
+            ResourceGroupChild::VenResource(id) => {
+                ven_children.push(id.to_string());
+                (rg_children, ven_children)
+            }
+        },
+    );
 
-        sqlx::query!(
-            r#"
-                INSERT INTO rg_child_rg (rg_parent_rg_id, rg_child_rg_id)
-                SELECT $1, child FROM UNNEST($2::text[]) as u(child)
-            "#,
-            rg_id.as_str(),
-            &rg_children
-        )
-        .execute(&self.db)
-        .await?;
+    sqlx::query!(
+        r#"
+        INSERT INTO rg_child_rg (rg_parent_rg_id, rg_child_rg_id)
+        SELECT $1, child FROM UNNEST($2::text[]) as u(child)
+        "#,
+        rg_id.as_str(),
+        &rg_children
+    )
+    .execute(tx.as_mut())
+    .await?;
 
-        sqlx::query!(
-            r#"
-                INSERT INTO rg_child_ven_resource (rg_parent_rg_id, rg_child_ven_resource_id)
-                SELECT $1, child FROM UNNEST ($2::text[]) as u(child)
-            "#,
-            rg_id.as_str(),
-            &ven_children
-        )
-        .execute(&self.db)
-        .await?;
+    sqlx::query!(
+        r#"
+        INSERT INTO rg_child_ven_resource (rg_parent_rg_id, rg_child_ven_resource_id)
+        SELECT $1, child FROM UNNEST ($2::text[]) as u(child)
+        "#,
+        rg_id.as_str(),
+        &ven_children
+    )
+    .execute(tx.as_mut())
+    .await?;
 
-        Ok(())
-    }
+    Ok(())
 }
 
 #[async_trait]
@@ -173,11 +166,7 @@ impl Crud for PgResourceGroupStorage {
         new: Self::NewType,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        // Add children to PgResourceGroup even though this does not get stored in that table
-        // Or: Add children via separate function, bypassing the try_into interface
-        //
-        // Option 2 sounds better, but maybe there's a hidden third option
-        // This does separate the creation into two distinct steps
+        let mut tx = self.db.begin().await?;
 
         let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
@@ -199,12 +188,13 @@ impl Crud for PgResourceGroupStorage {
             to_json_value(new.attributes)?,
             new.targets as _,
         )
-        .fetch_one(&self.db)
+        .fetch_one(tx.as_mut())
         .await?
         .try_into()?;
 
-        self.insert_resource_group_children(&resource_group.id, &new.children)
-            .await?;
+        insert_resource_group_children(&mut tx, &resource_group.id, &new.children).await?;
+
+        tx.commit().await?;
 
         resource_group.content.children.extend(new.children);
         Ok(resource_group)
@@ -216,6 +206,8 @@ impl Crud for PgResourceGroupStorage {
         // TODO: Does client_id still make sense? Check with other retrieve funcs
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let mut tx = self.db.begin().await?;
+
         let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
@@ -231,14 +223,16 @@ impl Crud for PgResourceGroupStorage {
             "#,
             id.as_str(),
         )
-        .fetch_one(&self.db)
+        .fetch_one(tx.as_mut())
         .await?
         .try_into()?;
 
         resource_group
             .content
             .children
-            .extend(self.get_resource_group_children(&resource_group).await?);
+            .extend(get_resource_group_children(&mut tx, &resource_group).await?);
+
+        tx.commit().await?;
 
         Ok(resource_group)
     }
@@ -248,6 +242,8 @@ impl Crud for PgResourceGroupStorage {
         filter: &Self::Filter,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
+        let mut tx = self.db.begin().await?;
+
         let mut rgs = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
@@ -269,7 +265,7 @@ impl Crud for PgResourceGroupStorage {
             filter.skip,
             filter.limit,
         )
-        .fetch_all(&self.db)
+        .fetch_all(tx.as_mut())
         .await?
         .into_iter()
         .map(TryInto::try_into)
@@ -278,11 +274,11 @@ impl Crud for PgResourceGroupStorage {
         for rg in rgs.iter_mut() {
             rg.content
                 .children
-                .extend(self.get_resource_group_children(&rg).await?);
+                .extend(get_resource_group_children(&mut tx, &rg).await?);
         }
 
         trace!("retrieved {} resources", rgs.len());
-
+        tx.commit().await?;
         Ok(rgs)
     }
 
@@ -292,6 +288,8 @@ impl Crud for PgResourceGroupStorage {
         new: Self::NewType,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let mut tx = self.db.begin().await?;
+
         let resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
@@ -314,23 +312,30 @@ impl Crud for PgResourceGroupStorage {
             to_json_value(new.attributes)?,
             new.targets as _,
         )
-        .fetch_one(&self.db)
+        .fetch_one(tx.as_mut())
         .await?
         .try_into()?;
 
-        // TODO: Is this safe?
         sqlx::query!(
             r#"
-                DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1
+            DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1
             "#,
             id.as_str()
         )
-        .execute(&self.db)
+        .execute(tx.as_mut())
         .await?;
 
-        self.insert_resource_group_children(id, &new.children)
-            .await?;
+        sqlx::query!(
+            r#"
+            DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1
+            "#,
+            id.as_str()
+        )
+        .execute(tx.as_mut())
+        .await?;
 
+        insert_resource_group_children(&mut tx, id, &new.children).await?;
+        tx.commit().await?;
         Ok(resource_group)
     }
 
@@ -339,8 +344,6 @@ impl Crud for PgResourceGroupStorage {
         id: &Self::Id,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        // TODO: Does this cascade and thus remove all entries in rg_child_ven_resource and
-        // rg_child_rg with this parent rg id
         Ok(sqlx::query_as!(
             PostgresResourceGroup,
             r#"

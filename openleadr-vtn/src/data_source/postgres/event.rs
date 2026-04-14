@@ -884,7 +884,7 @@ mod tests {
             let repo: PgEventStorage = db.into();
 
             // Has access to targets "group-1" and "private-value"
-            // and via it's attached resources also to "somewhere-in-the-nowhere" and "group-2"
+            // and via its attached resources also to "somewhere-in-the-nowhere" and "group-2"
             let ven_1: ClientId = "ven-1-client-id".parse().unwrap();
 
             // event-3 has the target "somewhere-in-the-nowhere" which should be accessible to ven_1
