@@ -6,6 +6,7 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
+    resource::ResourceId,
     resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupChild, ResourceGroupId},
     target::Target,
     ClientId,
@@ -33,13 +34,12 @@ pub(crate) struct PostgresResourceGroup {
     resource_group_name: String,
     attributes: Option<serde_json::Value>,
     targets: Vec<Target>,
-    children: Vec<ResourceGroupChild>,
 }
 
 impl TryFrom<PostgresResourceGroup> for ResourceGroup {
     type Error = AppError;
 
-    #[tracing::instrument(name = "TryFrom<PostgresResource> for Resource")]
+    #[tracing::instrument(name = "TryFrom<PostgresResourceGroup> for ResourceGroup")]
     fn try_from(value: PostgresResourceGroup) -> Result<Self, Self::Error> {
         let attributes = match value.attributes {
             None => None,
@@ -67,6 +67,98 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
     }
 }
 
+impl PgResourceGroupStorage {
+    async fn get_resource_group_children(
+        &self,
+        rg: &ResourceGroup,
+    ) -> Result<Vec<ResourceGroupChild>, <PgResourceGroupStorage as Crud>::Error> {
+        let mut rg_children: Vec<_> = sqlx::query!(
+            r#"
+                SELECT rg_child_rg_id FROM rg_child_rg
+                WHERE rg_parent_rg_id = $1
+            "#,
+            rg.id.as_str()
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(|r| {
+            // TODO: should this use expect?
+            let rg_id = ResourceGroupId::new(&r.rg_child_rg_id).expect(&format!(
+                "{} is not a valid ResourceGroupId",
+                r.rg_child_rg_id
+            ));
+            ResourceGroupChild::ResourceGroup(rg_id)
+        })
+        .collect();
+
+        let ven_children = sqlx::query!(
+            r#"
+                SELECT rg_child_ven_resource_id FROM rg_child_ven_resource
+                WHERE rg_parent_rg_id = $1
+            "#,
+            rg.id.as_str()
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(|r| {
+            let ven_id = ResourceId::new(&r.rg_child_ven_resource_id).expect(&format!(
+                "{} is not a valid ResourceId",
+                r.rg_child_ven_resource_id
+            ));
+            ResourceGroupChild::VenResource(ven_id)
+        });
+
+        rg_children.extend(ven_children);
+        Ok(rg_children)
+    }
+
+    async fn insert_resource_group_children(
+        &self,
+        rg_id: &ResourceGroupId,
+        children: &[ResourceGroupChild],
+    ) -> Result<(), <PgResourceGroupStorage as Crud>::Error> {
+        let (rg_children, ven_children) = children.iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut rg_children, mut ven_children), child| match child {
+                ResourceGroupChild::ResourceGroup(id) => {
+                    rg_children.push(id.to_string());
+                    (rg_children, ven_children)
+                }
+                ResourceGroupChild::VenResource(id) => {
+                    ven_children.push(id.to_string());
+                    (rg_children, ven_children)
+                }
+            },
+        );
+
+        sqlx::query!(
+            r#"
+                INSERT INTO rg_child_rg (rg_parent_rg_id, rg_child_rg_id)
+                SELECT $1, child FROM UNNEST($2::text[]) as u(child)
+            "#,
+            rg_id.as_str(),
+            &rg_children
+        )
+        .execute(&self.db)
+        .await?;
+
+        sqlx::query!(
+            r#"
+                INSERT INTO rg_child_ven_resource (rg_parent_rg_id, rg_child_ven_resource_id)
+                SELECT $1, child FROM UNNEST ($2::text[]) as u(child)
+            "#,
+            rg_id.as_str(),
+            &ven_children
+        )
+        .execute(&self.db)
+        .await?;
+
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Crud for PgResourceGroupStorage {
     type Type = ResourceGroup;
@@ -81,30 +173,27 @@ impl Crud for PgResourceGroupStorage {
         new: Self::NewType,
         _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let resource_group: ResourceGroup = sqlx::query_as!(
+        // Add children to PgResourceGroup even though this does not get stored in that table
+        // Or: Add children via separate function, bypassing the try_into interface
+        //
+        // Option 2 sounds better, but maybe there's a hidden third option
+        // This does separate the creation into two distinct steps
+
+        let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
-            WITH new_resource AS (INSERT INTO resource (
-                                                        id,
-                                                        created_date_time,
-                                                        modification_date_time,
-                                                        resource_group_name,
-                                                        attributes,
-                                                        children,
-                                                        targets
-                )
-                VALUES (gen_random_uuid(), now(), now(), $1, $2, $3, $4)
-                RETURNING
-                    id,
-                    created_date_time,
-                    modification_date_time,
-                    resource_name,
-                    ven_id,
-                    attributes,
-                    targets as "targets:Vec<Target>")
-            SELECT new_resource.*, v.client_id
-            FROM new_resource
-                     JOIN ven v ON v.id = new_resource.ven_id;
+            INSERT INTO resource_group (
+                id, created_date_time, modification_date_time, resource_group_name, attributes, targets
+            )
+            VALUES (
+                gen_random_uuid()::text, now(), now(), $1, $2, $3)
+            RETURNING
+                id,
+                created_date_time,
+                modification_date_time,
+                resource_group_name,
+                attributes,
+                targets as "targets:Vec<Target>"
             "#,
             new.resource_group_name,
             to_json_value(new.attributes)?,
@@ -114,71 +203,69 @@ impl Crud for PgResourceGroupStorage {
         .await?
         .try_into()?;
 
+        self.insert_resource_group_children(&resource_group.id, &new.children)
+            .await?;
+
+        resource_group.content.children.extend(new.children);
         Ok(resource_group)
     }
 
     async fn retrieve(
         &self,
         id: &Self::Id,
-        client_id: &Self::PermissionFilter,
+        // TODO: Does client_id still make sense? Check with other retrieve funcs
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let resource = sqlx::query_as!(
-            PostgresResource,
+        let mut resource_group: ResourceGroup = sqlx::query_as!(
+            PostgresResourceGroup,
             r#"
             SELECT
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>",
-                v.client_id
-            FROM resource r
-                JOIN ven v on r.ven_id = v.id
-            WHERE r.id = $1
-              AND ($2::text IS NULL OR v.client_id = $2)
+                rg.id,
+                rg.created_date_time,
+                rg.modification_date_time,
+                rg.resource_group_name,
+                rg.attributes,
+                rg.targets as "targets:Vec<Target>"
+            FROM resource_group rg
+            WHERE rg.id = $1
             "#,
             id.as_str(),
-            client_id as _
         )
         .fetch_one(&self.db)
         .await?
         .try_into()?;
 
-        Ok(resource)
+        resource_group
+            .content
+            .children
+            .extend(self.get_resource_group_children(&resource_group).await?);
+
+        Ok(resource_group)
     }
 
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        client_id: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let res = sqlx::query_as!(
+        let mut rgs = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
             SELECT
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_group_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>",
-                v.client_id
-            FROM resource r
-                JOIN ven v on r.ven_id = v.id
-            WHERE ($1::text IS NULL OR r.ven_id = $1)
-                AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3::text[] IS NULL OR r.targets @> $3)
-                AND ($4::text IS NULL OR v.client_id = $4)
-            ORDER BY r.created_date_time
-            OFFSET $5 LIMIT $6
+                rg.id,
+                rg.created_date_time,
+                rg.modification_date_time,
+                rg.resource_group_name,
+                rg.attributes,
+                rg.targets as "targets:Vec<Target>"
+            FROM resource_group rg
+            WHERE ($1::text IS NULL OR rg.resource_group_name = $1)
+                AND ($2::text[] IS NULL OR rg.targets @> $2)
+            ORDER BY rg.created_date_time
+            OFFSET $3 LIMIT $4
             "#,
-            filter.ven_id as _,
             filter.resource_group_name,
             filter.targets.as_deref() as _,
-            client_id as _,
             filter.skip,
             filter.limit,
         )
@@ -186,72 +273,63 @@ impl Crud for PgResourceGroupStorage {
         .await?
         .into_iter()
         .map(TryInto::try_into)
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<ResourceGroup>, _>>()?;
 
-        trace!("retrieved {} resources", res.len());
+        for rg in rgs.iter_mut() {
+            rg.content
+                .children
+                .extend(self.get_resource_group_children(&rg).await?);
+        }
 
-        Ok(res)
+        trace!("retrieved {} resources", rgs.len());
+
+        Ok(rgs)
     }
 
     async fn update(
         &self,
         id: &Self::Id,
         new: Self::NewType,
-        client_id: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let mut tx = self.db.begin().await?;
-
-        let old_ven_id = sqlx::query_scalar!(
-            r#"
-            SELECT ven_id FROM resource WHERE id = $1
-            "#,
-            id.as_str()
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if old_ven_id != new.ven_id.as_str() {
-            let error = "Tried to update `ven_id` of resource. \
-            This is not allowed in the current version of openLEADR as the specification is not quite \
-            clear about if that should be allowed. If you disagree with that interpretation, please open \
-            an issue on GitHub.";
-            error!(resource_id = id.as_str(), "{}", error);
-            return Err(Self::Error::BadRequest(error));
-        }
-
         let resource_group: ResourceGroup = sqlx::query_as!(
-            PostgresResource,
+            PostgresResourceGroup,
             r#"
-            UPDATE resource r
+            UPDATE resource_group rg
             SET modification_date_time = now(),
-                resource_name = $2,
+                resource_group_name = $2,
                 attributes = $3,
                 targets = $4
-            FROM ven v
-            WHERE r.ven_id = v.id
-              AND r.id = $1
-              AND ($5::text IS NULL OR v.client_id = $5)
+            WHERE rg.id = $1
             RETURNING
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>",
-                v.client_id
+                rg.id,
+                rg.created_date_time,
+                rg.modification_date_time,
+                rg.resource_group_name,
+                rg.attributes,
+                rg.targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
             new.resource_group_name,
             to_json_value(new.attributes)?,
             new.targets as _,
-            client_id as _
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.db)
         .await?
         .try_into()?;
 
-        tx.commit().await?;
+        // TODO: Is this safe?
+        sqlx::query!(
+            r#"
+                DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1
+            "#,
+            id.as_str()
+        )
+        .execute(&self.db)
+        .await?;
+
+        self.insert_resource_group_children(id, &new.children)
+            .await?;
 
         Ok(resource_group)
     }
@@ -259,28 +337,24 @@ impl Crud for PgResourceGroupStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        client_id: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        // TODO: Does this cascade and thus remove all entries in rg_child_ven_resource and
+        // rg_child_rg with this parent rg id
         Ok(sqlx::query_as!(
-            PostgresResource,
+            PostgresResourceGroup,
             r#"
-            DELETE FROM resource r
-                   USING ven v
-            WHERE r.ven_id = v.id
-              AND r.id = $1
-              AND ($2::text IS NULL OR v.client_id = $2)
+            DELETE FROM resource_group rg
+            WHERE rg.id = $1
             RETURNING
-                r.id,
-                r.created_date_time,
-                r.modification_date_time,
-                r.resource_name,
-                r.ven_id,
-                r.attributes,
-                r.targets as "targets:Vec<Target>",
-                v.client_id
+                rg.id,
+                rg.created_date_time,
+                rg.modification_date_time,
+                rg.resource_group_name,
+                rg.attributes,
+                rg.targets as "targets:Vec<Target>"
             "#,
             id.as_str(),
-            client_id as _
         )
         .fetch_one(&self.db)
         .await?
@@ -301,19 +375,9 @@ mod test {
         fn default() -> Self {
             Self {
                 resource_group_name: None,
-                ven_id: None,
                 targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
-            }
-        }
-    }
-
-    impl QueryParams {
-        fn ven_id(ven_id: &str) -> QueryParams {
-            Self {
-                ven_id: Some(ven_id.parse().unwrap()),
-                ..Self::default()
             }
         }
     }
@@ -324,7 +388,7 @@ mod test {
 
         let resources = repo
             .retrieve_all(
-                &QueryParams::ven_id("ven-1"),
+                &QueryParams::default(),
                 &Some("ven-1-client-id".parse().unwrap()),
             )
             .await
@@ -333,7 +397,7 @@ mod test {
 
         let resources = repo
             .retrieve_all(
-                &QueryParams::ven_id("ven-2"),
+                &QueryParams::default(),
                 &Some("ven-2-client-id".parse().unwrap()),
             )
             .await
@@ -342,7 +406,6 @@ mod test {
 
         let filters = QueryParams {
             resource_group_name: Some("resource-1-name".to_string()),
-            ven_id: Some("ven-1".parse().unwrap()),
             ..Default::default()
         };
 
@@ -351,17 +414,8 @@ mod test {
             .await
             .unwrap();
         assert_eq!(resources.len(), 1);
-        assert_eq!(resources[0].content.resource_name, "resource-1-name");
-        assert_eq!(resources[0].client_id, "ven-1-client-id".parse().unwrap());
+        assert_eq!(resources[0].content.resource_group_name, "resource-1-name");
 
         // Ensure a client cannot see resources of another client
-        let resources = repo
-            .retrieve_all(
-                &QueryParams::ven_id("ven-2"),
-                &Some("ven-1-client-id".parse().unwrap()),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resources.len(), 0);
     }
 }

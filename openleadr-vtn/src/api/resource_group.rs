@@ -195,8 +195,6 @@ pub async fn delete(
 pub struct QueryParams {
     #[validate(length(min = 1, max = 128))]
     pub(crate) resource_group_name: Option<String>,
-    #[serde(rename = "venID")]
-    pub(crate) ven_id: Option<VenId>,
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]

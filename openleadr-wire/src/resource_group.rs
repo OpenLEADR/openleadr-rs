@@ -5,7 +5,7 @@ use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
 use crate::{
-    resource::Resource, target::Target, values_map::ValuesMap, Identifier, IdentifierError,
+    resource::ResourceId, target::Target, values_map::ValuesMap, Identifier, IdentifierError,
 };
 
 /// A resource group may contain either one or more nested resource groups or one or more VEN
@@ -18,7 +18,6 @@ use crate::{
     rename = "RESOURCE_GROUP"
 )]
 pub struct ResourceGroup {
-    // TODO: Is this still VTN assigned?
     /// URL safe VTN assigned object ID.
     pub id: ResourceGroupId,
     /// datetime in ISO 8601 format
@@ -28,16 +27,16 @@ pub struct ResourceGroup {
     #[serde(with = "crate::serde_rfc3339")]
     pub modification_date_time: DateTime<Utc>,
 
-    // TODO: Unsure if there should also be a VENResourceRequest, like for regular resources
     #[serde(flatten)]
     #[validate(nested)]
     pub content: BlResourceGroupRequest,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "id", rename_all = "snake_case")]
 pub enum ResourceGroupChild {
-    ResourceGroup(ResourceGroup),
-    VENResource(Resource),
+    ResourceGroup(ResourceGroupId),
+    VenResource(ResourceId),
 }
 
 #[skip_serializing_none]
@@ -55,6 +54,8 @@ pub struct BlResourceGroupRequest {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
 
+    #[serde(default)]
+    #[serde_as(deserialize_as = "DefaultOnNull")]
     pub children: Vec<ResourceGroupChild>,
 }
 
