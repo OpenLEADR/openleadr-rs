@@ -4,10 +4,11 @@ use crate::data_source::{AuthSource, postgres::user::PgAuthSource};
 use super::{Migrate, VenObjectPrivacy};
 use crate::{
     data_source::{
-        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
+        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, ResourceGroupCrud, VenCrud,
         postgres::{
             event::PgEventStorage, program::PgProgramStorage, report::PgReportStorage,
-            subscription::PgSubscriptionStorage, ven::PgVenStorage,
+            resource_group::PgResourceGroupStorage, subscription::PgSubscriptionStorage,
+            ven::PgVenStorage,
         },
     },
     error::AppError,
@@ -59,6 +60,10 @@ impl DataSource for PostgresStorage {
 
     fn resources(&self) -> Arc<dyn ResourceCrud> {
         Arc::<PgResourceStorage>::new(self.db.clone().into())
+    }
+
+    fn resource_groups(&self) -> Arc<dyn ResourceGroupCrud> {
+        Arc::<PgResourceGroupStorage>::new(self.db.clone().into())
     }
 
     fn subscriptions(&self) -> Arc<dyn super::SubscriptionCrud> {

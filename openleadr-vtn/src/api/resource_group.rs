@@ -12,7 +12,6 @@ use validator::Validate;
 use openleadr_wire::{
     resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId},
     subscription::{AnyObject, Operation},
-    ven::VenId,
 };
 
 use crate::{
