@@ -210,6 +210,7 @@ pub trait DataSource: Send + Sync + 'static {
     fn vens(&self) -> Arc<dyn VenCrud>;
     fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy>;
     fn resources(&self) -> Arc<dyn ResourceCrud>;
+    fn resource_groups(&self) -> Arc<dyn ResourceGroupCrud>;
     fn subscriptions(&self) -> Arc<dyn SubscriptionCrud>;
     #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource>;
