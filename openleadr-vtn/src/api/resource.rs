@@ -517,6 +517,7 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource[0].id.as_str(), "resource-2");
+        assert_eq!(resource.len(), 1);
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]
@@ -727,6 +728,7 @@ mod test {
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(resource.content.resource_name, "new-resource");
     }
+
     #[sqlx::test(fixtures("vens"))]
     async fn nonexistent_ven_cannot_add_resource(db: PgPool) {
         let test = ApiTest::new(db.clone(), "nonexistent", vec![Scope::WriteVensVen]).await;

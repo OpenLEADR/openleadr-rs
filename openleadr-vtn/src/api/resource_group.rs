@@ -21,7 +21,7 @@ use crate::{
     },
     data_source::{EventCrud, ResourceGroupCrud, VenObjectPrivacy},
     error::AppError,
-    jwt::{Scope, User},
+    jwt::User,
 };
 
 // TODO: Many scoping access rules are not implemented yet
@@ -33,19 +33,9 @@ pub async fn get_all(
 ) -> AppResponse<Vec<ResourceGroup>> {
     trace!(?query_params);
 
-    let resource_groups = if user.scope.contains(Scope::ReadAll) {
-        resource_group_source
-            .retrieve_all(&query_params, &None)
-            .await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
-        resource_group_source
-            .retrieve_all(&query_params, &Some(user.client_id()?))
-            .await?
-    } else {
-        return Err(AppError::Forbidden(
-            "Missing 'read_all' or 'read_ven_objects' scope",
-        ));
-    };
+    let resource_groups = resource_group_source
+        .retrieve_all(&query_params, &None)
+        .await?;
 
     trace!(
         client_id = user.sub,
@@ -61,17 +51,7 @@ pub async fn get(
     Path(id): Path<ResourceGroupId>,
     User(user): User,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = if user.scope.contains(Scope::ReadAll) {
-        resource_group_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
-        resource_group_source
-            .retrieve(&id, &Some(user.client_id()?))
-            .await?
-    } else {
-        return Err(AppError::Forbidden(
-            "Missing 'read_all' or 'read_ven_objects' scope",
-        ));
-    };
+    let resource_group = resource_group_source.retrieve(&id, &None).await?;
 
     trace!(
         %resource_group.id,
@@ -123,20 +103,18 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<BlResourceGroupRequest>,
 ) -> AppResponse<ResourceGroup> {
-    let orig_resource_group = resource_group_source
-        .retrieve(&id, &Some(user.client_id()?))
-        .await?;
-
     let new_resource_group = BlResourceGroupRequest {
         resource_group_name: update.resource_group_name,
+        // TODO: Check if this is still correct
         // VEN clients are not allowed to specify the targets of their resources
-        targets: orig_resource_group.content.targets,
+        targets: update.targets,
         attributes: update.attributes,
+        // TODO: think of the children
         children: vec![],
     };
 
     let resource_group = resource_group_source
-        .update(&id, new_resource_group, &Some(user.client_id()?))
+        .update(&id, new_resource_group, &None)
         .await?;
 
     info!(
@@ -164,17 +142,7 @@ pub async fn delete(
     Path(id): Path<ResourceGroupId>,
     User(user): User,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
-        resource_group_source.delete(&id, &None).await?
-    } else if user.scope.contains(Scope::WriteVensVen) {
-        resource_group_source
-            .delete(&id, &Some(user.client_id()?))
-            .await?
-    } else {
-        return Err(AppError::Forbidden(
-            "Missing 'write_vens_bl' or 'write_vens_vens' scope",
-        ));
-    };
+    let resource_group = resource_group_source.delete(&id, &None).await?;
 
     info!(%id, client_id = user.sub, "deleted resource group");
 
@@ -212,7 +180,10 @@ fn get_50() -> i64 {
 mod test {
     use crate::{api::test::ApiTest, jwt::Scope};
     use axum::body::Body;
-    use openleadr_wire::{problem::Problem, resource_group::BlResourceGroupRequest};
+    use openleadr_wire::{
+        problem::Problem,
+        resource_group::{BlResourceGroupRequest, ResourceGroup},
+    };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
@@ -253,5 +224,139 @@ mod test {
                 .unwrap()
                 .contains("outside of allowed range 1..=128"))
         }
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn test_get_all(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::ReadAll]).await;
+
+        let (status, resource_groups) = test
+            .request::<Vec<ResourceGroup>>(Method::GET, "/resource_groups", Body::empty())
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_groups.len(), 5);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn filter_by_name(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+
+        let (status, resource_group) = test
+            .request::<Vec<ResourceGroup>>(
+                Method::GET,
+                "/resource_groups?resourceGroupName=resource-group-2-name",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_group[0].id.as_str(), "resource-group-2");
+        assert_eq!(resource_group.len(), 1);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn get_single_resource_group(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::GET,
+                "/resource_groups/resource-group-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_group.id.as_str(), "resource-group-1");
+    }
+
+    #[sqlx::test(fixtures("vens"))]
+    async fn add_resource_group(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::POST,
+                "/resource_groups",
+                Body::from(
+                    r#"
+                  {
+                    "resourceGroupName":"new-resource-group"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(
+            resource_group.content.resource_group_name,
+            "new-resource-group"
+        );
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn update_resource_group(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::PUT,
+                "/resource_groups/resource-group-1",
+                Body::from(
+                    r#"
+                  {
+                    "resourceGroupName":"updated-resource-group",
+                    "targets": ["group-3"],
+                    "objectType": "RESOURCE_GROUP_REQUEST"
+                  }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            resource_group.content.resource_group_name,
+            "updated-resource-group"
+        );
+        assert_eq!(
+            resource_group.content.targets,
+            vec!["group-3".parse().unwrap()]
+        );
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::GET,
+                "/resource_groups/resource-group-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            resource_group.content.resource_group_name,
+            "updated-resource-group"
+        );
+        assert_eq!(
+            resource_group.content.targets,
+            vec!["group-3".parse().unwrap()]
+        );
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn delete_resource_group(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+        let (status, _) = test
+            .request::<ResourceGroup>(
+                Method::DELETE,
+                "/resource_groups/resource-group-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = test
+            .request::<Problem>(
+                Method::GET,
+                "/resource_groups/resource-group-1",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }
