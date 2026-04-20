@@ -46,34 +46,34 @@ INSERT INTO rg_child_rg (
   rg_child_rg_id
 ) VALUES (
   'resource-group-1',
-  'resource-group-2',
+  'resource-group-2'
 ), (
   'resource-group-1',
-  'resource-group-3',
+  'resource-group-3'
 ), (
   'resource-group-2',
-  'resource-group-4',
+  'resource-group-4'
 ), (
   'ouroboros',
-  'ouroboros',
+  'ouroboros'
 );
 
 INSERT INTO rg_child_ven_resource (
   rg_parent_rg_id,
-  rg_child_ven_resource_id,
+  rg_child_ven_resource_id
 ) VALUES (
   'resource-group-2',
-  'resource-1',
+  'resource-1'
 ), (
   'resource-group-3',
-  'resource-1',
+  'resource-1'
 ), (
   'resource-group-3',
-  'resource-2',
+  'resource-2'
 ), (
   'resource-group-3',
-  'resource-3',
+  'resource-3'
 ), (
   'resource-group-3',
-  'resource-4',
+  'resource-4'
 );
