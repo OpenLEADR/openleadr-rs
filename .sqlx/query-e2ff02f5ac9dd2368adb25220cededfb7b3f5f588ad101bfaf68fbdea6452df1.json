@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM resource_group rg\n            WHERE rg.id = $1\n            RETURNING\n                rg.id,\n                rg.created_date_time,\n                rg.modification_date_time,\n                rg.resource_group_name,\n                rg.attributes,\n                rg.targets as \"targets:Vec<Target>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_group_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e2ff02f5ac9dd2368adb25220cededfb7b3f5f588ad101bfaf68fbdea6452df1"
+}
