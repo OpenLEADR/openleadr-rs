@@ -9,6 +9,7 @@ use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     report::{ReportId, ReportRequest},
     resource::{BlResourceRequest, Resource, ResourceId},
+    resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId},
     subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     target::Target,
     ven::{BlVenRequest, Ven, VenId},
@@ -123,6 +124,21 @@ pub trait ResourceCrud:
 {
 }
 
+pub trait ResourceGroupCrud:
+    Crud<
+    Type = ResourceGroup,
+    Id = ResourceGroupId,
+    NewType = BlResourceGroupRequest,
+    Error = AppError,
+    Filter = crate::api::resource_group::QueryParams,
+
+    // TODO: klopt deze PermissionFilter
+    // Since resource groups are managed by the BL role, they have no VEN or client ID
+    PermissionFilter = Option<ClientId>,
+>
+{
+}
+
 pub trait SubscriptionCrud:
     Crud<
     Type = Subscription,
@@ -194,6 +210,7 @@ pub trait DataSource: Send + Sync + 'static {
     fn vens(&self) -> Arc<dyn VenCrud>;
     fn ven_object_privacy(&self) -> Arc<dyn VenObjectPrivacy>;
     fn resources(&self) -> Arc<dyn ResourceCrud>;
+    fn resource_groups(&self) -> Arc<dyn ResourceGroupCrud>;
     fn subscriptions(&self) -> Arc<dyn SubscriptionCrud>;
     #[cfg(feature = "internal-oauth")]
     fn auth(&self) -> Arc<dyn AuthSource>;

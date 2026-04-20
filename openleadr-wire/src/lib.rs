@@ -21,6 +21,7 @@ pub mod problem;
 pub mod program;
 pub mod report;
 pub mod resource;
+pub mod resource_group;
 pub mod subscription;
 pub mod target;
 pub mod values_map;
@@ -151,6 +152,7 @@ pub enum ObjectType {
     Subscription,
     Ven,
     Resource,
+    ResourceGroup,
 }
 
 impl ObjectType {
@@ -162,6 +164,7 @@ impl ObjectType {
             ObjectType::Subscription => "SUBSCRIPTION",
             ObjectType::Ven => "VEN",
             ObjectType::Resource => "RESOURCE",
+            ObjectType::ResourceGroup => "RESOURCE_GROUP",
         }
     }
 }

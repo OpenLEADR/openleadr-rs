@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "06c98530f91c7c64467a773b9f66cccee5448ce6a7058b155a2c469d458bf5c2"
+}

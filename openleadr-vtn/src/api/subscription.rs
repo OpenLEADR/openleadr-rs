@@ -270,7 +270,11 @@ pub(crate) async fn notify(
             }
         }
         AnyObject::Event(event) => Some(&event.content.program_id),
-        AnyObject::Subscription(_) | AnyObject::Ven(_) | AnyObject::Resource(_) => None,
+        AnyObject::Subscription(_)
+        | AnyObject::Ven(_)
+        | AnyObject::Resource(_)
+        // TODO: Double check that Resource Group belongs in this match arm
+        | AnyObject::ResourceGroup(_) => None,
     };
 
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");

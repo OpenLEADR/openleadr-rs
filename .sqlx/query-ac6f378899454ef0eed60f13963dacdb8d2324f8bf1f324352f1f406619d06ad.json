@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT rg_child_rg_id FROM rg_child_rg\n        WHERE rg_parent_rg_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rg_child_rg_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ac6f378899454ef0eed60f13963dacdb8d2324f8bf1f324352f1f406619d06ad"
+}
