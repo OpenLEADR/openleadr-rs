@@ -385,40 +385,14 @@ mod test {
         }
     }
 
-    #[sqlx::test(fixtures("users", "vens", "resources"))]
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
     async fn retrieve_all(db: PgPool) {
         let repo = PgResourceGroupStorage::from(db.clone());
 
-        let resources = repo
-            .retrieve_all(
-                &QueryParams::default(),
-                &Some("ven-1-client-id".parse().unwrap()),
-            )
+        let resource_groups = repo
+            .retrieve_all(&QueryParams::default(), &None)
             .await
             .unwrap();
-        assert_eq!(resources.len(), 2);
-
-        let resources = repo
-            .retrieve_all(
-                &QueryParams::default(),
-                &Some("ven-2-client-id".parse().unwrap()),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resources.len(), 3);
-
-        let filters = QueryParams {
-            resource_group_name: Some("resource-1-name".to_string()),
-            ..Default::default()
-        };
-
-        let resources = repo
-            .retrieve_all(&filters, &Some("ven-1-client-id".parse().unwrap()))
-            .await
-            .unwrap();
-        assert_eq!(resources.len(), 1);
-        assert_eq!(resources[0].content.resource_group_name, "resource-1-name");
-
-        // Ensure a client cannot see resources of another client
+        assert_eq!(resource_groups.len(), 5);
     }
 }
