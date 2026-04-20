@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO rg_child_ven_resource (rg_parent_rg_id, rg_child_ven_resource_id)\n        SELECT $1, child FROM UNNEST ($2::text[]) as u(child)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64b3c5f0e97c469e63ef5d3f22dfd929c877ac4546989ad914fccde1671a741e"
+}
