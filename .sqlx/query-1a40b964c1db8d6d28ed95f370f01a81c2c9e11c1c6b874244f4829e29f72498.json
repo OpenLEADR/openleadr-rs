@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO resource_group (\n                id, created_date_time, modification_date_time, resource_group_name, attributes, targets\n            )\n            VALUES (\n                gen_random_uuid()::text, now(), now(), $1, $2, $3)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_group_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_group_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "1a40b964c1db8d6d28ed95f370f01a81c2c9e11c1c6b874244f4829e29f72498"
+}
