@@ -203,14 +203,22 @@ impl Crud for PgResourceGroupStorage {
     async fn retrieve(
         &self,
         id: &Self::Id,
-        // TODO: Does client_id still make sense? Check with other retrieve funcs
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
         let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
+            -- view of all resource group (grand)children of a resource group
+            WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
+                SELECT id, id FROM resource_group
+                UNION
+                SELECT fam.root, child.rg_child_rg_id
+                FROM rg_child_rg AS child
+                JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
+            )
+
             SELECT
                 rg.id,
                 rg.created_date_time,
@@ -220,8 +228,22 @@ impl Crud for PgResourceGroupStorage {
                 rg.targets as "targets:Vec<Target>"
             FROM resource_group rg
             WHERE rg.id = $1
+
+            AND (
+                -- business logic
+                $2::text IS NULL OR (
+
+                    SELECT COUNT(*) FROM resource
+                        INNER JOIN rg_child_ven_resource ON rg_child_ven_resource_id = resource.id
+                        INNER JOIN rg_family ON rg_family.id = rg_parent_rg_id
+
+                    WHERE resource.ven_id = $2 AND rg_family.root = $1
+
+                ) > 0
+            )
             "#,
             id.as_str(),
+            client_id as _
         )
         .fetch_one(tx.as_mut())
         .await?
