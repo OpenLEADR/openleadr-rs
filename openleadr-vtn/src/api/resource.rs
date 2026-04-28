@@ -282,7 +282,7 @@ mod test {
         #[sqlx::test(fixtures("vens", "resources"))]
         async fn cannot_read_resources_without_correct_scope(db: PgPool) {
             let test = ApiTest::new(
-                db.clone(),
+                db,
                 "test-client",
                 Scope::all()
                     .into_iter()
@@ -301,7 +301,7 @@ mod test {
         #[sqlx::test(fixtures("vens", "resources"))]
         async fn cannot_read_resource_without_correct_scope(db: PgPool) {
             let test = ApiTest::new(
-                db.clone(),
+                db,
                 "test-client",
                 Scope::all()
                     .into_iter()
@@ -320,7 +320,7 @@ mod test {
         #[sqlx::test(fixtures("vens", "resources"))]
         async fn cannot_add_resource_without_correct_scope(db: PgPool) {
             let test = ApiTest::new(
-                db.clone(),
+                db,
                 "test-client",
                 Scope::all()
                     .into_iter()
@@ -339,7 +339,7 @@ mod test {
         #[sqlx::test(fixtures("vens", "resources"))]
         async fn cannot_edit_resource_without_correct_scope(db: PgPool) {
             let test = ApiTest::new(
-                db.clone(),
+                db,
                 "ven-1-client-id",
                 Scope::all()
                     .into_iter()
@@ -358,7 +358,7 @@ mod test {
         #[sqlx::test(fixtures("vens", "resources"))]
         async fn cannot_delete_resource_without_correct_scope(db: PgPool) {
             let test = ApiTest::new(
-                db.clone(),
+                db,
                 "test-client",
                 Scope::all()
                     .into_iter()
@@ -420,7 +420,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_get_all_filtered(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources?skip=1", Body::empty())
@@ -469,7 +469,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn ven_get_all_filtered(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, resources) = test
             .request::<Vec<Resource>>(Method::GET, "/resources", Body::empty())
@@ -506,7 +506,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn filter_by_name(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let (status, resource) = test
             .request::<Vec<Resource>>(
@@ -522,7 +522,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_get_single_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::ReadAll]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::ReadAll]).await;
 
         let (status, resource) = test
             .request::<Resource>(Method::GET, "/resources/resource-1", Body::empty())
@@ -549,7 +549,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens"))]
     async fn bl_add_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensBl]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -572,7 +572,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens"))]
     async fn ven_cannot_send_bl_add_resource_request(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensVen]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensVen]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -601,12 +601,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_update_resource(db: PgPool) {
-        let test = ApiTest::new(
-            db.clone(),
-            "test-client",
-            vec![Scope::WriteVensBl, Scope::ReadAll],
-        )
-        .await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl, Scope::ReadAll]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -638,7 +633,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn ven_cannot_send_bl_update_resource_request(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensVen]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensVen]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -668,7 +663,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn cannot_update_ven_id(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensBl]).await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -691,12 +686,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_delete_resource(db: PgPool) {
-        let test = ApiTest::new(
-            db.clone(),
-            "test-client",
-            vec![Scope::WriteVensBl, Scope::ReadAll],
-        )
-        .await;
+        let test = ApiTest::new(db, "test-client", vec![Scope::WriteVensBl, Scope::ReadAll]).await;
         let (status, _) = test
             .request::<Resource>(Method::DELETE, "/resources/resource-1", Body::empty())
             .await;
@@ -710,7 +700,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens"))]
     async fn ven_add_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVensVen]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -731,7 +721,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens"))]
     async fn nonexistent_ven_cannot_add_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "nonexistent", vec![Scope::WriteVensVen]).await;
+        let test = ApiTest::new(db, "nonexistent", vec![Scope::WriteVensVen]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -755,7 +745,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens"))]
     async fn bl_cannot_send_ven_add_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -782,7 +772,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens"))]
     async fn ven_cannot_add_resource_to_other_ven(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVensVen]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensVen]).await;
 
         let (status, resource) = test
             .request::<Resource>(
@@ -805,7 +795,7 @@ mod test {
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn ven_update_resource(db: PgPool) {
         let test = ApiTest::new(
-            db.clone(),
+            db,
             "ven-1-client-id",
             vec![Scope::WriteVensVen, Scope::ReadVenObjects],
         )
@@ -869,7 +859,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn nonexistent_ven_cannot_update_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "nonexistent", vec![Scope::WriteVensVen]).await;
+        let test = ApiTest::new(db, "nonexistent", vec![Scope::WriteVensVen]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -894,7 +884,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn bl_cannot_send_ven_update_resource(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteVensBl]).await;
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteVensBl]).await;
 
         let (status, problem) = test
             .request::<Problem>(
@@ -923,7 +913,7 @@ mod test {
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn ven_delete_resource(db: PgPool) {
         let test = ApiTest::new(
-            db.clone(),
+            db,
             "ven-1-client-id",
             vec![Scope::WriteVensVen, Scope::ReadVenObjects],
         )
@@ -942,7 +932,7 @@ mod test {
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn ven_cannot_delete_resource_of_other_ven(db: PgPool) {
         let test = ApiTest::new(
-            db.clone(),
+            db,
             "ven-1-client-id",
             vec![Scope::WriteVensVen, Scope::ReadVenObjects],
         )
