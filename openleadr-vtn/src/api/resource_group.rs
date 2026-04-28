@@ -16,12 +16,12 @@ use openleadr_wire::{
 
 use crate::{
     api::{
-        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
-        ValidatedQuery,
+        subscription::{self, NotifierState},
+        AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery,
     },
     data_source::{EventCrud, ResourceGroupCrud, VenObjectPrivacy},
     error::AppError,
-    jwt::User,
+    jwt::{Scope, User},
 };
 
 // TODO: Many scoping access rules are not implemented yet
@@ -51,7 +51,15 @@ pub async fn get(
     Path(id): Path<ResourceGroupId>,
     User(user): User,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = resource_group_source.retrieve(&id, &None).await?;
+    let resource_group = if user.scope.contains(Scope::ReadAll) {
+        resource_group_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        resource_group_source
+            .retrieve(&id, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'read_all' scope"));
+    };
 
     trace!(
         %resource_group.id,
@@ -98,6 +106,8 @@ pub async fn edit(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     // TODO: How to handle object_privacy on Resource Groups
+    // TODO: Probably VENs should never be allowed to edit, because
+    // RGs are handled by the BL
     State(_object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<ResourceGroupId>,
     User(user): User,
@@ -182,7 +192,7 @@ mod test {
     use axum::body::Body;
     use openleadr_wire::{
         problem::Problem,
-        resource_group::{BlResourceGroupRequest, ResourceGroup},
+        resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupChild},
     };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
@@ -255,8 +265,24 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
-    async fn get_single_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+    async fn bl_get_single_resource_group(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::ReadAll]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::GET,
+                "/resource_groups/resource-group-1",
+                Body::empty(),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_group.id.as_str(), "resource-group-1");
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn ven_get_single_resource_group(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -267,6 +293,47 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource_group.id.as_str(), "resource-group-1");
+
+        // This resource group should not be its own child
+        assert!(resource_group
+            .content
+            .children
+            .iter()
+            .all(|rg_child| match rg_child {
+                ResourceGroupChild::ResourceGroup(id) => {
+                    id.as_str() != "resource-group-1"
+                }
+                _ => true,
+            }));
+        assert_eq!(resource_group.content.children.len(), 2)
+    }
+
+    // As a design choice, direct circular references are removed. This may change and then this
+    // test would be relevant. Even though in practice this would be nonsensical.
+    #[ignore]
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn resource_group_can_be_its_own_child(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(Method::GET, "/resource_groups/ouroboros", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_group.id.as_str(), "ouroboros");
+
+        // This resource group _should_ be its own child
+        dbg!(&resource_group.content.children);
+        assert!(resource_group
+            .content
+            .children
+            .iter()
+            .any(|rg_child| match rg_child {
+                ResourceGroupChild::ResourceGroup(id) => {
+                    id.as_str() == "ouroboros"
+                }
+                _ => false,
+            }));
+        assert_eq!(resource_group.content.children.len(), 1)
     }
 
     #[sqlx::test(fixtures("vens"))]
@@ -293,8 +360,13 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
-    async fn update_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+    async fn bl_update_resource_group(db: PgPool) {
+        let test = ApiTest::new(
+            db.clone(),
+            "test-client",
+            vec![Scope::WriteVensBl, Scope::ReadAll],
+        )
+        .await;
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -339,8 +411,13 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
-    async fn delete_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+    async fn bl_delete_resource_group(db: PgPool) {
+        let test = ApiTest::new(
+            db.clone(),
+            "test-client",
+            vec![Scope::WriteVensBl, Scope::ReadAll],
+        )
+        .await;
         let (status, _) = test
             .request::<ResourceGroup>(
                 Method::DELETE,
