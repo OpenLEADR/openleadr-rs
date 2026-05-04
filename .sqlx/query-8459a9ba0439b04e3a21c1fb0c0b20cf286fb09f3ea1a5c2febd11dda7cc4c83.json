@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            -- view of all resource group (grand)children of a resource group\n            WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (\n                SELECT id, id FROM resource_group\n                UNION\n                SELECT fam.root, child.rg_child_rg_id\n                FROM rg_child_rg AS child\n                JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id\n            )\n\n            SELECT\n                rg.id,\n                rg.created_date_time,\n                rg.modification_date_time,\n                rg.resource_group_name,\n                rg.attributes,\n                rg.targets as \"targets:Vec<Target>\"\n            FROM resource_group rg\n            WHERE rg.id = $1\n\n            AND (\n                -- If client_id is null, it is a business logic request\n                $2::text IS NULL\n\n                -- Otherwise, for a VEN, the resource group should only be visible if there\n                -- is at least 1 VEN resource (grand) child, with matching client_id.\n                OR EXISTS (\n                    SELECT r.id FROM resource r\n                    INNER JOIN rg_child_ven_resource rcvr\n                        ON rcvr.rg_child_ven_resource_id = r.id\n                    INNER JOIN rg_family rg_fam\n                        ON rg_fam.id = rcvr.rg_parent_rg_id\n\n                    WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)\n                      AND rg_fam.root = $1\n\n                )\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_group_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "8459a9ba0439b04e3a21c1fb0c0b20cf286fb09f3ea1a5c2febd11dda7cc4c83"
+}
