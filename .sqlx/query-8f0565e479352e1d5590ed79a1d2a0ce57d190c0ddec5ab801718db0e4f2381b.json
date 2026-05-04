@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT rg_child.rg_child_ven_resource_id\n        FROM rg_child_ven_resource AS rg_child\n            INNER JOIN resource ON rg_child.rg_child_ven_resource_id = resource.id\n            INNER JOIN ven ON ven_id = ven.id\n\n        WHERE rg_child.rg_parent_rg_id = $1\n            AND (client_id = $2 OR $2::text IS NULL)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rg_child_ven_resource_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f0565e479352e1d5590ed79a1d2a0ce57d190c0ddec5ab801718db0e4f2381b"
+}
