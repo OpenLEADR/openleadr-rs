@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_credentials \n                (user_id, client_id, client_secret) \n            VALUES \n                ($1, $2, $3)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d433cf76e8ec697933389b7d4dbae078dfaab4a5b7cd831a9f813386acb52a37"
+}
