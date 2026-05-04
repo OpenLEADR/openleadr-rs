@@ -19,13 +19,12 @@ use crate::{
         subscription::{self, NotifierState},
         AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery,
     },
-    data_source::{EventCrud, ResourceGroupCrud, VenObjectPrivacy},
+    data_source::{EventCrud, ResourceGroupCrud},
     error::AppError,
     jwt::{Scope, User},
 };
 
 // TODO: Many scoping access rules are not implemented yet
-
 pub async fn get_all(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -33,9 +32,20 @@ pub async fn get_all(
 ) -> AppResponse<Vec<ResourceGroup>> {
     trace!(?query_params);
 
-    let resource_groups = resource_group_source
-        .retrieve_all(&query_params, &None)
-        .await?;
+    let resource_groups = if user.scope.contains(Scope::ReadAll) {
+        resource_group_source
+            .retrieve_all(&query_params, &None)
+            .await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        // TODO: Verify the name of this scope
+        resource_group_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
 
     trace!(
         client_id = user.sub,
@@ -54,11 +64,14 @@ pub async fn get(
     let resource_group = if user.scope.contains(Scope::ReadAll) {
         resource_group_source.retrieve(&id, &None).await?
     } else if user.scope.contains(Scope::ReadVenObjects) {
+        // TODO: Verify the name of this scope
         resource_group_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
     } else {
-        return Err(AppError::Forbidden("Missing 'read_all' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
     };
 
     trace!(
@@ -75,18 +88,15 @@ pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
-    State(_object_privacy): State<Arc<dyn VenObjectPrivacy>>,
-    User(user): User,
     ValidatedJson(new_resource_group): ValidatedJson<BlResourceGroupRequest>,
 ) -> Result<(StatusCode, Json<ResourceGroup>), AppError> {
     let resource_group = resource_group_source
-        .create(new_resource_group, &Some(user.client_id()?))
+        .create(new_resource_group, &None)
         .await?;
 
     info!(
         %resource_group.id,
         resource_group.resource_group_name=resource_group.content.resource_group_name,
-        client_id = user.sub,
         "resource added"
     );
 
@@ -105,12 +115,7 @@ pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
-    // TODO: How to handle object_privacy on Resource Groups
-    // TODO: Probably VENs should never be allowed to edit, because
-    // RGs are handled by the BL
-    State(_object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<ResourceGroupId>,
-    User(user): User,
     ValidatedJson(update): ValidatedJson<BlResourceGroupRequest>,
 ) -> AppResponse<ResourceGroup> {
     let new_resource_group = BlResourceGroupRequest {
@@ -119,8 +124,7 @@ pub async fn edit(
         // VEN clients are not allowed to specify the targets of their resources
         targets: update.targets,
         attributes: update.attributes,
-        // TODO: think of the children
-        children: vec![],
+        children: update.children,
     };
 
     let resource_group = resource_group_source
@@ -130,7 +134,6 @@ pub async fn edit(
     info!(
         %resource_group.id,
         resource.resource_group_name=resource_group.content.resource_group_name,
-        client_id = user.sub,
         "resource group updated"
     );
 
@@ -150,11 +153,10 @@ pub async fn delete(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ResourceGroupId>,
-    User(user): User,
 ) -> AppResponse<ResourceGroup> {
     let resource_group = resource_group_source.delete(&id, &None).await?;
 
-    info!(%id, client_id = user.sub, "deleted resource group");
+    info!(%id, "deleted resource group");
 
     subscription::notify(
         &*event_source,
@@ -250,7 +252,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn filter_by_name(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, resource_group) = test
             .request::<Vec<ResourceGroup>>(
@@ -295,22 +297,15 @@ mod test {
         assert_eq!(resource_group.id.as_str(), "resource-group-1");
 
         // This resource group should not be its own child
-        assert!(resource_group
+        assert!(!resource_group
             .content
             .children
-            .iter()
-            .all(|rg_child| match rg_child {
-                ResourceGroupChild::ResourceGroup(id) => {
-                    id.as_str() != "resource-group-1"
-                }
-                _ => true,
-            }));
+            .contains(&ResourceGroupChild::ResourceGroup(
+                "resource-group-1".parse().unwrap()
+            )));
         assert_eq!(resource_group.content.children.len(), 2)
     }
 
-    // As a design choice, direct circular references are removed. This may change and then this
-    // test would be relevant. Even though in practice this would be nonsensical.
-    #[ignore]
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn resource_group_can_be_its_own_child(db: PgPool) {
         let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
@@ -322,21 +317,16 @@ mod test {
         assert_eq!(resource_group.id.as_str(), "ouroboros");
 
         // This resource group _should_ be its own child
-        dbg!(&resource_group.content.children);
         assert!(resource_group
             .content
             .children
-            .iter()
-            .any(|rg_child| match rg_child {
-                ResourceGroupChild::ResourceGroup(id) => {
-                    id.as_str() == "ouroboros"
-                }
-                _ => false,
-            }));
+            .contains(&ResourceGroupChild::ResourceGroup(
+                "ouroboros".parse().unwrap()
+            )));
         assert_eq!(resource_group.content.children.len(), 1)
     }
 
-    #[sqlx::test(fixtures("vens"))]
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn add_resource_group(db: PgPool) {
         let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
 
@@ -347,7 +337,17 @@ mod test {
                 Body::from(
                     r#"
                   {
-                    "resourceGroupName":"new-resource-group"
+                    "resourceGroupName":"new-resource-group",
+                    "children":[
+                        {
+                            "type":"resource_group",
+                            "id":"resource-group-1"
+                        },
+                        {
+                            "type":"ven_resource",
+                            "id":"resource-1"
+                        }
+                    ]
                   }"#,
                 ),
             )
@@ -357,6 +357,13 @@ mod test {
             resource_group.content.resource_group_name,
             "new-resource-group"
         );
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-1".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
@@ -377,7 +384,17 @@ mod test {
                   {
                     "resourceGroupName":"updated-resource-group",
                     "targets": ["group-3"],
-                    "objectType": "RESOURCE_GROUP_REQUEST"
+                    "objectType": "RESOURCE_GROUP_REQUEST",
+                    "children": [
+                        {
+                            "type":"resource_group",
+                            "id":"resource-group-2"
+                        },
+                        {
+                            "type":"ven_resource",
+                            "id":"resource-1"
+                        }
+                    ]
                   }"#,
                 ),
             )
@@ -391,6 +408,14 @@ mod test {
             resource_group.content.targets,
             vec!["group-3".parse().unwrap()]
         );
+
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-2".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -408,6 +433,14 @@ mod test {
             resource_group.content.targets,
             vec!["group-3".parse().unwrap()]
         );
+
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-2".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
