@@ -131,9 +131,6 @@ pub trait ResourceGroupCrud:
     NewType = BlResourceGroupRequest,
     Error = AppError,
     Filter = crate::api::resource_group::QueryParams,
-
-    // TODO: klopt deze PermissionFilter
-    // Since resource groups are managed by the BL role, they have no VEN or client ID
     PermissionFilter = Option<ClientId>,
 >
 {
