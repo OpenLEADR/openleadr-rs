@@ -122,6 +122,32 @@ See also [Supported features](#supported-features).
 
 ![OpenADR alliance test suite screenshot](OpenADR_alliance_test_suite.png)
 
+## Running the development setup
+
+A docker setup running the server is available. This can be setup with
+```bash
+docker compose up db -d
+cargo sqlx migrate run
+psql -U openadr -h localhost openadr < fixtures/users.sql
+```
+
+After initial setup, the server can be started with
+```bash
+docker compose up
+```
+
+Note that the docker image containing the server is not automatically updated when changing the source code. To
+recreate this image and make sure that docker compose picks it up, run
+```bash
+docker compose build
+```
+and restart the setup afterwards with
+```bash
+docker compose up
+```
+
+For more details on the development of the components, see also the readme of the individual components.
+
 ## Contributing
 We expect you to follow our [code of conduct](CODE_OF_CONDUCT.md) for any contribution.
 
