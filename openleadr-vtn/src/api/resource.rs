@@ -454,7 +454,7 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(resources.len(), 1);
+        assert_eq!(resources.len(), 2);
 
         let (status, resources) = test
             .request::<Vec<Resource>>(
@@ -464,7 +464,7 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(resources.len(), 0);
+        assert_eq!(resources.len(), 3);
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]
@@ -501,7 +501,7 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert!(resources.is_empty());
+        assert_eq!(resources.len(), 2);
     }
 
     #[sqlx::test(fixtures("vens", "resources"))]

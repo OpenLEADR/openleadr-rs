@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets AS \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE\n              -- according to the spec, we MUST only test query params\n              -- against the program that the VEN object (and its resources) have as targets.\n              -- Therefore, $1 is the intersection of the VEN targets and the filter targets.\n              ($1::text[] IS NULL OR p.targets @> $1)\n              AND (\n                  -- IF the ven targets have at least one target in common with the program\n                    p.targets && $2\n                        -- or IF the program targets are empty\n                        OR array_length(p.targets, 1) IS NULL\n                  )\n            ORDER BY created_date_time DESC\n            OFFSET $3 LIMIT $4\n            ",
+  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets AS \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE\n              -- IF filter targets are empty, do not filter.\n              -- IF filter targets are not empty, filter only if they are in the program targets.\n              (array_length($1::text[], 1) IS NULL OR p.targets && $1)\n            ORDER BY created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
   "describe": {
     "columns": [
       {
@@ -52,7 +52,6 @@
     "parameters": {
       "Left": [
         "TextArray",
-        "TextArray",
         "Int8",
         "Int8"
       ]
@@ -69,5 +68,5 @@
       true
     ]
   },
-  "hash": "1b9cf8754d2b1560883bf35bfd9811bc4286026b801c10e4b616f28d271f12cd"
+  "hash": "3f62b51d1363b447ce7eac9cceea82000e0b5f3b568baac1b5706cc0cdd58061"
 }

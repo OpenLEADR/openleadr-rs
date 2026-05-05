@@ -395,8 +395,7 @@ mod tests {
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(vens.len(), 1);
-        assert_eq!(vens[0].id.as_str(), "ven-4");
+        assert_eq!(vens.len(), 4);
     }
 
     #[sqlx::test(fixtures("users", "vens"))]

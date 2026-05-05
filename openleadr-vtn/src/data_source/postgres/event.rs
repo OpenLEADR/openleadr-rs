@@ -287,6 +287,9 @@ impl PgEventStorage {
         let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         let filter_targets = intersection(&ven_targets, filter.targets.as_deref());
+        if filter_targets.is_empty() != filter.targets.as_deref().is_empty() {
+            return Ok(vec![]);
+        }
 
         sqlx::query_as!(
             PostgresEvent,
@@ -308,7 +311,7 @@ impl PgEventStorage {
               -- according to the spec, we MUST only test query params
               -- against the event that the VEN object (and its resources) have as targets.
               -- Therefore, $2 is the intersection of the VEN targets and the filter targets.
-              AND ($2::text[] IS NULL OR e.targets @> $2)
+              AND (array_length($2::text[], 1) IS NULL OR e.targets && $2)
               AND (
                   -- IF the ven targets have at least one target in common with the event
                     e.targets && $3
@@ -419,7 +422,7 @@ impl PgEventStorage {
             WHERE ($1::text IS NULL OR e.program_id like $1)
               -- IF filter targets are empty, do not filter.
               -- IF filter targets are not empty, filter only if they are in the event targets.
-              AND ($2::text[] IS NULL OR e.targets @> $2)
+              AND (array_length($2::text[], 1) IS NULL OR e.targets && $2)
             ORDER BY priority ASC, created_date_time DESC
             OFFSET $3 LIMIT $4
             "#,
@@ -768,8 +771,11 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 1);
-            assert_eq!(events, vec![event_1()]);
+            assert_eq!(events.len(), 2);
+            assert_eq!(
+                events,
+                vec![event_1(), without_targets(event_4(), ["target-1"])]
+            );
 
             // filtering on "target-1" should not have any effect on the result
             // compared to no filtering as ven_1 does not have access to "target-1"
@@ -783,7 +789,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 3);
+            assert_eq!(events.len(), 0);
 
             let events = repo
                 .retrieve_all(
@@ -821,8 +827,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 1);
-            assert_eq!(events, vec![event_5()]);
+            assert_eq!(events.len(), 0);
 
             // ven_3 has access to target "group-1" which should allow access to event-1, event-4, and event-5
             let events = repo
@@ -843,7 +848,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 3);
+            assert_eq!(events.len(), 0);
 
             let events = repo
                 .retrieve_all(
@@ -876,7 +881,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 3);
+            assert_eq!(events.len(), 0);
         }
 
         #[sqlx::test(fixtures("programs", "events", "vens", "resources"))]
@@ -984,7 +989,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 1);
+            assert_eq!(events.len(), 2);
 
             let events = repo
                 .retrieve_all(
@@ -999,7 +1004,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(events.len(), 0);
+            assert_eq!(events.len(), 4);
         }
 
         #[sqlx::test(fixtures("programs", "events"))]

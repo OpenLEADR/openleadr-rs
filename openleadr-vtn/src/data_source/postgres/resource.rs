@@ -173,7 +173,7 @@ impl Crud for PgResourceStorage {
                 JOIN ven v on r.ven_id = v.id
             WHERE ($1::text IS NULL OR r.ven_id = $1)
                 AND ($2::text IS NULL OR r.resource_name = $2)
-                AND ($3::text[] IS NULL OR r.targets @> $3)
+                AND (array_length($3::text[], 1) IS NULL OR r.targets && $3)
                 AND ($4::text IS NULL OR v.client_id = $4)
             ORDER BY r.created_date_time
             OFFSET $5 LIMIT $6
