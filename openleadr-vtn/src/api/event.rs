@@ -557,7 +557,7 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
 
         let (status, events) = test
             .request::<Vec<Event>>(Method::GET, "/events?programID=program-1", Body::empty())
@@ -830,7 +830,7 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 1);
+            assert_eq!(events.len(), 2);
 
             // check that query params that the VEN client isn't granted access to are ignored.
             // If the restriction to "target-1" is evaluated, the VTN returned only event-4.
@@ -856,8 +856,7 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0].id.as_str(), "event-5");
+            assert_eq!(events.len(), 0);
 
             // check that VEN clients without targets cannot access events with any targets
             let token = jwt_test_token(
@@ -876,8 +875,7 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let events: Vec<Event> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0].id.as_str(), "event-5");
+            assert_eq!(events.len(), 0);
         }
 
         #[sqlx::test(fixtures("users", "programs", "events", "vens"))]

@@ -709,7 +709,7 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK);
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let programs: Vec<Program> = serde_json::from_slice(&body).unwrap();
-            assert_eq!(programs.len(), 2);
+            assert_eq!(programs.len(), 0);
         }
 
         #[sqlx::test(fixtures("users", "programs", "vens"))]

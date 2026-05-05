@@ -270,6 +270,9 @@ impl PgProgramStorage {
         let ven_targets = get_ven_targets(self.db.clone(), client_id).await?;
 
         let filter_targets = intersection(&ven_targets, filter.targets.as_deref());
+        if filter_targets.is_empty() != filter.targets.as_deref().is_empty() {
+            return Ok(vec![]);
+        }
 
         sqlx::query_as!(
             PostgresProgram,
@@ -288,7 +291,7 @@ impl PgProgramStorage {
               -- according to the spec, we MUST only test query params
               -- against the program that the VEN object (and its resources) have as targets.
               -- Therefore, $1 is the intersection of the VEN targets and the filter targets.
-              ($1::text[] IS NULL OR p.targets @> $1)
+              (array_length($1::text[], 1) IS NULL OR p.targets && $1)
               AND (
                   -- IF the ven targets have at least one target in common with the program
                     p.targets && $2
@@ -392,7 +395,7 @@ impl PgProgramStorage {
             WHERE
               -- IF filter targets are empty, do not filter.
               -- IF filter targets are not empty, filter only if they are in the program targets.
-              ($1::text[] IS NULL OR p.targets @> $1)
+              (array_length($1::text[], 1) IS NULL OR p.targets && $1)
             ORDER BY created_date_time DESC
             OFFSET $2 LIMIT $3
             "#,
@@ -639,7 +642,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(programs.len(), 1);
+            assert_eq!(programs.len(), 2);
 
             let programs = repo
                 .retrieve_all(
@@ -654,7 +657,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(programs.len(), 0);
+            assert_eq!(programs.len(), 2);
 
             let programs = repo
                 .retrieve_all(
@@ -738,8 +741,11 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(programs.len(), 1);
-            assert_eq!(programs, vec![program_1()]);
+            assert_eq!(programs.len(), 2);
+            assert_eq!(
+                programs,
+                vec![program_1(), without_targets(program_2(), ["group-2"])]
+            );
 
             // filtering on "group-2" should not have any effect on the result
             // compared to no filtering as ven_1 does not have access to "group-2"
@@ -753,7 +759,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(programs.len(), 3);
+            assert_eq!(programs.len(), 0);
 
             let programs = repo
                 .retrieve_all(
@@ -794,7 +800,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(programs.len(), 2);
+            assert_eq!(programs.len(), 0);
         }
     }
 

@@ -163,7 +163,7 @@ impl Crud for PgVenStorage {
                 v.client_id
             FROM ven v
             WHERE ($1::text IS NULL OR v.ven_name = $1)
-              AND ($2::text[] IS NULL OR v.targets @> $2)
+              AND (array_length($2::text[], 1) IS NULL OR v.targets && $2)
               AND ($3::text IS NULL OR v.client_id = $3)
             ORDER BY v.created_date_time DESC
             OFFSET $4 LIMIT $5

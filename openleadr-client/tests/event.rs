@@ -223,7 +223,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(events.len(), 0);
+    assert_eq!(events.len(), 3);
 
     let events = client
         .get_events_request(
@@ -232,7 +232,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2);
 
     let events = client
         .get_events_request(

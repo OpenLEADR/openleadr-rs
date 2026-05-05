@@ -198,7 +198,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(programs.len(), 0);
+    assert_eq!(programs.len(), 3);
 
     let programs = client
         .get_programs(
@@ -207,7 +207,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(programs.len(), 1);
+    assert_eq!(programs.len(), 2);
 
     let programs = client
         .get_programs(
@@ -216,7 +216,7 @@ async fn retrieve_all_with_filter(db: PgPool) {
         )
         .await
         .unwrap();
-    assert_eq!(programs.len(), 0);
+    assert_eq!(programs.len(), 2);
 
     let programs = client
         .get_programs(
