@@ -68,7 +68,7 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
 
 async fn get_rg_children(
     tx: &mut Transaction<'_, Postgres>,
-    rg: &ResourceGroup,
+    rg_id: &ResourceGroupId,
     client_id: &Option<ClientId>,
 ) -> Result<Vec<ResourceGroupChild>, <PgResourceGroupStorage as Crud>::Error> {
     let mut rg_children: Vec<_> = sqlx::query!(
@@ -110,9 +110,9 @@ async fn get_rg_children(
             INTERSECT 
             
             SELECT rg_parent_rg_id, rg_child_rg_id FROM rg_child_rg
-        );
+        )
         "#,
-        rg.id.as_str(),
+        rg_id.as_str(),
         client_id as _
     )
     .fetch_all(tx.as_mut())
@@ -122,8 +122,6 @@ async fn get_rg_children(
         r.id.and_then(|id| id.parse().ok().map(ResourceGroupChild::ResourceGroup))
     })
     .collect();
-
-    dbg!(&rg_children);
 
     let ven_children = sqlx::query!(
         r#"
@@ -135,7 +133,7 @@ async fn get_rg_children(
         WHERE rg_child.rg_parent_rg_id = $1
             AND (client_id = $2 OR $2::text IS NULL)
         "#,
-        rg.id.as_str(),
+        rg_id.as_str(),
         client_id as _
     )
     .fetch_all(tx.as_mut())
@@ -325,7 +323,7 @@ impl Crud for PgResourceGroupStorage {
         resource_group
             .content
             .children
-            .extend(get_rg_children(&mut tx, &resource_group, client_id).await?);
+            .extend(get_rg_children(&mut tx, &resource_group.id, client_id).await?);
 
         tx.commit().await?;
 
@@ -397,7 +395,7 @@ impl Crud for PgResourceGroupStorage {
         for rg in rgs.iter_mut() {
             rg.content
                 .children
-                .extend(get_rg_children(&mut tx, rg, client_id).await?);
+                .extend(get_rg_children(&mut tx, &rg.id, client_id).await?);
         }
 
         trace!("retrieved {} resource groups", rgs.len());
@@ -457,7 +455,6 @@ impl Crud for PgResourceGroupStorage {
         .execute(tx.as_mut())
         .await?;
 
-        dbg!(&new.children);
         let children = insert_resource_group_children(&mut tx, id, &new.children).await?;
         tx.commit().await?;
 
@@ -468,9 +465,12 @@ impl Crud for PgResourceGroupStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        Ok(sqlx::query_as!(
+        let mut tx = self.db.begin().await?;
+
+        let children = get_rg_children(&mut tx, id, client_id).await?;
+        let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
             DELETE FROM resource_group rg
@@ -485,9 +485,31 @@ impl Crud for PgResourceGroupStorage {
             "#,
             id.as_str(),
         )
-        .fetch_one(&self.db)
+        .fetch_one(tx.as_mut())
         .await?
-        .try_into()?)
+        .try_into()?;
+
+        resource_group.content.children.extend(children);
+
+        sqlx::query!(
+            r#"
+            DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1
+            "#,
+            id.as_str()
+        )
+        .execute(tx.as_mut())
+        .await?;
+        sqlx::query!(
+            r#"
+            DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1
+            "#,
+            id.as_str()
+        )
+        .execute(tx.as_mut())
+        .await?;
+
+        tx.commit().await?;
+        Ok(resource_group)
     }
 }
 
