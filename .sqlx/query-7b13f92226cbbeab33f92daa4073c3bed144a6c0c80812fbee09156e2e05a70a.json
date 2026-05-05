@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO resource_group (\n                id, created_date_time, modification_date_time, resource_group_name, attributes, targets\n            )\n            VALUES (\n                gen_random_uuid()::text, now(), now(), $1, $2, $3)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_group_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
+  "query": "\n            INSERT INTO resource_group\n            VALUES (gen_random_uuid()::text, now(), now(), $1, $2, $3)\n            RETURNING\n                id,\n                created_date_time,\n                modification_date_time,\n                resource_group_name,\n                attributes,\n                targets as \"targets:Vec<Target>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -50,5 +50,5 @@
       false
     ]
   },
-  "hash": "1a40b964c1db8d6d28ed95f370f01a81c2c9e11c1c6b874244f4829e29f72498"
+  "hash": "7b13f92226cbbeab33f92daa4073c3bed144a6c0c80812fbee09156e2e05a70a"
 }
