@@ -16,15 +16,13 @@ use openleadr_wire::{
 
 use crate::{
     api::{
-        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
-        ValidatedQuery,
+        subscription::{self, NotifierState},
+        AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery,
     },
-    data_source::{EventCrud, ResourceGroupCrud, VenObjectPrivacy},
+    data_source::{EventCrud, ResourceGroupCrud},
     error::AppError,
-    jwt::User,
+    jwt::{Scope, User},
 };
-
-// TODO: Many scoping access rules are not implemented yet
 
 pub async fn get_all(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
@@ -33,9 +31,19 @@ pub async fn get_all(
 ) -> AppResponse<Vec<ResourceGroup>> {
     trace!(?query_params);
 
-    let resource_groups = resource_group_source
-        .retrieve_all(&query_params, &None)
-        .await?;
+    let resource_groups = if user.scope.contains(Scope::ReadAll) {
+        resource_group_source
+            .retrieve_all(&query_params, &None)
+            .await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        resource_group_source
+            .retrieve_all(&query_params, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
 
     trace!(
         client_id = user.sub,
@@ -51,7 +59,17 @@ pub async fn get(
     Path(id): Path<ResourceGroupId>,
     User(user): User,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = resource_group_source.retrieve(&id, &None).await?;
+    let resource_group = if user.scope.contains(Scope::ReadAll) {
+        resource_group_source.retrieve(&id, &None).await?
+    } else if user.scope.contains(Scope::ReadVenObjects) {
+        resource_group_source
+            .retrieve(&id, &Some(user.client_id()?))
+            .await?
+    } else {
+        return Err(AppError::Forbidden(
+            "Missing 'read_all' or 'read_ven_objects' scope",
+        ));
+    };
 
     trace!(
         %resource_group.id,
@@ -67,18 +85,20 @@ pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
-    State(_object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     User(user): User,
     ValidatedJson(new_resource_group): ValidatedJson<BlResourceGroupRequest>,
 ) -> Result<(StatusCode, Json<ResourceGroup>), AppError> {
-    let resource_group = resource_group_source
-        .create(new_resource_group, &Some(user.client_id()?))
-        .await?;
+    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+        resource_group_source
+            .create(new_resource_group, &None)
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
+    };
 
     info!(
         %resource_group.id,
         resource_group.resource_group_name=resource_group.content.resource_group_name,
-        client_id = user.sub,
         "resource added"
     );
 
@@ -97,8 +117,6 @@ pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
-    // TODO: How to handle object_privacy on Resource Groups
-    State(_object_privacy): State<Arc<dyn VenObjectPrivacy>>,
     Path(id): Path<ResourceGroupId>,
     User(user): User,
     ValidatedJson(update): ValidatedJson<BlResourceGroupRequest>,
@@ -109,18 +127,20 @@ pub async fn edit(
         // VEN clients are not allowed to specify the targets of their resources
         targets: update.targets,
         attributes: update.attributes,
-        // TODO: think of the children
-        children: vec![],
+        children: update.children,
     };
 
-    let resource_group = resource_group_source
-        .update(&id, new_resource_group, &None)
-        .await?;
+    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+        resource_group_source
+            .update(&id, new_resource_group, &None)
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
+    };
 
     info!(
         %resource_group.id,
         resource.resource_group_name=resource_group.content.resource_group_name,
-        client_id = user.sub,
         "resource group updated"
     );
 
@@ -139,12 +159,16 @@ pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
-    Path(id): Path<ResourceGroupId>,
     User(user): User,
+    Path(id): Path<ResourceGroupId>,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = resource_group_source.delete(&id, &None).await?;
+    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+        resource_group_source.delete(&id, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
+    };
 
-    info!(%id, client_id = user.sub, "deleted resource group");
+    info!(%id, "deleted resource group");
 
     subscription::notify(
         &*event_source,
@@ -182,7 +206,7 @@ mod test {
     use axum::body::Body;
     use openleadr_wire::{
         problem::Problem,
-        resource_group::{BlResourceGroupRequest, ResourceGroup},
+        resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupChild},
     };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
@@ -240,7 +264,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn filter_by_name(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, resource_group) = test
             .request::<Vec<ResourceGroup>>(
@@ -255,8 +279,24 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
-    async fn get_single_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+    async fn bl_get_single_resource_group(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::ReadAll]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::GET,
+                "/resource_groups/resource-group-1",
+                Body::empty(),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_group.id.as_str(), "resource-group-1");
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn ven_get_single_resource_group(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -267,11 +307,39 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource_group.id.as_str(), "resource-group-1");
+
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-3".parse().unwrap()),
+            ResourceGroupChild::ResourceGroup("resource-group-2".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
     }
 
-    #[sqlx::test(fixtures("vens"))]
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn resource_group_can_be_its_own_child(db: PgPool) {
+        let test = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(Method::GET, "/resource_groups/ouroboros", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(resource_group.id.as_str(), "ouroboros");
+
+        // This resource group _should_ be its own child
+        assert!(resource_group
+            .content
+            .children
+            .contains(&ResourceGroupChild::ResourceGroup(
+                "ouroboros".parse().unwrap()
+            )));
+        assert_eq!(resource_group.content.children.len(), 1)
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn add_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensBl]).await;
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -280,7 +348,17 @@ mod test {
                 Body::from(
                     r#"
                   {
-                    "resourceGroupName":"new-resource-group"
+                    "resourceGroupName":"new-resource-group",
+                    "children":[
+                        {
+                            "type":"resource_group",
+                            "id":"resource-group-1"
+                        },
+                        {
+                            "type":"ven_resource",
+                            "id":"resource-1"
+                        }
+                    ]
                   }"#,
                 ),
             )
@@ -290,11 +368,23 @@ mod test {
             resource_group.content.resource_group_name,
             "new-resource-group"
         );
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-1".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
-    async fn update_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+    async fn bl_update_resource_group(db: PgPool) {
+        let test = ApiTest::new(
+            db.clone(),
+            "test-client",
+            vec![Scope::WriteVensBl, Scope::ReadAll],
+        )
+        .await;
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -305,7 +395,17 @@ mod test {
                   {
                     "resourceGroupName":"updated-resource-group",
                     "targets": ["group-3"],
-                    "objectType": "RESOURCE_GROUP_REQUEST"
+                    "objectType": "RESOURCE_GROUP_REQUEST",
+                    "children": [
+                        {
+                            "type":"resource_group",
+                            "id":"resource-group-2"
+                        },
+                        {
+                            "type":"ven_resource",
+                            "id":"resource-1"
+                        }
+                    ]
                   }"#,
                 ),
             )
@@ -319,6 +419,14 @@ mod test {
             resource_group.content.targets,
             vec!["group-3".parse().unwrap()]
         );
+
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-2".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -336,24 +444,59 @@ mod test {
             resource_group.content.targets,
             vec!["group-3".parse().unwrap()]
         );
+
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-2".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
-    async fn delete_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
-        let (status, _) = test
+    async fn bl_delete_resource_group(db: PgPool) {
+        let test = ApiTest::new(
+            db.clone(),
+            "test-client",
+            vec![Scope::WriteVensBl, Scope::ReadAll],
+        )
+        .await;
+        let (status, rg) = test
             .request::<ResourceGroup>(
                 Method::DELETE,
-                "/resource_groups/resource-group-1",
+                "/resource_groups/resource-group-2",
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::OK);
 
+        assert_eq!(rg.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-4".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(rg.content.children.contains(&child));
+        }
+
         let (status, _) = test
             .request::<Problem>(
                 Method::GET,
-                "/resource_groups/resource-group-1",
+                "/resource_groups/resource-group-2",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn ven_cant_access_resource_group_without_owning_decendant(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "ven-2-client-id", vec![Scope::ReadVenObjects]).await;
+
+        let (status, _) = test
+            .request::<Problem>(
+                Method::GET,
+                "/resource_groups/resource-group-2",
                 Body::empty(),
             )
             .await;

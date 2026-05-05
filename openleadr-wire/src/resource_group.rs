@@ -39,6 +39,15 @@ pub enum ResourceGroupChild {
     VenResource(ResourceId),
 }
 
+impl ResourceGroupChild {
+    pub fn as_str(&self) -> &str {
+        match self {
+            ResourceGroupChild::VenResource(id) => id.as_str(),
+            ResourceGroupChild::ResourceGroup(id) => id.as_str(),
+        }
+    }
+}
+
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
@@ -88,6 +97,8 @@ impl FromStr for ResourceGroupId {
 
 #[cfg(test)]
 mod test {
+    use crate::{resource::ResourceId, resource_group::ResourceGroupChild};
+
     use super::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId};
 
     #[test]
@@ -102,7 +113,16 @@ mod test {
           "targets": [
             "resource_group_0999"
           ],
-          "children": []
+          "children": [
+                {
+                    "type":"resource_group",
+                    "id":"resource-group-1"
+                },
+                {
+                    "type":"ven_resource",
+                    "id":"ven-1"
+                }
+          ]
         }"#;
 
         let parsed = serde_json::from_str::<ResourceGroup>(example).unwrap();
@@ -115,7 +135,12 @@ mod test {
                 attributes: None,
                 targets: vec!["resource_group_0999".parse().unwrap()],
                 resource_group_name: "RESOURCE_GROUP_0999".to_string(),
-                children: vec![],
+                children: vec![
+                    ResourceGroupChild::ResourceGroup(
+                        ResourceGroupId::new("resource-group-1").unwrap(),
+                    ),
+                    ResourceGroupChild::VenResource(ResourceId::new("ven-1").unwrap()),
+                ],
             },
         };
 
@@ -140,7 +165,6 @@ mod test {
     }
 
     // TODO: BL_RESOURCE_GROUP_REQUEST as discriminator?
-    // TODO: Unsure if there should also be a VENResourceRequest, like for regular resources
     #[test]
     fn request_discriminator() {
         let bl_request = r#"

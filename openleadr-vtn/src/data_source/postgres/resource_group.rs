@@ -66,33 +66,72 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
     }
 }
 
-async fn get_resource_group_children(
+async fn get_rg_children(
     tx: &mut Transaction<'_, Postgres>,
-    rg: &ResourceGroup,
+    rg_id: &ResourceGroupId,
+    client_id: &Option<ClientId>,
 ) -> Result<Vec<ResourceGroupChild>, <PgResourceGroupStorage as Crud>::Error> {
-    let mut rg_children = sqlx::query!(
+    let mut rg_children: Vec<_> = sqlx::query!(
         r#"
-        SELECT rg_child_rg_id FROM rg_child_rg
-        WHERE rg_parent_rg_id = $1
+        WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
+            SELECT id, id FROM resource_group
+            UNION
+            SELECT fam.root, child.rg_child_rg_id
+            FROM rg_child_rg AS child
+            JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
+        )
+
+        SELECT id
+        FROM (
+            SELECT root, id
+            FROM rg_family
+            WHERE root = $1
+              AND (
+                  -- business logic
+                  $2::text IS NULL
+
+                  -- client logic (child rg visible if any
+                  -- descendant resource is owned by client id)
+                  OR EXISTS (
+                      SELECT r.id
+                      FROM resource r
+                      INNER JOIN rg_child_ven_resource AS rcvr
+                          ON rcvr.rg_child_ven_resource_id = r.id
+                      INNER JOIN rg_family AS rg_fam
+                          ON rg_fam.id = rcvr.rg_parent_rg_id
+                      WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
+                        AND rg_fam.root = $1
+                  )
+              )
+
+            INTERSECT
+
+            SELECT rg_parent_rg_id, rg_child_rg_id FROM rg_child_rg
+        )
         "#,
-        rg.id.as_str()
+        rg_id.as_str(),
+        client_id as _
     )
     .fetch_all(tx.as_mut())
     .await?
     .into_iter()
-    .map(|r| {
-        r.rg_child_rg_id
-            .parse()
-            .map(ResourceGroupChild::ResourceGroup)
+    .filter_map(|r| {
+        r.id.and_then(|id| id.parse().ok().map(ResourceGroupChild::ResourceGroup))
     })
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect();
 
     let ven_children = sqlx::query!(
         r#"
-        SELECT rg_child_ven_resource_id FROM rg_child_ven_resource
-        WHERE rg_parent_rg_id = $1
+        SELECT rg_child.rg_child_ven_resource_id
+        FROM rg_child_ven_resource AS rg_child
+            INNER JOIN resource ON rg_child.rg_child_ven_resource_id = resource.id
+            INNER JOIN ven ON ven_id = ven.id
+
+        WHERE rg_child.rg_parent_rg_id = $1
+            AND (client_id = $2 OR $2::text IS NULL)
         "#,
-        rg.id.as_str()
+        rg_id.as_str(),
+        client_id as _
     )
     .fetch_all(tx.as_mut())
     .await?
@@ -110,7 +149,7 @@ async fn get_resource_group_children(
 
 async fn insert_resource_group_children(
     tx: &mut Transaction<'_, Postgres>,
-    rg_id: &ResourceGroupId,
+    rg: &mut ResourceGroup,
     children: &[ResourceGroupChild],
 ) -> Result<(), <PgResourceGroupStorage as Crud>::Error> {
     let (rg_children, ven_children) = children.iter().fold(
@@ -127,27 +166,49 @@ async fn insert_resource_group_children(
         },
     );
 
-    sqlx::query!(
+    let rg_children: Vec<_> = sqlx::query!(
         r#"
         INSERT INTO rg_child_rg (rg_parent_rg_id, rg_child_rg_id)
-        SELECT $1, child FROM UNNEST($2::text[]) as u(child)
+        SELECT $1, u.child FROM UNNEST($2::text[]) as u(child)
+        RETURNING
+            rg_child_rg_id
         "#,
-        rg_id.as_str(),
+        rg.id.as_str(),
         &rg_children
     )
-    .execute(tx.as_mut())
-    .await?;
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|child| {
+        child
+            .rg_child_rg_id
+            .parse()
+            .map(ResourceGroupChild::ResourceGroup)
+    })
+    .collect::<Result<_, _>>()?;
+    rg.content.children.extend(rg_children);
 
-    sqlx::query!(
+    let ven_children: Vec<_> = sqlx::query!(
         r#"
         INSERT INTO rg_child_ven_resource (rg_parent_rg_id, rg_child_ven_resource_id)
         SELECT $1, child FROM UNNEST ($2::text[]) as u(child)
+        RETURNING
+            rg_child_ven_resource_id
         "#,
-        rg_id.as_str(),
+        rg.id.as_str(),
         &ven_children
     )
-    .execute(tx.as_mut())
-    .await?;
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|child| {
+        child
+            .rg_child_ven_resource_id
+            .parse()
+            .map(ResourceGroupChild::VenResource)
+    })
+    .collect::<Result<_, _>>()?;
+    rg.content.children.extend(ven_children);
 
     Ok(())
 }
@@ -171,11 +232,8 @@ impl Crud for PgResourceGroupStorage {
         let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
-            INSERT INTO resource_group (
-                id, created_date_time, modification_date_time, resource_group_name, attributes, targets
-            )
-            VALUES (
-                gen_random_uuid()::text, now(), now(), $1, $2, $3)
+            INSERT INTO resource_group
+            VALUES (gen_random_uuid()::text, now(), now(), $1, $2, $3)
             RETURNING
                 id,
                 created_date_time,
@@ -192,36 +250,61 @@ impl Crud for PgResourceGroupStorage {
         .await?
         .try_into()?;
 
-        insert_resource_group_children(&mut tx, &resource_group.id, &new.children).await?;
+        insert_resource_group_children(&mut tx, &mut resource_group, &new.children).await?;
 
         tx.commit().await?;
-
-        resource_group.content.children.extend(new.children);
         Ok(resource_group)
     }
 
     async fn retrieve(
         &self,
         id: &Self::Id,
-        // TODO: Does client_id still make sense? Check with other retrieve funcs
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
         let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
-            SELECT
-                rg.id,
-                rg.created_date_time,
-                rg.modification_date_time,
-                rg.resource_group_name,
-                rg.attributes,
-                rg.targets as "targets:Vec<Target>"
-            FROM resource_group rg
-            WHERE rg.id = $1
-            "#,
+                -- view of all resource group (grand)children of a resource group
+                WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
+                    SELECT id, id FROM resource_group
+                    UNION
+                    SELECT fam.root, child.rg_child_rg_id
+                    FROM rg_child_rg AS child
+                    JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
+                )
+
+                SELECT
+                    rg.id,
+                    rg.created_date_time,
+                    rg.modification_date_time,
+                    rg.resource_group_name,
+                    rg.attributes,
+                    rg.targets as "targets:Vec<Target>"
+                FROM resource_group rg
+                WHERE rg.id = $1
+
+                AND (
+                    -- If client_id is null, it is a business logic request
+                    $2::text IS NULL
+
+                    -- Otherwise, for a VEN, the resource group should only be visible if there
+                    -- is at least 1 VEN resource (grand) child, with matching client_id.
+                    OR EXISTS (
+                        SELECT r.id FROM resource r
+                        INNER JOIN rg_child_ven_resource rcvr
+                            ON rcvr.rg_child_ven_resource_id = r.id
+                        INNER JOIN rg_family rg_fam
+                            ON rg_fam.id = rcvr.rg_parent_rg_id
+                        WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
+                          AND rg_fam.root = $1
+
+                    )
+                )
+                "#,
             id.as_str(),
+            client_id as _
         )
         .fetch_one(tx.as_mut())
         .await?
@@ -230,7 +313,7 @@ impl Crud for PgResourceGroupStorage {
         resource_group
             .content
             .children
-            .extend(get_resource_group_children(&mut tx, &resource_group).await?);
+            .extend(get_rg_children(&mut tx, &resource_group.id, client_id).await?);
 
         tx.commit().await?;
 
@@ -240,13 +323,22 @@ impl Crud for PgResourceGroupStorage {
     async fn retrieve_all(
         &self,
         filter: &Self::Filter,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
         let mut tx = self.db.begin().await?;
 
         let mut rgs = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
+            -- view of all resource group (grand)children of a resource group
+            WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
+                SELECT id, id FROM resource_group
+                UNION
+                SELECT fam.root, child.rg_child_rg_id
+                FROM rg_child_rg AS child
+                JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
+            )
+
             SELECT
                 rg.id,
                 rg.created_date_time,
@@ -256,12 +348,32 @@ impl Crud for PgResourceGroupStorage {
                 rg.targets as "targets:Vec<Target>"
             FROM resource_group rg
             WHERE ($1::text IS NULL OR rg.resource_group_name = $1)
-                AND ($2::text[] IS NULL OR rg.targets @> $2)
+            AND ($2::text[] IS NULL OR rg.targets @> $2)
+
+            AND (
+                -- If client_id is null, it is a business logic request
+                $3::text IS NULL
+
+                    -- Otherwise, for a VEN, the resource group should only be visible if there
+                    -- is at least 1 VEN resource (grand) child, with matching ven_id.
+                  OR EXISTS (
+                      SELECT r.id
+                      FROM resource r
+                      INNER JOIN rg_child_ven_resource AS rcvr
+                          ON rcvr.rg_child_ven_resource_id = r.id
+                      INNER JOIN rg_family AS rg_fam
+                          ON rg_fam.id = rcvr.rg_parent_rg_id
+                      WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $3)
+                        AND rg_fam.root = rg.id
+                  )
+            )
+
             ORDER BY rg.created_date_time
-            OFFSET $3 LIMIT $4
+            OFFSET $4 LIMIT $5
             "#,
             filter.resource_group_name,
             filter.targets.as_deref() as _,
+            client_id as _,
             filter.skip,
             filter.limit,
         )
@@ -274,10 +386,10 @@ impl Crud for PgResourceGroupStorage {
         for rg in rgs.iter_mut() {
             rg.content
                 .children
-                .extend(get_resource_group_children(&mut tx, &rg).await?);
+                .extend(get_rg_children(&mut tx, &rg.id, client_id).await?);
         }
 
-        trace!("retrieved {} resources", rgs.len());
+        trace!("retrieved {} resource groups", rgs.len());
         tx.commit().await?;
         Ok(rgs)
     }
@@ -290,7 +402,7 @@ impl Crud for PgResourceGroupStorage {
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
-        let resource_group: ResourceGroup = sqlx::query_as!(
+        let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
             UPDATE resource_group rg
@@ -318,33 +430,28 @@ impl Crud for PgResourceGroupStorage {
 
         sqlx::query!(
             r#"
-            DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1
+            DELETE FROM rg_child_rg rg_child_ven_resource WHERE rg_parent_rg_id = $1
             "#,
             id.as_str()
         )
         .execute(tx.as_mut())
         .await?;
 
-        sqlx::query!(
-            r#"
-            DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1
-            "#,
-            id.as_str()
-        )
-        .execute(tx.as_mut())
-        .await?;
-
-        insert_resource_group_children(&mut tx, id, &new.children).await?;
+        insert_resource_group_children(&mut tx, &mut resource_group, &new.children).await?;
         tx.commit().await?;
+
         Ok(resource_group)
     }
 
     async fn delete(
         &self,
         id: &Self::Id,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        Ok(sqlx::query_as!(
+        let mut tx = self.db.begin().await?;
+
+        let children = get_rg_children(&mut tx, id, client_id).await?;
+        let mut resource_group: ResourceGroup = sqlx::query_as!(
             PostgresResourceGroup,
             r#"
             DELETE FROM resource_group rg
@@ -359,9 +466,23 @@ impl Crud for PgResourceGroupStorage {
             "#,
             id.as_str(),
         )
-        .fetch_one(&self.db)
+        .fetch_one(tx.as_mut())
         .await?
-        .try_into()?)
+        .try_into()?;
+
+        resource_group.content.children.extend(children);
+
+        sqlx::query!(
+            r#"
+            DELETE FROM rg_child_rg rg_child_ven_resource WHERE rg_parent_rg_id = $1
+            "#,
+            id.as_str()
+        )
+        .execute(tx.as_mut())
+        .await?;
+
+        tx.commit().await?;
+        Ok(resource_group)
     }
 }
 
@@ -394,5 +515,45 @@ mod test {
             .await
             .unwrap();
         assert_eq!(resource_groups.len(), 5);
+
+        let resource_groups = repo
+            .retrieve_all(
+                &QueryParams::default(),
+                &Some("ven-2-client-id".parse().unwrap()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resource_groups.len(), 2);
+
+        let filters = QueryParams {
+            resource_group_name: Some("resource-group-1-name".to_string()),
+            ..QueryParams::default()
+        };
+        let resource_groups = repo.retrieve_all(&filters, &None).await.unwrap();
+        assert_eq!(resource_groups.len(), 1);
+
+        let filters = QueryParams {
+            targets: TargetQueryParams(Some(vec!["group-1".parse().unwrap()])),
+            ..QueryParams::default()
+        };
+        let resource_groups = repo.retrieve_all(&filters, &None).await.unwrap();
+        assert_eq!(resource_groups.len(), 2);
+
+        let filters = QueryParams {
+            targets: TargetQueryParams(Some(vec![
+                "group-1".parse().unwrap(),
+                "somewhere-in-the-nowhere".parse().unwrap(),
+            ])),
+            ..QueryParams::default()
+        };
+        let resource_groups = repo.retrieve_all(&filters, &None).await.unwrap();
+        assert_eq!(resource_groups.len(), 1);
+
+        let filters = QueryParams {
+            limit: 4,
+            ..QueryParams::default()
+        };
+        let resource_groups = repo.retrieve_all(&filters, &None).await.unwrap();
+        assert_eq!(resource_groups.len(), 4);
     }
 }
