@@ -170,8 +170,6 @@ pub async fn delete(
 
     info!(%id, "deleted resource group");
 
-    dbg!(&resource_group);
-
     subscription::notify(
         &*event_source,
         &notifier_state,
@@ -480,6 +478,20 @@ mod test {
         ] {
             assert!(rg.content.children.contains(&child));
         }
+
+        let (status, _) = test
+            .request::<Problem>(
+                Method::GET,
+                "/resource_groups/resource-group-2",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn ven_cant_access_resource_group_without_owning_decendant(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "ven-2-client-id", vec![Scope::ReadVenObjects]).await;
 
         let (status, _) = test
             .request::<Problem>(
