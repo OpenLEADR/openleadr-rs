@@ -24,7 +24,6 @@ use crate::{
     jwt::{Scope, User},
 };
 
-// TODO: Many scoping access rules are not implemented yet
 pub async fn get_all(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -37,7 +36,6 @@ pub async fn get_all(
             .retrieve_all(&query_params, &None)
             .await?
     } else if user.scope.contains(Scope::ReadVenObjects) {
-        // TODO: Verify the name of this scope
         resource_group_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -64,7 +62,6 @@ pub async fn get(
     let resource_group = if user.scope.contains(Scope::ReadAll) {
         resource_group_source.retrieve(&id, &None).await?
     } else if user.scope.contains(Scope::ReadVenObjects) {
-        // TODO: Verify the name of this scope
         resource_group_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
@@ -88,11 +85,16 @@ pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
+    User(user): User,
     ValidatedJson(new_resource_group): ValidatedJson<BlResourceGroupRequest>,
 ) -> Result<(StatusCode, Json<ResourceGroup>), AppError> {
-    let resource_group = resource_group_source
-        .create(new_resource_group, &None)
-        .await?;
+    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+        resource_group_source
+            .create(new_resource_group, &None)
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
+    };
 
     info!(
         %resource_group.id,
@@ -116,6 +118,7 @@ pub async fn edit(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ResourceGroupId>,
+    User(user): User,
     ValidatedJson(update): ValidatedJson<BlResourceGroupRequest>,
 ) -> AppResponse<ResourceGroup> {
     let new_resource_group = BlResourceGroupRequest {
@@ -127,9 +130,13 @@ pub async fn edit(
         children: update.children,
     };
 
-    let resource_group = resource_group_source
-        .update(&id, new_resource_group, &None)
-        .await?;
+    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+        resource_group_source
+            .update(&id, new_resource_group, &None)
+            .await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
+    };
 
     info!(
         %resource_group.id,
@@ -152,11 +159,18 @@ pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
+    User(user): User,
     Path(id): Path<ResourceGroupId>,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = resource_group_source.delete(&id, &None).await?;
+    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+        resource_group_source.delete(&id, &None).await?
+    } else {
+        return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
+    };
 
     info!(%id, "deleted resource group");
+
+    dbg!(&resource_group);
 
     subscription::notify(
         &*event_source,
@@ -296,14 +310,13 @@ mod test {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(resource_group.id.as_str(), "resource-group-1");
 
-        // This resource group should not be its own child
-        assert!(!resource_group
-            .content
-            .children
-            .contains(&ResourceGroupChild::ResourceGroup(
-                "resource-group-1".parse().unwrap()
-            )));
-        assert_eq!(resource_group.content.children.len(), 2)
+        assert_eq!(resource_group.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-3".parse().unwrap()),
+            ResourceGroupChild::ResourceGroup("resource-group-2".parse().unwrap()),
+        ] {
+            assert!(resource_group.content.children.contains(&child));
+        }
     }
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
@@ -328,7 +341,7 @@ mod test {
 
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn add_resource_group(db: PgPool) {
-        let test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensBl]).await;
 
         let (status, resource_group) = test
             .request::<ResourceGroup>(
@@ -451,19 +464,27 @@ mod test {
             vec![Scope::WriteVensBl, Scope::ReadAll],
         )
         .await;
-        let (status, _) = test
+        let (status, rg) = test
             .request::<ResourceGroup>(
                 Method::DELETE,
-                "/resource_groups/resource-group-1",
+                "/resource_groups/resource-group-2",
                 Body::empty(),
             )
             .await;
         assert_eq!(status, StatusCode::OK);
 
+        assert_eq!(rg.content.children.len(), 2);
+        for child in [
+            ResourceGroupChild::ResourceGroup("resource-group-4".parse().unwrap()),
+            ResourceGroupChild::VenResource("resource-1".parse().unwrap()),
+        ] {
+            assert!(rg.content.children.contains(&child));
+        }
+
         let (status, _) = test
             .request::<Problem>(
                 Method::GET,
-                "/resource_groups/resource-group-1",
+                "/resource_groups/resource-group-2",
                 Body::empty(),
             )
             .await;
