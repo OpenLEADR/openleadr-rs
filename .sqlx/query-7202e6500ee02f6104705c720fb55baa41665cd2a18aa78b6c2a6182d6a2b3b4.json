@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT DISTINCT r.*\n            FROM report r\n                JOIN event e ON e.id = r.event_id\n            WHERE ($1::text IS NULL OR $1 like e.program_id)\n              AND ($2::text IS NULL OR $2 like r.event_id)\n              AND ($3::text IS NULL OR $3 like r.client_name)\n              AND ($4::text IS NULL OR $4 like r.client_id)\n            ORDER BY r.created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
+  "query": "\n            SELECT DISTINCT r.*\n            FROM report r\n                JOIN event e ON e.id = r.event_id\n            WHERE ($1::text IS NULL OR $1 = e.program_id)\n              AND ($2::text IS NULL OR $2 = r.event_id)\n              AND ($3::text IS NULL OR $3 = r.client_name)\n              AND ($4::text IS NULL OR $4 = r.client_id)\n            ORDER BY r.created_date_time DESC\n            OFFSET $5 LIMIT $6\n            ",
   "describe": {
     "columns": [
       {
@@ -71,5 +71,5 @@
       false
     ]
   },
-  "hash": "e1fcc34e4417924a46841546ecd72ab3252164a556f297cb5a5b1677ae78de0a"
+  "hash": "7202e6500ee02f6104705c720fb55baa41665cd2a18aa78b6c2a6182d6a2b3b4"
 }

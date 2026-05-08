@@ -307,7 +307,7 @@ impl PgEventStorage {
                    e.intervals,
                    e.duration
             FROM event e
-            WHERE ($1::text IS NULL OR e.program_id like $1)
+            WHERE ($1::text IS NULL OR e.program_id = $1)
               -- according to the spec, we MUST only test query params
               -- against the event that the VEN object (and its resources) have as targets.
               -- Therefore, $2 is the intersection of the VEN targets and the filter targets.
@@ -419,7 +419,7 @@ impl PgEventStorage {
                    e.intervals,
                    e.duration
             FROM event e
-            WHERE ($1::text IS NULL OR e.program_id like $1)
+            WHERE ($1::text IS NULL OR e.program_id = $1)
               -- IF filter targets are empty, do not filter.
               -- IF filter targets are not empty, filter only if they are in the event targets.
               AND (array_length($2::text[], 1) IS NULL OR e.targets && $2)

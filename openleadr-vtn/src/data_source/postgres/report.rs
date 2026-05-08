@@ -145,21 +145,22 @@ impl Crud for PgReportStorage {
         filter: &Self::Filter,
         client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
+        println!("{:?}", filter.client_name);
         let reports = sqlx::query_as!(
             PostgresReport,
             r#"
             SELECT DISTINCT r.*
             FROM report r
                 JOIN event e ON e.id = r.event_id
-            WHERE ($1::text IS NULL OR $1 like e.program_id)
-              AND ($2::text IS NULL OR $2 like r.event_id)
-              AND ($3::text IS NULL OR $3 like r.client_name)
-              AND ($4::text IS NULL OR $4 like r.client_id)
+            WHERE ($1::text IS NULL OR $1 = e.program_id)
+              AND ($2::text IS NULL OR $2 = r.event_id)
+              AND ($3::text IS NULL OR $3 = r.client_name)
+              AND ($4::text IS NULL OR $4 = r.client_id)
             ORDER BY r.created_date_time DESC
             OFFSET $5 LIMIT $6
             "#,
-            filter.program_id.clone().map(|x| x.to_string()),
-            filter.event_id.clone().map(|x| x.to_string()),
+            filter.program_id.as_ref().map(|x| x.to_string()),
+            filter.event_id.as_ref().map(|x| x.to_string()),
             filter.client_name,
             client_id as _,
             filter.skip,
