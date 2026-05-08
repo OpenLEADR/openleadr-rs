@@ -182,5 +182,5 @@ As with any other open source project, you should carefully consider if it meets
 ## Contact
 - ElaadNL: Ton Smets: ton.smets@elaad.nl
 - Tweede Golf:
-  - Maximilian Pohl (tech lead): max@tweedegolf.com
+  - Stefan van Ieperen (tech lead): stefan@tweedegolf.com
   - Hugo van de Pol (project lead): hugo@tweedegolf.com
