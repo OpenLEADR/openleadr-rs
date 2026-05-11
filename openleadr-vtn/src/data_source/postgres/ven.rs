@@ -11,7 +11,7 @@ use openleadr_wire::{
     ven::{BlVenRequest, Ven, VenId},
 };
 use sqlx::PgPool;
-use std::collections::{hash_set::Union, BTreeSet, HashSet};
+use std::collections::HashSet;
 use tracing::{error, trace, warn};
 
 impl VenCrud for PgVenStorage {}
@@ -316,12 +316,21 @@ impl VenObjectPrivacy for PgVenStorage {
             client_id.as_str()
         )
         .fetch_one(&self.db)
-        .await?
-        .into_iter()
-        .map(|id| id.parse())
-        .collect::<Result<HashSet<_>, _>>()?;
+        .await?;
 
-        let rg_targets: HashSet<Target> = sqlx::query_scalar!(
+        let resource_targets = sqlx::query_scalar!(
+            r#"
+            SELECT resource.targets
+            FROM ven
+                     JOIN resource ON ven.id = resource.ven_id
+            WHERE ven.client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_all(&self.db)
+        .await?;
+
+        let resource_group_targets = sqlx::query_scalar!(
             r#"
             WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
                  SELECT id, id FROM resource_group
@@ -342,39 +351,16 @@ impl VenObjectPrivacy for PgVenStorage {
             client_id.as_str()
         )
         .fetch_all(&self.db)
-        .await?
-        .iter()
-        .try_fold(ven_targets, |mut set, targets| {
-            let rg_targets: Vec<Target> = targets
-                .iter()
-                .map(|target| target.parse::<Target>())
-                .collect::<Result<Vec<Target>, _>>()?;
-            set.extend(rg_targets);
-            Ok::<_, AppError>(set)
-        })?;
+        .await?;
 
-        let full_targets: Result<_, AppError> = sqlx::query_scalar!(
-            r#"
-            SELECT resource.targets
-            FROM ven
-                     JOIN resource ON ven.id = resource.ven_id
-            WHERE ven.client_id = $1
-            "#,
-            client_id.as_str()
-        )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .try_fold(rg_targets, |mut set, resource_targets| {
-            let resource_set: Vec<Target> = resource_targets
-                .iter()
-                .map(|target| target.parse())
-                .collect::<Result<_, _>>()?;
-            set.extend(resource_set);
-            Ok(set)
-        });
+        let unique_targets = ven_targets
+            .into_iter()
+            .chain(resource_targets.into_iter().flatten())
+            .chain(resource_group_targets.into_iter().flatten())
+            .map(|target| target.parse())
+            .collect::<Result<HashSet<_>, _>>()?;
 
-        Ok(full_targets?.into_iter().collect())
+        Ok(unique_targets.into_iter().collect())
     }
 
     async fn ven_id_by_client_id(&self, client_id: &ClientId) -> Result<Option<VenId>, AppError> {
