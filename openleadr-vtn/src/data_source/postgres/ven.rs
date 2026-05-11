@@ -11,7 +11,7 @@ use openleadr_wire::{
     ven::{BlVenRequest, Ven, VenId},
 };
 use sqlx::PgPool;
-use std::collections::BTreeSet;
+use std::collections::{hash_set::Union, BTreeSet, HashSet};
 use tracing::{error, trace, warn};
 
 impl VenCrud for PgVenStorage {}
@@ -319,7 +319,39 @@ impl VenObjectPrivacy for PgVenStorage {
         .await?
         .into_iter()
         .map(|id| id.parse())
-        .collect::<Result<BTreeSet<_>, _>>()?;
+        .collect::<Result<HashSet<_>, _>>()?;
+
+        let rg_targets: HashSet<Target> = sqlx::query_scalar!(
+            r#"
+            WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
+                 SELECT id, id FROM resource_group
+                 UNION
+                 SELECT fam.root, child.rg_child_rg_id
+                 FROM rg_child_rg AS child
+                 JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
+             )
+
+             SELECT rg.targets FROM rg_family AS fam
+
+             INNER JOIN rg_child_ven_resource AS rcvr ON fam.id = rcvr.rg_parent_rg_id
+             INNER JOIN resource AS r ON rcvr.rg_child_ven_resource_id = r.id
+             INNER JOIN ven AS v ON r.ven_id = v.id
+             INNER JOIN resource_group rg on fam.root = rg.id
+             WHERE v.client_id = $1
+            "#,
+            client_id.as_str()
+        )
+        .fetch_all(&self.db)
+        .await?
+        .iter()
+        .try_fold(ven_targets, |mut set, targets| {
+            let rg_targets: Vec<Target> = targets
+                .iter()
+                .map(|target| target.parse::<Target>())
+                .collect::<Result<Vec<Target>, _>>()?;
+            set.extend(rg_targets);
+            Ok::<_, AppError>(set)
+        })?;
 
         let full_targets: Result<_, AppError> = sqlx::query_scalar!(
             r#"
@@ -333,12 +365,12 @@ impl VenObjectPrivacy for PgVenStorage {
         .fetch_all(&self.db)
         .await?
         .into_iter()
-        .try_fold(ven_targets, |mut set, resource_targets| {
-            let mut resource_set = resource_targets
-                .into_iter()
+        .try_fold(rg_targets, |mut set, resource_targets| {
+            let resource_set: Vec<Target> = resource_targets
+                .iter()
                 .map(|target| target.parse())
-                .collect::<Result<BTreeSet<Target>, _>>()?;
-            set.append(&mut resource_set);
+                .collect::<Result<_, _>>()?;
+            set.extend(resource_set);
             Ok(set)
         });
 
