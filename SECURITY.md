@@ -1,8 +1,9 @@
 # Security policy
+
 **Do not report security vulnerabilities through public GitHub issues.**
 
 Instead, you can report them using [our security page](https://github.com/OpenLEADR/openleadr-rs/security).
-Alternatively, you can also send them by email to security@openleadr.org.
+Alternatively, you can also send them by email to <foss@elaad.nl>.
 
 Include as much of the following information as you can:
 
@@ -13,10 +14,13 @@ Include as much of the following information as you can:
 * Impact of the issue, including how an attacker might exploit the issue.
 
 ## Preferred Languages
+
 We prefer to receive reports in English. If necessary, we also understand German and Dutch.
 
 ## Disclosure Policy
+
 We adhere to the principle of [Coordinated Vulnerability Disclosure](https://vuls.cert.org/confluence/display/CVD/Executive+Summary).
 
 # Security Advisories
+
 Security advisories will be published [on GitHub](https://github.com/OpenLEADR/openleadr-rs/security/advisories) and possibly through other channels.
