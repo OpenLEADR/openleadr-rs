@@ -547,7 +547,7 @@ mod test {
             ..QueryParams::default()
         };
         let resource_groups = repo.retrieve_all(&filters, &None).await.unwrap();
-        assert_eq!(resource_groups.len(), 1);
+        assert_eq!(resource_groups.len(), 2);
 
         let filters = QueryParams {
             limit: 4,
