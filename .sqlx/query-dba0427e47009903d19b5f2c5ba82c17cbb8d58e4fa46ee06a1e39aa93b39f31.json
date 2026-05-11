@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n             SELECT DISTINCT rg.targets\n             FROM rg_family AS fam\n             INNER JOIN rg_child_ven_resource AS rcvr ON fam.id = rcvr.rg_parent_rg_id\n             INNER JOIN resource AS r ON rcvr.rg_child_ven_resource_id = r.id\n             INNER JOIN ven AS v ON r.ven_id = v.id\n             INNER JOIN resource_group rg on fam.root = rg.id\n             WHERE v.client_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "targets",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dba0427e47009903d19b5f2c5ba82c17cbb8d58e4fa46ee06a1e39aa93b39f31"
+}

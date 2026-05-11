@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id\n        FROM (\n            SELECT root, id\n            FROM rg_family\n            WHERE root = $1\n              AND (\n                  -- business logic\n                  $2::text IS NULL\n\n                  -- client logic (child rg visible if any\n                  -- descendant resource is owned by client id)\n                  OR EXISTS (\n                      SELECT r.id\n                      FROM resource r\n                      INNER JOIN rg_child_ven_resource AS rcvr\n                          ON rcvr.rg_child_ven_resource_id = r.id\n                      INNER JOIN rg_family AS rg_fam\n                          ON rg_fam.id = rcvr.rg_parent_rg_id\n                      WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)\n                        AND rg_fam.root = $1\n                  )\n              )\n\n            INTERSECT\n\n            SELECT rg_parent_rg_id, rg_child_rg_id FROM rg_child_rg\n        )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4c716726738c419190e4906801da9c26dd317605a84c8866602039a7e6147462"
+}
