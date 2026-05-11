@@ -340,8 +340,8 @@ impl VenObjectPrivacy for PgVenStorage {
                  JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
              )
 
-             SELECT rg.targets FROM rg_family AS fam
-
+             SELECT DISTINCT rg.targets
+             FROM rg_family AS fam
              INNER JOIN rg_child_ven_resource AS rcvr ON fam.id = rcvr.rg_parent_rg_id
              INNER JOIN resource AS r ON rcvr.rg_child_ven_resource_id = r.id
              INNER JOIN ven AS v ON r.ven_id = v.id

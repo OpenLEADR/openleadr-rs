@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (\n                 SELECT id, id FROM resource_group\n                 UNION\n                 SELECT fam.root, child.rg_child_rg_id\n                 FROM rg_child_rg AS child\n                 JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id\n             )\n\n             SELECT DISTINCT rg.targets\n             FROM rg_family AS fam\n             INNER JOIN rg_child_ven_resource AS rcvr ON fam.id = rcvr.rg_parent_rg_id\n             INNER JOIN resource AS r ON rcvr.rg_child_ven_resource_id = r.id\n             INNER JOIN ven AS v ON r.ven_id = v.id\n             INNER JOIN resource_group rg on fam.root = rg.id\n             WHERE v.client_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "targets",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "562a33a8c0e9b8712768f608dd9b29f52e50f417cfbb70fbd04694fe10da0797"
+}
