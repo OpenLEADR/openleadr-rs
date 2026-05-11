@@ -330,16 +330,10 @@ impl VenObjectPrivacy for PgVenStorage {
         .fetch_all(&self.db)
         .await?;
 
+        // If a resource owned by a ven with matching client_id is a descendant of a certain resource group,
+        // also include that resource group's targets
         let resource_group_targets = sqlx::query_scalar!(
             r#"
-            WITH RECURSIVE rg_family(root, id) AS NOT MATERIALIZED (
-                 SELECT id, id FROM resource_group
-                 UNION
-                 SELECT fam.root, child.rg_child_rg_id
-                 FROM rg_child_rg AS child
-                 JOIN rg_family AS fam ON fam.id = child.rg_parent_rg_id
-             )
-
              SELECT DISTINCT rg.targets
              FROM rg_family AS fam
              INNER JOIN rg_child_ven_resource AS rcvr ON fam.id = rcvr.rg_parent_rg_id
@@ -382,7 +376,7 @@ impl VenObjectPrivacy for PgVenStorage {
 mod tests {
     use crate::{
         api::{ven::QueryParams, TargetQueryParams},
-        data_source::{postgres::ven::PgVenStorage, Crud},
+        data_source::{postgres::ven::PgVenStorage, Crud, VenObjectPrivacy},
         error::AppError,
     };
     use openleadr_wire::{
@@ -431,6 +425,18 @@ mod tests {
                 None,
                 vec!["group-2".parse().unwrap()],
             ),
+        }
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn resource_group_targeting(db: PgPool) {
+        let repo: PgVenStorage = db.into();
+        let client_id = "ven-2-client-id".parse().unwrap();
+        let targets = repo.targets_by_client_id(&client_id).await.unwrap();
+
+        assert_eq!(targets.len(), 3);
+        for target in ["group-1", "group-2", "somewhere-in-the-nowhere"] {
+            assert!(targets.contains(&target.parse().unwrap()))
         }
     }
 
