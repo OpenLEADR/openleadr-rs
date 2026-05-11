@@ -348,7 +348,7 @@ impl Crud for PgResourceGroupStorage {
                 rg.targets as "targets:Vec<Target>"
             FROM resource_group rg
             WHERE ($1::text IS NULL OR rg.resource_group_name = $1)
-            AND ($2::text[] IS NULL OR rg.targets @> $2)
+            AND (array_length($2::text[], 1) IS NULL OR rg.targets && $2)
 
             AND (
                 -- If client_id is null, it is a business logic request
