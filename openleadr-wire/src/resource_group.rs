@@ -8,8 +8,9 @@ use crate::{
     resource::ResourceId, target::Target, values_map::ValuesMap, Identifier, IdentifierError,
 };
 
-/// A resource group may contain either one or more nested resource groups or one or more VEN
-/// resources, managed by the BL
+/// A [`ResourceGroup`] is a grouping of nested resource groups or VEN resources, which is managed
+/// by the Business Logic. The [`ResourceGroup`] can provide a more accurate representation of the
+/// grid topology and how e.g. capacity bottlenecks affect downstream resources.
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(
@@ -63,6 +64,8 @@ pub struct BlResourceGroupRequest {
     /// A list of valuesMap objects describing attributes.
     pub attributes: Option<Vec<ValuesMap>>,
 
+    /// A list of [`ResourceGroupChild`] that contains child [`ResourceId`]s and/or child
+    /// [`ResourceGroupId`]s
     #[serde(default)]
     #[serde_as(deserialize_as = "DefaultOnNull")]
     pub children: Vec<ResourceGroupChild>,
