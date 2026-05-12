@@ -92,6 +92,62 @@ where
     Ok(result)
 }
 
+/// Deserializes the JWT `aud` claim which can be either a single string or an array of strings.
+/// Always returns `Option<Vec<String>>` internally.
+mod string_or_vec {
+    use serde::{de, Deserializer};
+    use std::fmt;
+
+    struct StringOrVecVisitor;
+
+    impl<'de> de::Visitor<'de> for StringOrVecVisitor {
+        type Value = Option<Vec<String>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string or an array of strings")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(vec![s.to_owned()]))
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut result = Vec::new();
+            while let Some(item) = seq.next_element::<String>()? {
+                result.push(item);
+            }
+            Ok(Some(result))
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StringOrVecVisitor)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
 #[sqlx(type_name = "scope", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -195,7 +251,9 @@ pub(crate) struct Claims {
     iat: Option<i64>,
     /// (not before time): Time before which the JWT must not be accepted for processing
     nbf: Option<i64>,
-    /// (audience): Recipient the JWT is intended for (the VTN)
+    /// (audience): Recipient the JWT is intended for (the VTN).
+    /// Can be a single string or an array of strings in the JWT, always deserialized as Vec.
+    #[serde(default, deserialize_with = "string_or_vec::deserialize")]
     aud: Option<Vec<String>>,
     #[serde(default, alias = "roles")]
     pub(crate) scope: Scopes,
