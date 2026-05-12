@@ -431,6 +431,19 @@ mod tests {
     #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
     async fn resource_group_targeting(db: PgPool) {
         let repo: PgVenStorage = db.into();
+        let client_id = "ven-1-client-id".parse().unwrap();
+        let targets = repo.targets_by_client_id(&client_id).await.unwrap();
+
+        assert_eq!(targets.len(), 4);
+        for target in [
+            "group-1",
+            "group-2",
+            "somewhere-in-the-nowhere",
+            "private-value",
+        ] {
+            assert!(targets.contains(&target.parse().unwrap()))
+        }
+
         let client_id = "ven-2-client-id".parse().unwrap();
         let targets = repo.targets_by_client_id(&client_id).await.unwrap();
 
@@ -438,6 +451,16 @@ mod tests {
         for target in ["group-1", "group-2", "somewhere-in-the-nowhere"] {
             assert!(targets.contains(&target.parse().unwrap()))
         }
+
+        let client_id = "ven-3-client-id".parse().unwrap();
+        let targets = repo.targets_by_client_id(&client_id).await.unwrap();
+
+        assert_eq!(targets.as_slice(), ["group-1".parse().unwrap()]);
+
+        let client_id = "ven-has-no-targets-client-id".parse().unwrap();
+        let targets = repo.targets_by_client_id(&client_id).await.unwrap();
+
+        assert!(targets.is_empty());
     }
 
     mod get_all {
