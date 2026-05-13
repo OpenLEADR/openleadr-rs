@@ -241,7 +241,7 @@ struct EdKeys {
     keys: Vec<EdKey>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub(crate) struct Claims {
     /// (subject): Subject of the JWT (the user)
     pub(crate) sub: String,
@@ -269,7 +269,7 @@ impl Claims {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, Default, derive_more::From, AsRef)]
+#[derive(Clone, Debug, serde::Serialize, Default, derive_more::From, AsRef, PartialEq)]
 #[serde(transparent)]
 pub struct Scopes(Vec<Scope>);
 
@@ -620,7 +620,10 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{api::test::ApiTest, jwt::Scope};
+    use crate::{
+        api::test::ApiTest,
+        jwt::{Claims, Scope},
+    };
     use axum::{body::Body, http::Method};
     use openleadr_wire::problem::Problem;
     use sqlx::PgPool;
@@ -656,5 +659,66 @@ mod test {
             .await;
         assert_eq!(problem.detail, Some("OAuth2 subject cannot be parsed as OpenADR clientId: identifier contains characters besides [a-zA-Z0-9_-]: This is not a valid client ID".to_string()));
         assert_eq!(status_code, 401);
+    }
+
+    #[test]
+    fn claims_deserializes() {
+        let claim_no_aud = r#"{ "sub": "test-no", "exp": 1}"#;
+        let claim_single_aud_str =
+            r#"{ "sub": "test-single-str", "aud": "single_audience_str", "exp": 2}"#;
+        let claim_single_aud_vec =
+            r#"{ "sub": "test-single-vec", "aud": ["single_audience_vec"], "exp": 3}"#;
+        let claim_multiple_aud =
+            r#"{ "sub": "test-multiple", "aud": ["audience_1", "audience_2"], "exp": 4}"#;
+
+        let claim_no_aud = serde_json::from_str::<Claims>(claim_no_aud).unwrap();
+        let claim_single_aud_vec = serde_json::from_str::<Claims>(claim_single_aud_vec).unwrap();
+        let claim_single_aud_str = serde_json::from_str::<Claims>(claim_single_aud_str).unwrap();
+        let claim_multiple_aud = serde_json::from_str::<Claims>(claim_multiple_aud).unwrap();
+
+        assert_eq!(
+            claim_no_aud,
+            Claims {
+                sub: "test-no".to_string(),
+                aud: None,
+                exp: 1,
+                iat: None,
+                nbf: None,
+                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+            }
+        );
+        assert_eq!(
+            claim_single_aud_str,
+            Claims {
+                sub: "test-single-str".to_string(),
+                aud: Some(vec!["single_audience_str".to_string()]),
+                exp: 2,
+                iat: None,
+                nbf: None,
+                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+            }
+        );
+        assert_eq!(
+            claim_single_aud_vec,
+            Claims {
+                sub: "test-single-vec".to_string(),
+                aud: Some(vec!["single_audience_vec".to_string()]),
+                exp: 3,
+                iat: None,
+                nbf: None,
+                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+            }
+        );
+        assert_eq!(
+            claim_multiple_aud,
+            Claims {
+                sub: "test-multiple".to_string(),
+                aud: Some(vec!["audience_1".to_string(), "audience_2".to_string(),]),
+                exp: 4,
+                iat: None,
+                nbf: None,
+                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+            }
+        );
     }
 }
