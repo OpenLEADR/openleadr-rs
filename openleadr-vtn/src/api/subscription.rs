@@ -144,7 +144,9 @@ pub async fn add(
 ) -> Result<(StatusCode, Json<Subscription>), AppError> {
     let client_id = user.client_id()?;
 
-    let subscription = if user.has_scope(Scope::WriteSubscriptions) {
+    let subscription = if user.has_scope(Scope::WriteSubscriptionsVen)
+        || user.has_scope(Scope::WriteSubscriptionsBl)
+    {
         subscription_source
             .create(new_subscription, &Some(client_id))
             .await?
@@ -176,7 +178,9 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<SubscriptionRequest>,
 ) -> AppResponse<Subscription> {
-    let subscription = if user.has_scope(Scope::WriteSubscriptions) {
+    let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
+        subscription_source.update(&id, update, &None).await?
+    } else if user.has_scope(Scope::WriteSubscriptionsVen) {
         subscription_source
             .update(&id, update, &Some(user.client_id()?))
             .await?
@@ -207,7 +211,9 @@ pub async fn delete(
     Path(id): Path<SubscriptionId>,
     User(user): User,
 ) -> AppResponse<Subscription> {
-    let subscription = if user.has_scope(Scope::WriteSubscriptions) {
+    let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
+        subscription_source.delete(&id, &None).await?
+    } else if user.has_scope(Scope::WriteSubscriptionsVen) {
         subscription_source
             .delete(&id, &Some(user.client_id()?))
             .await?
@@ -372,7 +378,7 @@ mod test {
         let server = ApiTest::new(
             db,
             "ven-1-client-id",
-            vec![Scope::WriteSubscriptions, Scope::ReadAll],
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
         )
         .await;
 
@@ -391,7 +397,7 @@ mod test {
         let server = ApiTest::new(
             db,
             "ven-1-client-id",
-            vec![Scope::WriteSubscriptions, Scope::ReadAll],
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
         )
         .await;
 
@@ -500,7 +506,7 @@ mod test {
         let server = ApiTest::new(
             db,
             "ven-1-client-id",
-            vec![Scope::WriteSubscriptions, Scope::ReadAll],
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
         )
         .await;
 
