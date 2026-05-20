@@ -26,6 +26,12 @@ pub trait VenObjectPrivacy: Send + Sync + 'static {
     /// Returns the union of the VEN object [`targets`](field@BlVenRequest::targets) with all resources [`targets`](field@BlResourceRequest::targets) of resources that belong to the VEN.
     async fn targets_by_client_id(&self, client_id: &ClientId) -> Result<Vec<Target>, AppError>;
 
+    async fn resource_group_visible_for_client(
+        &self,
+        client_id: &ClientId,
+        resource_group_id: &ResourceGroupId,
+    ) -> Result<bool, AppError>;
+
     async fn ven_id_by_client_id(&self, client_id: &ClientId) -> Result<Option<VenId>, AppError>;
 }
 

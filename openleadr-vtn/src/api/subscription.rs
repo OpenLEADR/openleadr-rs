@@ -26,15 +26,15 @@ use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::{EventCrud, SubscriptionCrud},
+    data_source::{EventCrud, SubscriptionCrud, VenObjectPrivacy},
     error::AppError,
-    jwt::{Scope, User},
+    jwt::{Claims, Scope, User},
     state::AppState,
 };
 
 pub(crate) struct NotifierState {
     uuidv7_context: Arc<Mutex<ContextV7>>,
-    websockets: Mutex<HashMap<ClientId, mpsc::UnboundedSender<Notification>>>,
+    websockets: Mutex<HashMap<ClientId, (mpsc::UnboundedSender<Notification>, Claims)>>,
     subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
 }
 
@@ -254,8 +254,105 @@ fn get_50() -> i64 {
     50
 }
 
+async fn privacy_filter_object(
+    object: &AnyObject,
+    privacy: &dyn VenObjectPrivacy,
+    client_id: &ClientId,
+    claims: &Claims,
+) -> Option<AnyObject> {
+    if claims.has_scope(Scope::ReadAll) {
+        return Some(object.clone());
+    }
+
+    match object {
+        AnyObject::Program(program) => {
+            if claims.has_scope(Scope::ReadTargets) {
+                let targets = privacy.targets_by_client_id(client_id).await.ok()?;
+                let filtered_targets: Vec<_> = program
+                    .content
+                    .targets
+                    .iter()
+                    .filter(|t| targets.contains(t))
+                    .cloned()
+                    .collect();
+                if program.content.targets.is_empty() || !filtered_targets.is_empty() {
+                    let mut filtered_program = program.clone();
+                    filtered_program.content.targets = filtered_targets;
+                    Some(AnyObject::Program(filtered_program))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        AnyObject::Report(report) => {
+            if &report.client_id == client_id && claims.has_scope(Scope::ReadVenObjects) {
+                Some(object.clone())
+            } else {
+                None
+            }
+        }
+        AnyObject::Event(event) => {
+            if claims.has_scope(Scope::ReadTargets) {
+                let targets = privacy.targets_by_client_id(client_id).await.ok()?;
+                let filtered_targets: Vec<_> = event
+                    .content
+                    .targets
+                    .iter()
+                    .filter(|t| targets.contains(t))
+                    .cloned()
+                    .collect();
+                if event.content.targets.is_empty() || !filtered_targets.is_empty() {
+                    let mut filtered_event = event.clone();
+                    filtered_event.content.targets = filtered_targets;
+                    Some(AnyObject::Event(filtered_event))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        AnyObject::Subscription(subscription) => {
+            if &subscription.client_id == client_id && claims.has_scope(Scope::ReadVenObjects) {
+                Some(object.clone())
+            } else {
+                None
+            }
+        }
+        AnyObject::Ven(ven) => {
+            if &ven.content.client_id == client_id && claims.has_scope(Scope::ReadVenObjects) {
+                Some(object.clone())
+            } else {
+                None
+            }
+        }
+        AnyObject::Resource(resource) => {
+            if &resource.client_id == client_id && claims.has_scope(Scope::ReadVenObjects) {
+                Some(object.clone())
+            } else {
+                None
+            }
+        }
+        AnyObject::ResourceGroup(resourcegroup) => {
+            if claims.has_scope(Scope::ReadVenObjects)
+                && privacy
+                    .resource_group_visible_for_client(client_id, &resourcegroup.id)
+                    .await
+                    .unwrap_or_default()
+            {
+                Some(object.clone())
+            } else {
+                None
+            }
+        }
+    }
+}
+
 pub(crate) async fn notify(
     event_source: &dyn EventCrud,
+    privacy: &dyn VenObjectPrivacy,
     notifier_state: &NotifierState,
     operation: Operation,
     object: AnyObject,
@@ -285,8 +382,6 @@ pub(crate) async fn notify(
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 
     for subscription in notifier_state.subscriptions.lock().await.values() {
-        // FIXME handle object privacy
-
         let program_id = subscription.content.program_id.as_ref();
 
         for object_operation in &subscription.content.object_operations {
@@ -297,11 +392,13 @@ pub(crate) async fn notify(
                 continue;
             }
 
-            if let Some(tx) = notifier_state
+            if let Some((tx, claims)) = notifier_state
                 .websockets
                 .lock()
                 .await
                 .get(&subscription.client_id)
+                && let Some(object) =
+                    privacy_filter_object(&object, privacy, &subscription.client_id, claims).await
             {
                 let _ = tx.send(Notification {
                     id: uuid
@@ -316,11 +413,8 @@ pub(crate) async fn notify(
     }
 }
 
-pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersResponse>, AppError> {
-    if !user.has_scope(Scope::ReadAll) {
-        return Err(AppError::Forbidden("Missing 'read_all' scope"));
-    }
-
+// Require logging in, but no special permissions beyond that.
+pub(crate) async fn notifier_get(User(_): User) -> Result<Json<NotifiersResponse>, AppError> {
     Ok(Json(NotifiersResponse {
         websocket: cfg!(feature = "experimental-websockets"),
     }))
@@ -332,10 +426,6 @@ pub(crate) async fn notifier_websocket_get(
     User(user): User,
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
-    if !user.has_scope(Scope::ReadAll) {
-        return Err(AppError::Forbidden("Missing 'read_all' scope"));
-    }
-
     let client_id = user.client_id()?;
 
     let mut websockets = notifier_state.websockets.lock().await;
@@ -347,7 +437,7 @@ pub(crate) async fn notifier_websocket_get(
         ));
     }
     let (tx, mut rx) = mpsc::unbounded_channel(); // FIXME use bounded channel
-    websockets.insert(client_id.clone(), tx);
+    websockets.insert(client_id.clone(), (tx, user));
     drop(websockets);
 
     Ok(ws.on_upgrade(|mut socket| async move {
@@ -366,12 +456,571 @@ pub(crate) async fn notifier_websocket_get(
 
 #[cfg(test)]
 mod test {
+    use async_trait::async_trait;
     use axum::body::Body;
-    use openleadr_wire::{problem::Problem, subscription::Subscription};
+    use chrono::DateTime;
+    use openleadr_wire::{
+        ClientId, Event, Program, Report, Ven,
+        event::{EventRequest, Priority},
+        problem::Problem,
+        program::ProgramRequest,
+        report::ReportRequest,
+        resource::{BlResourceRequest, Resource},
+        resource_group::ResourceGroupId,
+        subscription::{AnyObject, Subscription, SubscriptionRequest},
+        target::Target,
+        ven::{BlVenRequest, VenId},
+    };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
 
-    use crate::{api::test::ApiTest, jwt::Scope};
+    use crate::{
+        api::{subscription::privacy_filter_object, test::ApiTest},
+        data_source::VenObjectPrivacy,
+        error::AppError,
+        jwt::{Claims, Scope},
+    };
+
+    struct TestVenObjectPrivacyTargets;
+
+    #[async_trait]
+    impl VenObjectPrivacy for TestVenObjectPrivacyTargets {
+        async fn targets_by_client_id(
+            &self,
+            client_id: &ClientId,
+        ) -> Result<Vec<Target>, AppError> {
+            assert_eq!(client_id, &"test_client_id".parse::<ClientId>().unwrap());
+            Ok(vec!["test_target_1".parse().unwrap()])
+        }
+
+        async fn resource_group_visible_for_client(
+            &self,
+            _client_id: &ClientId,
+            _resource_group_id: &ResourceGroupId,
+        ) -> Result<bool, AppError> {
+            unimplemented!()
+        }
+
+        async fn ven_id_by_client_id(
+            &self,
+            _client_id: &ClientId,
+        ) -> Result<Option<VenId>, AppError> {
+            unimplemented!()
+        }
+    }
+
+    struct TestVenObjectPrivacyNoCallExpected;
+
+    #[async_trait]
+    impl VenObjectPrivacy for TestVenObjectPrivacyNoCallExpected {
+        async fn targets_by_client_id(
+            &self,
+            _client_id: &ClientId,
+        ) -> Result<Vec<Target>, AppError> {
+            unimplemented!()
+        }
+
+        async fn resource_group_visible_for_client(
+            &self,
+            _client_id: &ClientId,
+            _resource_group_id: &ResourceGroupId,
+        ) -> Result<bool, AppError> {
+            unimplemented!()
+        }
+
+        async fn ven_id_by_client_id(
+            &self,
+            _client_id: &ClientId,
+        ) -> Result<Option<VenId>, AppError> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn privacy_filter_object_filters_events() {
+        let object = AnyObject::Event(Event {
+            id: "event_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_id".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec![
+                    "test_target_1".parse().unwrap(),
+                    "test_target_2".parse().unwrap(),
+                ],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+        let no_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![]),
+        )
+        .await;
+        assert!(no_scopes_result.is_none());
+        let ven_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadTargets]),
+        )
+        .await;
+        let Some(AnyObject::Event(ven_scopes_event)) = ven_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            ven_scopes_event.content.targets,
+            vec!["test_target_1".parse().unwrap()]
+        );
+        let bl_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Event(bl_scopes_event)) = bl_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            bl_scopes_event.content.targets,
+            vec![
+                "test_target_1".parse().unwrap(),
+                "test_target_2".parse().unwrap()
+            ]
+        );
+
+        let object = AnyObject::Event(Event {
+            id: "event_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_id".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec!["test_target_2".parse().unwrap()],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+        let ven_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadTargets]),
+        )
+        .await;
+        assert!(ven_scopes_result.is_none());
+        let bl_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Event(bl_scopes_event)) = bl_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            bl_scopes_event.content.targets,
+            vec!["test_target_2".parse().unwrap()]
+        );
+
+        let object = AnyObject::Event(Event {
+            id: "event_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_id".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec![],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+        let ven_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadTargets]),
+        )
+        .await;
+        let Some(AnyObject::Event(ven_scopes_event)) = ven_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(ven_scopes_event.content.targets, vec![]);
+        let bl_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Event(bl_scopes_event)) = bl_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(bl_scopes_event.content.targets, vec![]);
+    }
+
+    #[tokio::test]
+    async fn privacy_filter_object_filters_programs() {
+        let object = AnyObject::Program(Program {
+            id: "program_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: ProgramRequest {
+                program_name: "Test Program".into(),
+                interval_period: None,
+                program_descriptions: None,
+                payload_descriptors: None,
+                attributes: None,
+                targets: vec![
+                    "test_target_1".parse().unwrap(),
+                    "test_target_2".parse().unwrap(),
+                ],
+            },
+        });
+        let no_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![]),
+        )
+        .await;
+        assert!(no_scopes_result.is_none());
+        let ven_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadTargets]),
+        )
+        .await;
+        let Some(AnyObject::Program(ven_scopes_program)) = ven_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            ven_scopes_program.content.targets,
+            vec!["test_target_1".parse().unwrap()]
+        );
+        let bl_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Program(bl_scopes_program)) = bl_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            bl_scopes_program.content.targets,
+            vec![
+                "test_target_1".parse().unwrap(),
+                "test_target_2".parse().unwrap()
+            ]
+        );
+
+        let object = AnyObject::Program(Program {
+            id: "program_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: ProgramRequest {
+                program_name: "Test Program".into(),
+                interval_period: None,
+                program_descriptions: None,
+                payload_descriptors: None,
+                attributes: None,
+                targets: vec!["test_target_2".parse().unwrap()],
+            },
+        });
+        let ven_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadTargets]),
+        )
+        .await;
+        assert!(ven_scopes_result.is_none());
+        let bl_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Program(bl_scopes_program)) = bl_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            bl_scopes_program.content.targets,
+            vec!["test_target_2".parse().unwrap()]
+        );
+
+        let object = AnyObject::Program(Program {
+            id: "program_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: ProgramRequest {
+                program_name: "Test Program".into(),
+                interval_period: None,
+                program_descriptions: None,
+                payload_descriptors: None,
+                attributes: None,
+                targets: vec![],
+            },
+        });
+        let ven_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadTargets]),
+        )
+        .await;
+        let Some(AnyObject::Program(ven_scopes_program)) = ven_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(ven_scopes_program.content.targets, vec![]);
+        let bl_scopes_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyTargets,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Program(bl_scopes_program)) = bl_scopes_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(bl_scopes_program.content.targets, vec![]);
+    }
+
+    #[tokio::test]
+    async fn privacy_filter_object_filters_report() {
+        let object = AnyObject::Report(Report {
+            id: "report_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: ReportRequest {
+                event_id: "event_id".parse().unwrap(),
+                client_name: "client_reporting_name".into(),
+                report_name: None,
+                payload_descriptors: None,
+                resources: vec![],
+            },
+            client_id: "test_client_id".parse().unwrap(),
+        });
+        let no_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![]),
+        )
+        .await;
+        assert!(no_scope_result.is_none());
+        let ven_scope_wrong_client_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        assert!(ven_scope_wrong_client_result.is_none());
+        let ven_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        assert!(ven_scope_result.is_some());
+        let bl_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        assert!(bl_scope_result.is_some());
+    }
+
+    #[tokio::test]
+    async fn privacy_filter_object_filters_resource() {
+        let object = AnyObject::Resource(Resource {
+            id: "report_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            client_id: "test_client_id".parse().unwrap(),
+            content: BlResourceRequest {
+                targets: vec!["test_target_2".parse().unwrap()],
+                resource_name: "resource_name".into(),
+                ven_id: "ven_id".parse().unwrap(),
+                attributes: None,
+            },
+        });
+        let no_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![]),
+        )
+        .await;
+        assert!(no_scope_result.is_none());
+        let ven_scope_wrong_client_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        assert!(ven_scope_wrong_client_result.is_none());
+        let ven_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        let Some(AnyObject::Resource(ven_scope_resource)) = ven_scope_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            ven_scope_resource.content.targets,
+            vec!["test_target_2".parse().unwrap()]
+        );
+        let bl_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Resource(bl_scope_resource)) = bl_scope_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            bl_scope_resource.content.targets,
+            vec!["test_target_2".parse().unwrap()]
+        );
+    }
+
+    #[tokio::test]
+    async fn privacy_filter_object_filters_subscription() {
+        let object = AnyObject::Subscription(Subscription {
+            id: "report_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            client_id: "test_client_id".parse().unwrap(),
+            content: SubscriptionRequest {
+                client_name: "client name".into(),
+                program_id: None,
+                object_operations: vec![],
+            },
+        });
+        let no_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![]),
+        )
+        .await;
+        assert!(no_scope_result.is_none());
+        let ven_scope_wrong_client_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        assert!(ven_scope_wrong_client_result.is_none());
+        let ven_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        assert!(ven_scope_result.is_some());
+        let bl_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        assert!(bl_scope_result.is_some());
+    }
+
+    #[tokio::test]
+    async fn privacy_filter_object_filters_ven() {
+        let object = AnyObject::Ven(Ven {
+            id: "report_id".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: BlVenRequest {
+                client_id: "test_client_id".parse().unwrap(),
+                targets: vec!["test_target_2".parse().unwrap()],
+                ven_name: "ven name".into(),
+                attributes: None,
+            },
+        });
+        let no_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![]),
+        )
+        .await;
+        assert!(no_scope_result.is_none());
+        let ven_scope_wrong_client_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"other_test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        assert!(ven_scope_wrong_client_result.is_none());
+        let ven_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadVenObjects]),
+        )
+        .await;
+        let Some(AnyObject::Ven(ven_scope_ven)) = ven_scope_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            ven_scope_ven.content.targets,
+            vec!["test_target_2".parse().unwrap()]
+        );
+        let bl_scope_result = privacy_filter_object(
+            &object,
+            &TestVenObjectPrivacyNoCallExpected,
+            &"test_client_id".parse().unwrap(),
+            &Claims::from_scopes(vec![Scope::ReadAll]),
+        )
+        .await;
+        let Some(AnyObject::Ven(bl_scope_ven)) = bl_scope_result else {
+            panic!("Unexpected result from filter.");
+        };
+        assert_eq!(
+            bl_scope_ven.content.targets,
+            vec!["test_target_2".parse().unwrap()]
+        );
+    }
 
     #[sqlx::test(fixtures("vens", "users"))]
     async fn empty_object_operations_not_allowed(db: PgPool) {

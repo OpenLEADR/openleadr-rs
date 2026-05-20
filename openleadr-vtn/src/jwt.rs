@@ -276,6 +276,19 @@ impl Claims {
     pub(crate) fn has_scope(&self, scope: Scope) -> bool {
         self.scope.contains(scope) || self.roles.contains(scope)
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_scopes(scopes: Vec<Scope>) -> Self {
+        Self {
+            sub: "test".into(),
+            exp: 0,
+            iat: None,
+            nbf: None,
+            aud: None,
+            scope: vec![].into(),
+            roles: scopes.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, Default, derive_more::From, AsRef, PartialEq)]
