@@ -178,6 +178,8 @@ pub async fn delete(
 ) -> AppResponse<Ven> {
     let ven = if user.scope.contains(Scope::WriteVensBl) {
         ven_source.delete(&id, &None).await?
+    } else if user.scope.contains(Scope::WriteVensVen) {
+        ven_source.delete(&id, &Some(user.client_id()?)).await?
     } else {
         return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
     };
