@@ -18,8 +18,11 @@ use openleadr_wire::{
 };
 
 use crate::{
-    api::{AppResponse, ValidatedJson, ValidatedQuery, subscription, subscription::NotifierState},
-    data_source::{EventCrud, ReportCrud},
+    api::{
+        AppResponse, ValidatedJson, ValidatedQuery,
+        subscription::{self, NotifierState},
+    },
+    data_source::{EventCrud, ReportCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -70,9 +73,10 @@ pub async fn get(
     Ok(Json(report))
 }
 
-#[instrument(skip(user, event_source, report_source, notifier_state))]
+#[instrument(skip(user, event_source, privacy, report_source, notifier_state))]
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(report_source): State<Arc<dyn ReportCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
@@ -90,6 +94,7 @@ pub async fn add(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Create,
         AnyObject::Report(report.clone()),
@@ -99,9 +104,10 @@ pub async fn add(
     Ok((StatusCode::CREATED, Json(report)))
 }
 
-#[instrument(skip(user, event_source, report_source, notifier_state))]
+#[instrument(skip(user, event_source, privacy, report_source, notifier_state))]
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(report_source): State<Arc<dyn ReportCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ReportId>,
@@ -120,6 +126,7 @@ pub async fn edit(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Update,
         AnyObject::Report(report.clone()),
@@ -129,9 +136,10 @@ pub async fn edit(
     Ok(Json(report))
 }
 
-#[instrument(skip(user, event_source, report_source, notifier_state))]
+#[instrument(skip(user, event_source, privacy, report_source, notifier_state))]
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(report_source): State<Arc<dyn ReportCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
@@ -152,6 +160,7 @@ pub async fn delete(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Delete,
         AnyObject::Report(report.clone()),

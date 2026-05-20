@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS (\n                SELECT r.id FROM resource r\n                INNER JOIN rg_child_ven_resource rcvr\n                    ON rcvr.rg_child_ven_resource_id = r.id\n                INNER JOIN rg_family rg_fam\n                    ON rg_fam.id = rcvr.rg_parent_rg_id\n                WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)\n                    AND rg_fam.root = $1\n            ) AS \"exists!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "19c7606375908c6f9c6ff891d29f3c9110c77a04041e4eced6d98fe394d11ca4"
+}

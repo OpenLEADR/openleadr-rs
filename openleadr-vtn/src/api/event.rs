@@ -18,10 +18,10 @@ use openleadr_wire::{
 
 use crate::{
     api::{
-        AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery, subscription,
-        subscription::NotifierState,
+        AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery,
+        subscription::{self, NotifierState},
     },
-    data_source::EventCrud,
+    data_source::{EventCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -70,6 +70,7 @@ pub async fn get(
 
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_event): ValidatedJson<EventRequest>,
@@ -86,6 +87,7 @@ pub async fn add(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Create,
         AnyObject::Event(event.clone()),
@@ -97,6 +99,7 @@ pub async fn add(
 
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<EventId>,
     User(user): User,
@@ -114,6 +117,7 @@ pub async fn edit(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Update,
         AnyObject::Event(event.clone()),
@@ -125,6 +129,7 @@ pub async fn edit(
 
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<EventId>,
     User(user): User,
@@ -138,6 +143,7 @@ pub async fn delete(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Delete,
         AnyObject::Event(event.clone()),

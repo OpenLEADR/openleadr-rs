@@ -19,7 +19,7 @@ use crate::{
         AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery, subscription,
         subscription::NotifierState,
     },
-    data_source::{EventCrud, VenCrud},
+    data_source::{EventCrud, VenCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Scope, User},
 };
@@ -71,6 +71,7 @@ pub async fn get(
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
     ValidatedJson(new_ven): ValidatedJson<VenRequest>,
@@ -108,6 +109,7 @@ pub async fn add(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Create,
         AnyObject::Ven(ven.clone()),
@@ -120,6 +122,7 @@ pub async fn add(
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<VenId>,
     User(user): User,
@@ -160,6 +163,7 @@ pub async fn edit(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Update,
         AnyObject::Ven(ven.clone()),
@@ -172,6 +176,7 @@ pub async fn edit(
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<VenId>,
     User(user): User,
@@ -188,6 +193,7 @@ pub async fn delete(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Delete,
         AnyObject::Ven(ven.clone()),

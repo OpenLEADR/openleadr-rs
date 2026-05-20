@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
     ClientId,
+    resource_group::ResourceGroupId,
     target::Target,
     ven::{BlVenRequest, Ven, VenId},
 };
@@ -355,6 +356,30 @@ impl VenObjectPrivacy for PgVenStorage {
             .collect::<Result<HashSet<_>, _>>()?;
 
         Ok(unique_targets.into_iter().collect())
+    }
+
+    async fn resource_group_visible_for_client(
+        &self,
+        client_id: &ClientId,
+        resource_group_id: &ResourceGroupId,
+    ) -> Result<bool, AppError> {
+        Ok(sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS (
+                SELECT r.id FROM resource r
+                INNER JOIN rg_child_ven_resource rcvr
+                    ON rcvr.rg_child_ven_resource_id = r.id
+                INNER JOIN rg_family rg_fam
+                    ON rg_fam.id = rcvr.rg_parent_rg_id
+                WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
+                    AND rg_fam.root = $1
+            ) AS "exists!"
+            "#,
+            resource_group_id.as_str(),
+            client_id.as_str()
+        )
+        .fetch_one(&self.db)
+        .await?)
     }
 
     async fn ven_id_by_client_id(&self, client_id: &ClientId) -> Result<Option<VenId>, AppError> {

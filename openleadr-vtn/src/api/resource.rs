@@ -82,6 +82,7 @@ pub async fn get(
 
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
@@ -134,6 +135,7 @@ pub async fn add(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Create,
         AnyObject::Resource(resource.clone()),
@@ -143,8 +145,13 @@ pub async fn add(
     Ok((StatusCode::CREATED, Json(resource)))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "This is a handler which needs a lot of the state."
+)]
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     State(object_privacy): State<Arc<dyn VenObjectPrivacy>>,
@@ -203,6 +210,7 @@ pub async fn edit(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Update,
         AnyObject::Resource(resource.clone()),
@@ -214,6 +222,7 @@ pub async fn edit(
 
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
+    State(privacy): State<Arc<dyn VenObjectPrivacy>>,
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     State(notifier_state): State<Arc<NotifierState>>,
     Path(id): Path<ResourceId>,
@@ -235,6 +244,7 @@ pub async fn delete(
 
     subscription::notify(
         &*event_source,
+        &*privacy,
         &notifier_state,
         Operation::Delete,
         AnyObject::Resource(resource.clone()),
