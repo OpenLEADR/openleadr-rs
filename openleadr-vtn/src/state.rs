@@ -555,13 +555,27 @@ mod test {
         use super::*;
         use serial_test::serial;
 
+        fn set_env_var(key: &str, value: &str) {
+            // SAFETY: set_env_var and remove_env_var are used only here with `[serial]`
+            unsafe {
+                env::set_var(key, value);
+            }
+        }
+
+        fn remove_env_var(key: &str) {
+            // SAFETY: See set_env_var
+            unsafe {
+                env::remove_var(key);
+            }
+        }
+
         fn clean_env() {
-            env::remove_var("OAUTH_BASE64_SECRET");
-            env::remove_var("OAUTH_TYPE");
-            env::remove_var("OAUTH_KEY_TYPE");
-            env::remove_var("OAUTH_PEM");
-            env::remove_var("OAUTH_JWKS_LOCATION");
-            env::remove_var("OAUTH_VALID_AUDIENCES");
+            remove_env_var("OAUTH_BASE64_SECRET");
+            remove_env_var("OAUTH_TYPE");
+            remove_env_var("OAUTH_KEY_TYPE");
+            remove_env_var("OAUTH_PEM");
+            remove_env_var("OAUTH_JWKS_LOCATION");
+            remove_env_var("OAUTH_VALID_AUDIENCES");
         }
 
         #[tokio::test]
@@ -569,8 +583,8 @@ mod test {
         #[serial]
         async fn internal_oauth_short_secret() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
-            env::set_var("OAUTH_BASE64_SECRET", "1234");
+            set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
+            set_env_var("OAUTH_BASE64_SECRET", "1234");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -579,8 +593,8 @@ mod test {
         #[serial]
         async fn internal_oauth_invalid_base64_secret() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
-            env::set_var("OAUTH_BASE64_SECRET", "&");
+            set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
+            set_env_var("OAUTH_BASE64_SECRET", "&");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -588,8 +602,8 @@ mod test {
         #[serial]
         async fn implicit_internal_oauth() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
-            env::set_var(
+            set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
+            set_env_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
@@ -600,9 +614,9 @@ mod test {
         #[serial]
         async fn explicit_internal_oauth() {
             clean_env();
-            env::set_var("OAUTH_TYPE", "INTERNAL");
-            env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
-            env::set_var(
+            set_env_var("OAUTH_TYPE", "INTERNAL");
+            set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
+            set_env_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
@@ -613,10 +627,10 @@ mod test {
         #[serial]
         async fn explicit_internal_explicit_key_type_oauth() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
-            env::set_var("OAUTH_TYPE", "INTERNAL");
-            env::set_var("OAUTH_KEY_TYPE", "HMAC");
-            env::set_var(
+            set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
+            set_env_var("OAUTH_TYPE", "INTERNAL");
+            set_env_var("OAUTH_KEY_TYPE", "HMAC");
+            set_env_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
@@ -628,10 +642,10 @@ mod test {
         #[serial]
         async fn explicit_internal_explicit_wrong_key_type_oauth() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
-            env::set_var("OAUTH_TYPE", "INTERNAL");
-            env::set_var("OAUTH_KEY_TYPE", "RSA");
-            env::set_var(
+            set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
+            set_env_var("OAUTH_TYPE", "INTERNAL");
+            set_env_var("OAUTH_KEY_TYPE", "RSA");
+            set_env_var(
                 "OAUTH_BASE64_SECRET",
                 "60QL3fluRYn/21n0zNoPe1np5aB6P9C75b0Nbkwu4FM=",
             );
@@ -645,10 +659,10 @@ mod test {
         #[serial]
         async fn external_missing_key_type_oauth() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
-            env::set_var("OAUTH_TYPE", "EXTERNAL");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
+            set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
+            set_env_var("OAUTH_TYPE", "EXTERNAL");
+            set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
+            set_env_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -659,10 +673,10 @@ mod test {
         #[serial]
         async fn external_missing_jwks_location_oauth_and_oauth_pem() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
-            env::set_var("OAUTH_TYPE", "EXTERNAL");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            env::set_var("OAUTH_KEY_TYPE", "RSA");
+            set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
+            set_env_var("OAUTH_TYPE", "EXTERNAL");
+            set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
+            set_env_var("OAUTH_KEY_TYPE", "RSA");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -670,10 +684,10 @@ mod test {
         #[serial]
         async fn external_missing_valid_audiences_oauth() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
-            env::set_var("OAUTH_TYPE", "EXTERNAL");
-            env::set_var("OAUTH_KEY_TYPE", "RSA");
-            env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
+            set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
+            set_env_var("OAUTH_TYPE", "EXTERNAL");
+            set_env_var("OAUTH_KEY_TYPE", "RSA");
+            set_env_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -681,11 +695,11 @@ mod test {
         #[serial]
         async fn external_rsa() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
-            env::set_var("OAUTH_TYPE", "EXTERNAL");
-            env::set_var("OAUTH_KEY_TYPE", "RSA");
-            env::set_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
+            set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
+            set_env_var("OAUTH_TYPE", "EXTERNAL");
+            set_env_var("OAUTH_KEY_TYPE", "RSA");
+            set_env_var("OAUTH_JWKS_LOCATION", "http://localhost:3000/jwks");
+            set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -694,11 +708,11 @@ mod test {
         #[serial]
         async fn external_provide_rsa_key_instead_of_ec() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
-            env::set_var("OAUTH_TYPE", "EXTERNAL");
-            env::set_var("OAUTH_KEY_TYPE", "EC");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
+            set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
+            set_env_var("OAUTH_TYPE", "EXTERNAL");
+            set_env_var("OAUTH_KEY_TYPE", "EC");
+            set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
+            set_env_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             AppState::new(MockDataSource {}).await;
         }
 
@@ -707,11 +721,11 @@ mod test {
         #[serial]
         async fn external_provide_rsa_key_instead_of_ed() {
             clean_env();
-            env::set_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
-            env::set_var("OAUTH_TYPE", "EXTERNAL");
-            env::set_var("OAUTH_KEY_TYPE", "ED");
-            env::set_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
-            env::set_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
+            set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
+            set_env_var("OAUTH_TYPE", "EXTERNAL");
+            set_env_var("OAUTH_KEY_TYPE", "ED");
+            set_env_var("OAUTH_VALID_AUDIENCES", "http://localhost:3000,");
+            set_env_var("OAUTH_PEM", "./tests/assets/public-rsa.pem");
             AppState::new(MockDataSource {}).await;
         }
     }

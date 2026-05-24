@@ -10,7 +10,7 @@ resolver = "2"
 
 [workspace.package]
 version = "0.2.2"
-edition = "2021"
+edition = "2024"
 rust-version = "1.91" # MSRV
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/OpenLEADR/openleadr-rs"
