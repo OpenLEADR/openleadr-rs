@@ -15,17 +15,16 @@ use crate::{
     jwt::JwtManager,
 };
 use axum::{
+    Json,
     extract::{FromRef, Request, State},
     middleware,
     middleware::Next,
     response::IntoResponse,
     routing::get,
-    Json,
 };
 use base64::{
-    alphabet,
-    engine::{general_purpose::PAD, GeneralPurpose},
-    Engine,
+    Engine, alphabet,
+    engine::{GeneralPurpose, general_purpose::PAD},
 };
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
@@ -246,7 +245,9 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
 
     // If no decoding key was found, then OAUTH_JWKS_LOCATION must be used
     if key.is_none() && oauth_jwks_location.is_err() {
-        panic!("OAUTH_PEM or OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with the given key type");
+        panic!(
+            "OAUTH_PEM or OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with the given key type"
+        );
     }
 
     let token_url: Url = env::var("OAUTH_TOKEN_URL")
@@ -280,9 +281,11 @@ impl AppState {
             OAuthType::Internal => internal_oauth_from_env(key_type),
             #[cfg(not(feature = "internal-oauth"))]
             OAuthType::Internal => {
-                panic!("Can't use internal OAuth provider as the 'internal-oauth' feature is disabled. \
+                panic!(
+                    "Can't use internal OAuth provider as the 'internal-oauth' feature is disabled. \
             Please recompile with the 'internal-oauth' feature enabled if you want to use it or set \
-            OAUTH_TYPE to EXTERNAL if you want to use an external OAuth provider.");
+            OAUTH_TYPE to EXTERNAL if you want to use an external OAuth provider."
+                );
             }
             OAuthType::External => external_oauth_from_env(key_type).await,
         };
@@ -445,8 +448,8 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 #[cfg(test)]
 mod test {
     use openleadr_wire::{
-        subscription::{Subscription, SubscriptionId, SubscriptionRequest},
         ClientId,
+        subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     };
 
     use crate::data_source::Crud;
