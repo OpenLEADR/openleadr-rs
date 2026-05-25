@@ -59,7 +59,7 @@ jobs:
           targets: "${{ matrix.target }}"
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@7be9fd86bd1707236395105d6e9329dd1511a7e1 # v2.79.0
+        uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4 # v2.79.7
         with:
           tool: cargo-llvm-cov
 
@@ -92,7 +92,7 @@ jobs:
         run: docker compose down
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         with:
           files: lcov.info
           fail_ci_if_error: false
@@ -114,7 +114,7 @@ jobs:
           toolchain: nightly
 
       - name: Install udeps
-        uses: taiki-e/install-action@7be9fd86bd1707236395105d6e9329dd1511a7e1 # v2.79.0
+        uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4 # v2.79.7
         with:
           tool: cargo-udeps
 
@@ -177,7 +177,7 @@ jobs:
         run: cargo install --force --locked bindgen-cli
 
       - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@129361238c06ff2cc1c4ca5c5d2217af441ffdf6 # v1.40.1
+        uses: taiki-e/setup-cross-toolchain-action@3d9770ce98eb7dbcf378563182a5e8031165f75b # v1.41.0
         with:
           target: ${{ matrix.target }}
 
@@ -195,6 +195,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: EmbarkStudios/cargo-deny-action@6c8f9facfa5047ec02d8485b6bf52b587b7777d1
+      - uses: EmbarkStudios/cargo-deny-action@a531616d8ce3b9177443e48a1159bc945a099823
         with:
           arguments: --workspace --all-features
