@@ -75,8 +75,7 @@ impl NotifierState {
             )
             .await?;
 
-        let mqtt_client =
-            paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new()).expect("TODO");
+        let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
         mqtt_client
             .connect(
                 paho_mqtt::ConnectOptionsBuilder::new()
@@ -86,8 +85,7 @@ impl NotifierState {
                     .automatic_reconnect(Duration::from_millis(1), Duration::from_secs(16))
                     .finalize(),
             )
-            .await
-            .expect("TODO");
+            .await?;
 
         Ok(Self {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
