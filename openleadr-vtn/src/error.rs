@@ -1,13 +1,13 @@
 #[cfg(feature = "sqlx")]
 use argon2::password_hash;
 use axum::{
+    Json,
     extract::rejection::{FormRejection, JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use axum_extra::extract::QueryRejection;
-use openleadr_wire::{problem::Problem, IdentifierError};
+use openleadr_wire::{IdentifierError, problem::Problem};
 #[cfg(feature = "sqlx")]
 use sqlx::error::DatabaseError;
 #[cfg(feature = "sqlx")]

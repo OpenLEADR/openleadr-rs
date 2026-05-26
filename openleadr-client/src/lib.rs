@@ -63,7 +63,7 @@ mod timeline;
 mod ven;
 
 use async_trait::async_trait;
-use openleadr_wire::{event::EventId, Event, Ven};
+use openleadr_wire::{Event, Ven, event::EventId};
 use std::{
     fmt::Debug,
     future::Future,
@@ -88,9 +88,9 @@ pub use ven::*;
 
 use crate::error::Result;
 use openleadr_wire::{
+    Program,
     program::{ProgramId, ProgramRequest},
     ven::{BlVenRequest, VenId, VenRequest, VenVenRequest},
-    Program,
 };
 
 #[async_trait]
@@ -212,10 +212,10 @@ impl<K: ClientKind> ClientRef<K> {
         };
 
         // if there is a token, and it is valid long enough, we don't have to do anything
-        if let Some(token) = self.auth_token.read().await.as_ref() {
-            if token.since.elapsed() < token.expires_in - auth_data.refresh_margin {
-                return Ok(());
-            }
+        if let Some(token) = self.auth_token.read().await.as_ref()
+            && token.since.elapsed() < token.expires_in - auth_data.refresh_margin
+        {
+            return Ok(());
         }
 
         #[derive(serde::Serialize)]

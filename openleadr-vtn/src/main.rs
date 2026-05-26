@@ -1,7 +1,7 @@
 use openleadr_vtn::{VtnConfig, VtnServer};
 use tokio::signal;
 use tracing::{error, info};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {

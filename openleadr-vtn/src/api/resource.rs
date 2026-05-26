@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -17,8 +17,8 @@ use openleadr_wire::{
 
 use crate::{
     api::{
-        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
-        ValidatedQuery,
+        AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery, subscription,
+        subscription::NotifierState,
     },
     data_source::{EventCrud, ResourceCrud, VenObjectPrivacy},
     error::AppError,
@@ -979,10 +979,12 @@ mod test {
                 .await;
 
             assert_eq!(status, StatusCode::BAD_REQUEST);
-            assert!(error
-                .detail
-                .unwrap()
-                .contains("outside of allowed range 1..=128"))
+            assert!(
+                error
+                    .detail
+                    .unwrap()
+                    .contains("outside of allowed range 1..=128")
+            )
         }
     }
 }

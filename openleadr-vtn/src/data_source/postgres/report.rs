@@ -1,13 +1,13 @@
 use crate::{
     api::report::QueryParams,
-    data_source::{postgres::to_json_value, Crud, ReportCrud},
+    data_source::{Crud, ReportCrud, postgres::to_json_value},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    report::{ReportId, ReportRequest},
     ClientId, Report,
+    report::{ReportId, ReportRequest},
 };
 use sqlx::PgPool;
 use tracing::{error, info, trace};

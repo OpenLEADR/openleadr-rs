@@ -198,14 +198,14 @@ impl LimitsRes {
 mod test {
     use super::*;
     use openleadr_wire::{
+        Program,
         event::{EventInterval, EventRequest},
         interval::IntervalPeriod,
         program::{ProgramId, ProgramRequest},
-        Program,
     };
     use std::sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     };
 
     struct TestingClock(AtomicU64);

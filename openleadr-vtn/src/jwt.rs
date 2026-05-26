@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 #[cfg(feature = "internal-oauth")]
-use jsonwebtoken::{encode, Header};
+use jsonwebtoken::{Header, encode};
 
 use crate::api::auth::ResponseOAuthError;
 use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
@@ -12,8 +12,8 @@ use axum::{
     http::request::Parts,
 };
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
@@ -24,9 +24,8 @@ use derive_more::AsRef;
 use openleadr_wire::ClientId;
 use reqwest::Url;
 use serde::{
-    de,
+    Deserialize, Deserializer, Serialize, de,
     de::{DeserializeOwned, Visitor},
-    Deserialize, Deserializer, Serialize,
 };
 use std::{fmt, str::FromStr};
 
@@ -95,7 +94,7 @@ where
 /// Deserializes the JWT `aud` claim which can be either a single string or an array of strings.
 /// Always returns `Option<Vec<String>>` internally.
 mod string_or_vec {
-    use serde::{de, Deserializer};
+    use serde::{Deserializer, de};
     use std::fmt;
 
     struct StringOrVecVisitor;
@@ -475,17 +474,17 @@ impl JwtManager {
     fn check_time(claims: Claims) -> Result<Claims, OAuthError> {
         let now = chrono::Utc::now().timestamp();
 
-        if let Some(nbf) = claims.nbf {
-            if now < nbf {
-                warn!("received token not yet valid: nbf={nbf} now={now}");
-                return Err(OAuthError {
-                    error: OAuthErrorType::NotYetValid,
-                    error_description: Some(
-                        "The 'nbf' claim disallows using this token already".to_string(),
-                    ),
-                    error_uri: None,
-                });
-            }
+        if let Some(nbf) = claims.nbf
+            && now < nbf
+        {
+            warn!("received token not yet valid: nbf={nbf} now={now}");
+            return Err(OAuthError {
+                error: OAuthErrorType::NotYetValid,
+                error_description: Some(
+                    "The 'nbf' claim disallows using this token already".to_string(),
+                ),
+                error_uri: None,
+            });
         };
 
         if claims.exp < now {

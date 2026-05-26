@@ -3,7 +3,7 @@ use crate::{api::ValidatedForm, data_source::AuthSource, jwt::JwtManager};
 #[cfg(feature = "internal-oauth")]
 use axum::extract::State;
 #[cfg(feature = "internal-oauth")]
-use axum_extra::headers::{authorization::Basic, Authorization};
+use axum_extra::headers::{Authorization, authorization::Basic};
 #[cfg(feature = "internal-oauth")]
 use serde::Deserialize;
 #[cfg(feature = "internal-oauth")]
@@ -13,9 +13,9 @@ use validator::Validate;
 
 use crate::error::AppError;
 use axum::{
+    Json,
     http::{Response, StatusCode},
     response::IntoResponse,
-    Json,
 };
 #[cfg(feature = "internal-oauth")]
 use axum_extra::headers::Header;
