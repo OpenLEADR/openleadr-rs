@@ -82,9 +82,9 @@ cargo build/run --bin openleadr-vtn --features=internal-oauth [--release]
 ```
 
 ### Testing
-To run the tests, you need to start a postgres database and run the migrations:
+To run the tests, you need to start a postgres database, mqtt broker, and run the migrations:
 ```bash
-docker compose up -d db
+docker compose up -d db mqtt
 cargo sqlx migrate run
 # alternatively, you can also reset the database to an empty state
 cargo sqlx db reset
