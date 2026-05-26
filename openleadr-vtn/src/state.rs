@@ -149,10 +149,10 @@ fn validation_from_key_type_and_env(key_type: &OAuthKeyType) -> Validation {
 
 #[cfg(feature = "internal-oauth")]
 fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
-    if let Some(k_type) = key_type {
-        if k_type != OAuthKeyType::Hmac {
-            panic!("Internal OAuth provider only supports HMAC JWT keys");
-        }
+    if let Some(k_type) = key_type
+        && k_type != OAuthKeyType::Hmac
+    {
+        panic!("Internal OAuth provider only supports HMAC JWT keys");
     }
 
     let secret = hmac_from_env().unwrap_or_else(|_| {
@@ -551,8 +551,8 @@ mod test {
 
     impl SubscriptionCrud for MockSubscriptionSource {}
 
-    // It is critical for the safety assumption of env::{set_var, remove_var} that the tests in this
-    // module do not run in parallel.
+    // It is critical for the safety assumption of set_env_var and remove_env_var that the tests in
+    // this module do not run in parallel.
     #[serial_test::serial]
     mod state_from_env_var {
         use super::*;

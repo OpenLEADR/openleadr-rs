@@ -1,4 +1,4 @@
-use openleadr_client::{discover_local_vtns, DiscoveredVtn};
+use openleadr_client::{DiscoveredVtn, discover_local_vtns};
 use tracing::info;
 
 #[tokio::main]

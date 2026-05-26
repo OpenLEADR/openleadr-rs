@@ -1,10 +1,10 @@
 //! Types used for the `report/` endpoint
 
 use crate::{
+    ClientId, Identifier, IdentifierError, Unit,
     event::EventId,
     interval::{Interval, IntervalPeriod},
     target::Target,
-    ClientId, Identifier, IdentifierError, Unit,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -249,8 +249,8 @@ impl ValidateRange<Confidence> for Confidence {
 #[cfg(test)]
 mod tests {
     use crate::{
-        values_map::{Value, ValueType, ValuesMap},
         Duration,
+        values_map::{Value, ValueType, ValuesMap},
     };
 
     use super::*;

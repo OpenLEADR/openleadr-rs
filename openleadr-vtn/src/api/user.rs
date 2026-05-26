@@ -5,8 +5,8 @@ use crate::{
     jwt::{Scope, User},
 };
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -163,10 +163,10 @@ mod test {
     use super::*;
     use crate::api::test::{jwt_test_token, state};
     use axum::{
+        Router,
         body::Body,
         http,
         http::{Request, Response, StatusCode},
-        Router,
     };
     use http_body_util::BodyExt;
     use sqlx::PgPool;

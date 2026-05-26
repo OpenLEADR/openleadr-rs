@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use crate::{
-    error::{Error, Result},
     ClientKind, ClientRef, ReportClient,
+    error::{Error, Result},
 };
-use openleadr_wire::{event::EventRequest, report::ReportRequest, Event, Report};
+use openleadr_wire::{Event, Report, event::EventRequest, report::ReportRequest};
 
 /// Client to manage the data of a specific event and the reports contained in that event
 ///

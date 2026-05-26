@@ -1,14 +1,14 @@
 use crate::{
     api::ven::QueryParams,
-    data_source::{postgres::to_json_value, Crud, VenCrud, VenObjectPrivacy},
+    data_source::{Crud, VenCrud, VenObjectPrivacy, postgres::to_json_value},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
+    ClientId,
     target::Target,
     ven::{BlVenRequest, Ven, VenId},
-    ClientId,
 };
 use sqlx::PgPool;
 use std::collections::BTreeSet;
@@ -202,15 +202,15 @@ impl Crud for PgVenStorage {
         .fetch_one(&mut *tx)
         .await?;
 
-        if let Some(client_id) = client_id {
-            if old.client_id != client_id.as_str() {
-                warn!(
-                    client_id = ?client_id,
-                    ven_id = id.as_str(),
-                    "Client tried to update VEN it does not own"
-                );
-                return Err(Self::Error::NotFound);
-            }
+        if let Some(client_id) = client_id
+            && old.client_id != client_id.as_str()
+        {
+            warn!(
+                client_id = ?client_id,
+                ven_id = id.as_str(),
+                "Client tried to update VEN it does not own"
+            );
+            return Err(Self::Error::NotFound);
         }
 
         if old.client_id != new.client_id.as_str() {
@@ -363,8 +363,8 @@ impl VenObjectPrivacy for PgVenStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::{ven::QueryParams, TargetQueryParams},
-        data_source::{postgres::ven::PgVenStorage, Crud},
+        api::{TargetQueryParams, ven::QueryParams},
+        data_source::{Crud, postgres::ven::PgVenStorage},
         error::AppError,
     };
     use openleadr_wire::{

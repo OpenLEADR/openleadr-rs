@@ -6,8 +6,8 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
-    subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     ClientId,
+    subscription::{Subscription, SubscriptionId, SubscriptionRequest},
 };
 use sqlx::PgPool;
 use tracing::{error, trace, warn};
@@ -270,7 +270,7 @@ impl Crud for PgSubscriptionStorage {
 mod test {
     use crate::{
         api::subscription::QueryParams,
-        data_source::{postgres::subscription::PgSubscriptionStorage, Crud},
+        data_source::{Crud, postgres::subscription::PgSubscriptionStorage},
     };
     use sqlx::PgPool;
 

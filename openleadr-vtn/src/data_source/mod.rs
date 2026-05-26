@@ -5,6 +5,7 @@ use crate::{error::AppError, jwt::Scope};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
+    ClientId, Event, Program, Report,
     event::{EventId, EventRequest},
     program::{ProgramId, ProgramRequest},
     report::{ReportId, ReportRequest},
@@ -12,7 +13,6 @@ use openleadr_wire::{
     subscription::{Subscription, SubscriptionId, SubscriptionRequest},
     target::Target,
     ven::{BlVenRequest, Ven, VenId},
-    ClientId, Event, Program, Report,
 };
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresStorage;
@@ -67,71 +67,71 @@ pub trait Crud: Send + Sync + 'static {
 
 pub trait ProgramCrud:
     Crud<
-    Type = Program,
-    Id = ProgramId,
-    NewType = ProgramRequest,
-    Error = AppError,
-    Filter = crate::api::program::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = Program,
+        Id = ProgramId,
+        NewType = ProgramRequest,
+        Error = AppError,
+        Filter = crate::api::program::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 pub trait ReportCrud:
     Crud<
-    Type = Report,
-    Id = ReportId,
-    NewType = ReportRequest,
-    Error = AppError,
-    Filter = crate::api::report::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = Report,
+        Id = ReportId,
+        NewType = ReportRequest,
+        Error = AppError,
+        Filter = crate::api::report::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 pub trait EventCrud:
     Crud<
-    Type = Event,
-    Id = EventId,
-    NewType = EventRequest,
-    Error = AppError,
-    Filter = crate::api::event::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = Event,
+        Id = EventId,
+        NewType = EventRequest,
+        Error = AppError,
+        Filter = crate::api::event::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 
 pub trait VenCrud:
     Crud<
-    Type = Ven,
-    Id = VenId,
-    NewType = BlVenRequest,
-    Error = AppError,
-    Filter = crate::api::ven::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = Ven,
+        Id = VenId,
+        NewType = BlVenRequest,
+        Error = AppError,
+        Filter = crate::api::ven::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 
 pub trait ResourceCrud:
     Crud<
-    Type = Resource,
-    Id = ResourceId,
-    NewType = BlResourceRequest,
-    Error = AppError,
-    Filter = crate::api::resource::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = Resource,
+        Id = ResourceId,
+        NewType = BlResourceRequest,
+        Error = AppError,
+        Filter = crate::api::resource::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 
 pub trait SubscriptionCrud:
     Crud<
-    Type = Subscription,
-    Id = SubscriptionId,
-    NewType = SubscriptionRequest,
-    Error = AppError,
-    Filter = crate::api::subscription::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = Subscription,
+        Id = SubscriptionId,
+        NewType = SubscriptionRequest,
+        Error = AppError,
+        Filter = crate::api::subscription::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 

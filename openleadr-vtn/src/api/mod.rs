@@ -1,13 +1,13 @@
 use crate::{error::AppError, state::AppState};
 use axum::{
-    extract::{rejection::JsonRejection, FromRequest, FromRequestParts, Request, State},
-    response::IntoResponse,
     Json,
+    extract::{FromRequest, FromRequestParts, Request, State, rejection::JsonRejection},
+    response::IntoResponse,
 };
 use axum_extra::extract::{Query, QueryRejection};
 use openleadr_wire::target::Target;
 use reqwest::StatusCode;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{Deserialize, de::DeserializeOwned};
 use std::fmt::Debug;
 use validator::Validate;
 
@@ -105,9 +105,9 @@ pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoR
 pub mod test {
     use crate::{data_source::PostgresStorage, jwt::Scope, state::AppState};
     use axum::{
+        Router,
         body::Body,
         http::{self, Request, StatusCode},
-        Router,
     };
     use http_body_util::BodyExt;
     use openleadr_wire::problem::Problem;

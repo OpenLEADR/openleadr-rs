@@ -1,10 +1,10 @@
-use crate::common::{setup, AuthRole, TestContext};
+use crate::common::{AuthRole, TestContext, setup};
 use openleadr_client::{BusinessLogic, Filter};
 use openleadr_wire::{
+    ClientId,
     target::Target,
     values_map::{Value, ValueType, ValuesMap},
     ven::BlVenRequest,
-    ClientId,
 };
 use serial_test::serial;
 use std::str::FromStr;
@@ -150,9 +150,11 @@ async fn resource_crud() {
     // Retrieve all
     {
         let resources = ven.get_all_resources(None).await.unwrap();
-        assert!(resources
-            .iter()
-            .any(|r| r.content().resource_name == "test-resource"));
+        assert!(
+            resources
+                .iter()
+                .any(|r| r.content().resource_name == "test-resource")
+        );
     }
 
     // Retrieve one by name

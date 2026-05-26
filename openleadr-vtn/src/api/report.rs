@@ -1,24 +1,24 @@
 use std::sync::Arc;
 
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, trace};
 use validator::Validate;
 
 use openleadr_wire::{
+    Report,
     event::EventId,
     program::ProgramId,
     report::{ReportId, ReportRequest},
     subscription::{AnyObject, Operation},
-    Report,
 };
 
 use crate::{
-    api::{subscription, subscription::NotifierState, AppResponse, ValidatedJson, ValidatedQuery},
+    api::{AppResponse, ValidatedJson, ValidatedQuery, subscription, subscription::NotifierState},
     data_source::{EventCrud, ReportCrud},
     error::AppError,
     jwt::{Scope, User},
@@ -256,10 +256,12 @@ mod test {
                 .await;
 
             assert_eq!(status, StatusCode::BAD_REQUEST);
-            assert!(error
-                .detail
-                .unwrap()
-                .contains("outside of allowed range 1..=128"))
+            assert!(
+                error
+                    .detail
+                    .unwrap()
+                    .contains("outside of allowed range 1..=128")
+            )
         }
     }
 }

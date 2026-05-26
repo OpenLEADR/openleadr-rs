@@ -1,13 +1,13 @@
 use crate::{
-    resource::ResourceClient, BusinessLogic, ClientKind, ClientRef, Error, Result, VirtualEndNode,
+    BusinessLogic, ClientKind, ClientRef, Error, Result, VirtualEndNode, resource::ResourceClient,
 };
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
+    Ven,
     resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest, VenResourceRequest},
     target::Target,
     values_map::ValuesMap,
     ven::{BlVenRequest, VenId, VenRequest},
-    Ven,
 };
 use std::{fmt::Display, sync::Arc};
 

@@ -1,23 +1,23 @@
 #[cfg(feature = "internal-oauth")]
-use crate::data_source::{postgres::user::PgAuthSource, AuthSource};
+use crate::data_source::{AuthSource, postgres::user::PgAuthSource};
 
 use super::{Migrate, VenObjectPrivacy};
 use crate::{
     data_source::{
+        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
         postgres::{
             event::PgEventStorage, program::PgProgramStorage, report::PgReportStorage,
             subscription::PgSubscriptionStorage, ven::PgVenStorage,
         },
-        DataSource, EventCrud, ProgramCrud, ReportCrud, ResourceCrud, VenCrud,
     },
     error::AppError,
 };
 use async_trait::async_trait;
 use dotenvy::dotenv;
-use openleadr_wire::{target::Target, ClientId};
+use openleadr_wire::{ClientId, target::Target};
 use resource::PgResourceStorage;
 use serde::Serialize;
-use sqlx::{migrate::MigrateError, postgres::PgPoolOptions, PgPool};
+use sqlx::{PgPool, migrate::MigrateError, postgres::PgPoolOptions};
 use std::sync::Arc;
 use tracing::{error, info};
 

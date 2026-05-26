@@ -1,5 +1,5 @@
 #[cfg(feature = "mdns")]
-use openleadr_client::{discover_local_vtns, DiscoveredVtn};
+use openleadr_client::{DiscoveredVtn, discover_local_vtns};
 #[cfg(feature = "mdns")]
 use openleadr_vtn::{VtnConfig, VtnServer};
 #[cfg(feature = "mdns")]

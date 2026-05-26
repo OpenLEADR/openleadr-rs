@@ -4,8 +4,8 @@ use crate::{
     jwt::Scope,
 };
 use argon2::{
-    password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
 };
 use async_trait::async_trait;
 use openleadr_wire::ClientId;
