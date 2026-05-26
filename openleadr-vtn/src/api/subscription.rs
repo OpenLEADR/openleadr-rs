@@ -273,7 +273,6 @@ pub(crate) async fn notify(
         AnyObject::Subscription(_)
         | AnyObject::Ven(_)
         | AnyObject::Resource(_)
-        // TODO: Double check that Resource Group belongs in this match arm
         | AnyObject::ResourceGroup(_) => None,
     };
 
