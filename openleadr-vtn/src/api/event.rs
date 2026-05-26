@@ -32,9 +32,9 @@ pub async fn get_all(
     User(user): User,
 ) -> AppResponse<Vec<Event>> {
     trace!(?query_params);
-    let events = if user.scope.contains(Scope::ReadAll) {
+    let events = if user.has_scope(Scope::ReadAll) {
         event_source.retrieve_all(&query_params, &None).await?
-    } else if user.scope.contains(Scope::ReadTargets) {
+    } else if user.has_scope(Scope::ReadTargets) {
         event_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -53,9 +53,9 @@ pub async fn get(
     Path(id): Path<EventId>,
     User(user): User,
 ) -> AppResponse<Event> {
-    let event = if user.scope.contains(Scope::ReadAll) {
+    let event = if user.has_scope(Scope::ReadAll) {
         event_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadTargets) {
+    } else if user.has_scope(Scope::ReadTargets) {
         event_source.retrieve(&id, &Some(user.client_id()?)).await?
     } else {
         return Err(AppError::Forbidden(
@@ -74,7 +74,7 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_event): ValidatedJson<EventRequest>,
 ) -> Result<(StatusCode, Json<Event>), AppError> {
-    if !user.scope.contains(Scope::WriteEvents) {
+    if !user.has_scope(Scope::WriteEvents) {
         return Err(AppError::Forbidden("Missing 'write_events' scope"));
     }
 
@@ -102,7 +102,7 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(content): ValidatedJson<EventRequest>,
 ) -> AppResponse<Event> {
-    if !user.scope.contains(Scope::WriteEvents) {
+    if !user.has_scope(Scope::WriteEvents) {
         return Err(AppError::Forbidden("Missing 'write_events' scope"));
     }
 
@@ -129,7 +129,7 @@ pub async fn delete(
     Path(id): Path<EventId>,
     User(user): User,
 ) -> AppResponse<Event> {
-    if !user.scope.contains(Scope::WriteEvents) {
+    if !user.has_scope(Scope::WriteEvents) {
         return Err(AppError::Forbidden("Missing 'write_events' scope"));
     }
 

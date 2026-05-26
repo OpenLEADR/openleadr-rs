@@ -30,9 +30,9 @@ pub async fn get_all(
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
     User(user): User,
 ) -> AppResponse<Vec<Report>> {
-    let reports = if user.scope.contains(Scope::ReadAll) {
+    let reports = if user.has_scope(Scope::ReadAll) {
         report_source.retrieve_all(&query_params, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         report_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -53,9 +53,9 @@ pub async fn get(
     Path(id): Path<ReportId>,
     User(user): User,
 ) -> AppResponse<Report> {
-    let report = if user.scope.contains(Scope::ReadAll) {
+    let report = if user.has_scope(Scope::ReadAll) {
         report_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         report_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
@@ -78,7 +78,7 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_report): ValidatedJson<ReportRequest>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
-    let report = if user.scope.contains(Scope::WriteReports) {
+    let report = if user.has_scope(Scope::WriteReports) {
         report_source
             .create(new_report, &Some(user.client_id()?))
             .await?
@@ -108,7 +108,7 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(content): ValidatedJson<ReportRequest>,
 ) -> AppResponse<Report> {
-    let report = if user.scope.contains(Scope::WriteReports) {
+    let report = if user.has_scope(Scope::WriteReports) {
         report_source
             .update(&id, content, &Some(user.client_id()?))
             .await?
@@ -142,7 +142,7 @@ pub async fn delete(
     // where a BL client can delete a report.
     // If a BL tried to delete a report, it would either fail by not having the `write_reports` scope
     // or because the BLs client_id does not match the reports client_id.
-    let report = if user.scope.contains(Scope::WriteReports) {
+    let report = if user.has_scope(Scope::WriteReports) {
         report_source.delete(&id, &Some(user.client_id()?)).await?
     } else {
         return Err(AppError::Forbidden("Missing 'write_reports' scope"));

@@ -35,7 +35,7 @@ pub async fn get_all(
     State(auth_source): State<Arc<dyn AuthSource>>,
     User(user): User,
 ) -> AppResponse<Vec<UserDetails>> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 
@@ -50,7 +50,7 @@ pub async fn get(
     Path(id): Path<String>,
     User(user): User,
 ) -> AppResponse<UserDetails> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 
@@ -64,7 +64,7 @@ pub async fn add_user(
     User(user): User,
     ValidatedJson(new_user): ValidatedJson<NewUser>,
 ) -> Result<(StatusCode, Json<UserDetails>), AppError> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 
@@ -85,7 +85,7 @@ pub async fn add_credential(
     User(user): User,
     ValidatedJson(new): ValidatedJson<NewCredential>,
 ) -> AppResponse<UserDetails> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 
@@ -107,7 +107,7 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(modified): ValidatedJson<NewUser>,
 ) -> AppResponse<UserDetails> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 
@@ -129,7 +129,7 @@ pub async fn delete_user(
     Path(id): Path<String>,
     User(user): User,
 ) -> AppResponse<UserDetails> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 
@@ -143,7 +143,7 @@ pub async fn delete_credential(
     Path((user_id, client_id)): Path<(String, String)>,
     User(user): User,
 ) -> AppResponse<UserDetails> {
-    if !user.scope.contains(Scope::WriteUsers) {
+    if !user.has_scope(Scope::WriteUsers) {
         return Err(AppError::Forbidden("Missing 'write_users' scope"));
     }
 

@@ -32,9 +32,9 @@ pub async fn get_all(
 ) -> AppResponse<Vec<Resource>> {
     trace!(?query_params);
 
-    let resources = if user.scope.contains(Scope::ReadAll) {
+    let resources = if user.has_scope(Scope::ReadAll) {
         resource_source.retrieve_all(&query_params, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         resource_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -58,9 +58,9 @@ pub async fn get(
     Path(id): Path<ResourceId>,
     User(user): User,
 ) -> AppResponse<Resource> {
-    let resource = if user.scope.contains(Scope::ReadAll) {
+    let resource = if user.has_scope(Scope::ReadAll) {
         resource_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         resource_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
@@ -88,14 +88,14 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_resource): ValidatedJson<ResourceRequest>,
 ) -> Result<(StatusCode, Json<Resource>), AppError> {
-    let resource = if user.scope.contains(Scope::WriteVensBl) {
+    let resource = if user.has_scope(Scope::WriteVensBl) {
         let ResourceRequest::BlResourceRequest(new_resource) = new_resource else {
             return Err(AppError::BadRequest(
                 "Did receive a VEN_RESOURCE_REQUEST, but user is authenticated as a BL client",
             ));
         };
         resource_source.create(new_resource, &None).await?
-    } else if user.scope.contains(Scope::WriteVensVen) {
+    } else if user.has_scope(Scope::WriteVensVen) {
         let ResourceRequest::VenResourceRequest(new_resource) = new_resource else {
             return Err(AppError::BadRequest(
                 "Did receive a BL_RESOURCE_REQUEST, but user is authenticated as a VEN client",
@@ -152,14 +152,14 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<ResourceRequest>,
 ) -> AppResponse<Resource> {
-    let resource = if user.scope.contains(Scope::WriteVensBl) {
+    let resource = if user.has_scope(Scope::WriteVensBl) {
         let ResourceRequest::BlResourceRequest(update) = update else {
             return Err(AppError::BadRequest(
                 "Did receive a VEN_RESOURCE_REQUEST, but user is authenticated as a BL client",
             ));
         };
         resource_source.update(&id, update, &None).await?
-    } else if user.scope.contains(Scope::WriteVensVen) {
+    } else if user.has_scope(Scope::WriteVensVen) {
         let ResourceRequest::VenResourceRequest(update) = update else {
             return Err(AppError::BadRequest(
                 "Did receive a BL_RESOURCE_REQUEST, but user is authenticated as a VEN client",
@@ -219,9 +219,9 @@ pub async fn delete(
     Path(id): Path<ResourceId>,
     User(user): User,
 ) -> AppResponse<Resource> {
-    let resource = if user.scope.contains(Scope::WriteVensBl) {
+    let resource = if user.has_scope(Scope::WriteVensBl) {
         resource_source.delete(&id, &None).await?
-    } else if user.scope.contains(Scope::WriteVensVen) {
+    } else if user.has_scope(Scope::WriteVensVen) {
         resource_source
             .delete(&id, &Some(user.client_id()?))
             .await?

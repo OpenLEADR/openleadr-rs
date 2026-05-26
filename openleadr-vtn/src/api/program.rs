@@ -31,9 +31,9 @@ pub async fn get_all(
 ) -> AppResponse<Vec<Program>> {
     trace!(?query_params);
 
-    let programs = if user.scope.contains(Scope::ReadAll) {
+    let programs = if user.has_scope(Scope::ReadAll) {
         program_source.retrieve_all(&query_params, &None).await?
-    } else if user.scope.contains(Scope::ReadTargets) {
+    } else if user.has_scope(Scope::ReadTargets) {
         program_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -57,9 +57,9 @@ pub async fn get(
     Path(id): Path<ProgramId>,
     User(user): User,
 ) -> AppResponse<Program> {
-    let program = if user.scope.contains(Scope::ReadAll) {
+    let program = if user.has_scope(Scope::ReadAll) {
         program_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadTargets) {
+    } else if user.has_scope(Scope::ReadTargets) {
         program_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
@@ -86,7 +86,7 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_program): ValidatedJson<ProgramRequest>,
 ) -> Result<(StatusCode, Json<Program>), AppError> {
-    if !user.scope.contains(Scope::WritePrograms) {
+    if !user.has_scope(Scope::WritePrograms) {
         return Err(AppError::Forbidden("Missing 'write_programs' scope"));
     }
 
@@ -120,7 +120,7 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(content): ValidatedJson<ProgramRequest>,
 ) -> AppResponse<Program> {
-    if !user.scope.contains(Scope::WritePrograms) {
+    if !user.has_scope(Scope::WritePrograms) {
         return Err(AppError::Forbidden("Missing 'write_programs' scope"));
     }
 
@@ -153,7 +153,7 @@ pub async fn delete(
     Path(id): Path<ProgramId>,
     User(user): User,
 ) -> AppResponse<Program> {
-    if !user.scope.contains(Scope::WritePrograms) {
+    if !user.has_scope(Scope::WritePrograms) {
         return Err(AppError::Forbidden("Missing 'write_programs' scope"));
     }
 

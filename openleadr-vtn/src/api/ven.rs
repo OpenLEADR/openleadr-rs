@@ -31,9 +31,9 @@ pub async fn get_all(
 ) -> AppResponse<Vec<Ven>> {
     trace!(?query_params);
 
-    let vens = if user.scope.contains(Scope::ReadAll) {
+    let vens = if user.has_scope(Scope::ReadAll) {
         ven_source.retrieve_all(&query_params, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         ven_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -53,9 +53,9 @@ pub async fn get(
     Path(id): Path<VenId>,
     User(user): User,
 ) -> AppResponse<Ven> {
-    let ven = if user.scope.contains(Scope::ReadAll) {
+    let ven = if user.has_scope(Scope::ReadAll) {
         ven_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         ven_source.retrieve(&id, &Some(user.client_id()?)).await?
     } else {
         return Err(AppError::Forbidden(
@@ -75,14 +75,14 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_ven): ValidatedJson<VenRequest>,
 ) -> Result<(StatusCode, Json<Ven>), AppError> {
-    let ven = if user.scope.contains(Scope::WriteVensBl) {
+    let ven = if user.has_scope(Scope::WriteVensBl) {
         let VenRequest::BlVenRequest(new_ven) = new_ven else {
             return Err(AppError::BadRequest(
                 "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client",
             ));
         };
         ven_source.create(new_ven, &None).await?
-    } else if user.scope.contains(Scope::WriteVensVen) {
+    } else if user.has_scope(Scope::WriteVensVen) {
         let VenRequest::VenVenRequest(new_ven) = new_ven else {
             return Err(AppError::BadRequest(
                 "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client",
@@ -125,14 +125,14 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<VenRequest>,
 ) -> AppResponse<Ven> {
-    let ven = if user.scope.contains(Scope::WriteVensBl) {
+    let ven = if user.has_scope(Scope::WriteVensBl) {
         let VenRequest::BlVenRequest(update) = update else {
             return Err(AppError::BadRequest(
                 "Did receive a VEN_VEN_REQUEST, but user is authenticated as a BL client",
             ));
         };
         ven_source.update(&id, update, &None).await?
-    } else if user.scope.contains(Scope::WriteVensVen) {
+    } else if user.has_scope(Scope::WriteVensVen) {
         let VenRequest::VenVenRequest(update) = update else {
             return Err(AppError::BadRequest(
                 "Did receive a BL_VEN_REQUEST, but user is authenticated as a VEN client",
@@ -176,7 +176,7 @@ pub async fn delete(
     Path(id): Path<VenId>,
     User(user): User,
 ) -> AppResponse<Ven> {
-    let ven = if user.scope.contains(Scope::WriteVensBl) {
+    let ven = if user.has_scope(Scope::WriteVensBl) {
         ven_source.delete(&id, &None).await?
     } else {
         return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
