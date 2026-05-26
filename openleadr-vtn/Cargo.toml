@@ -49,12 +49,14 @@ mdns-sd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+futures.workspace = true
+tokio-tungstenite.workspace = true
 serial_test.workspace = true
 serde_html_form = "0.4.0"
 openleadr-client = { path = "../openleadr-client" }
 
 [features]
-default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd"]
+default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd", "experimental-websockets"]
 live-db-test = ["postgres", "internal-oauth"]
 postgres = ["sqlx/postgres", "dep:dotenvy", "dep:argon2"]
 internal-oauth = []
