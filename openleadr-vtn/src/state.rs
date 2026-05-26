@@ -551,19 +551,21 @@ mod test {
 
     impl SubscriptionCrud for MockSubscriptionSource {}
 
+    // It is critical for the safety assumption of env::{set_var, remove_var} that the tests in this
+    // module do not run in parallel.
+    #[serial_test::serial]
     mod state_from_env_var {
         use super::*;
-        use serial_test::serial;
 
         fn set_env_var(key: &str, value: &str) {
-            // SAFETY: set_env_var and remove_env_var are used only here with `[serial]`
+            // SAFETY: env::set_var is used only in this module with `[serial_test::serial]`
             unsafe {
                 env::set_var(key, value);
             }
         }
 
         fn remove_env_var(key: &str) {
-            // SAFETY: See set_env_var
+            // SAFETY: env::remove_var is used only in this module with `[serial_test::serial]`
             unsafe {
                 env::remove_var(key);
             }
@@ -580,7 +582,6 @@ mod test {
 
         #[tokio::test]
         #[should_panic(expected = "OAUTH_BASE64_SECRET must have at least 32 bytes")]
-        #[serial]
         async fn internal_oauth_short_secret() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
@@ -590,7 +591,6 @@ mod test {
 
         #[tokio::test]
         #[should_panic(expected = "OAUTH_BASE64_SECRET contains invalid base64 string")]
-        #[serial]
         async fn internal_oauth_invalid_base64_secret() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
@@ -599,7 +599,6 @@ mod test {
         }
 
         #[tokio::test]
-        #[serial]
         async fn implicit_internal_oauth() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
@@ -611,7 +610,6 @@ mod test {
         }
 
         #[tokio::test]
-        #[serial]
         async fn explicit_internal_oauth() {
             clean_env();
             set_env_var("OAUTH_TYPE", "INTERNAL");
@@ -624,7 +622,6 @@ mod test {
         }
 
         #[tokio::test]
-        #[serial]
         async fn explicit_internal_explicit_key_type_oauth() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
@@ -639,7 +636,6 @@ mod test {
 
         #[tokio::test]
         #[should_panic(expected = "Internal OAuth provider only supports HMAC JWT keys")]
-        #[serial]
         async fn explicit_internal_explicit_wrong_key_type_oauth() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://localhost:3000/auth/token");
@@ -656,7 +652,6 @@ mod test {
         #[should_panic(
             expected = "Must specify key type for external OAuth provider. Use OAUTH_KEY_TYPE environment variable"
         )]
-        #[serial]
         async fn external_missing_key_type_oauth() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
@@ -670,7 +665,6 @@ mod test {
         #[should_panic(
             expected = "OAUTH_PEM or OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with the given key type"
         )]
-        #[serial]
         async fn external_missing_jwks_location_oauth_and_oauth_pem() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
@@ -681,7 +675,6 @@ mod test {
         }
 
         #[tokio::test]
-        #[serial]
         async fn external_missing_valid_audiences_oauth() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
@@ -692,7 +685,6 @@ mod test {
         }
 
         #[tokio::test]
-        #[serial]
         async fn external_rsa() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
@@ -705,7 +697,6 @@ mod test {
 
         #[tokio::test]
         #[should_panic(expected = "Cannot read EC key: Error(InvalidKeyFormat)")]
-        #[serial]
         async fn external_provide_rsa_key_instead_of_ec() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
@@ -718,7 +709,6 @@ mod test {
 
         #[tokio::test]
         #[should_panic(expected = "Cannot read Ed key: Error(InvalidKeyFormat)")]
-        #[serial]
         async fn external_provide_rsa_key_instead_of_ed() {
             clean_env();
             set_env_var("OAUTH_TOKEN_URL", "http://sometwhere/auth/token");
