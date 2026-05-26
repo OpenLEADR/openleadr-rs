@@ -44,6 +44,8 @@ pub enum AppError {
     #[cfg(feature = "sqlx")]
     #[error("database error: {0}")]
     Sql(sqlx::Error),
+    #[error("MQTT error: {0}")]
+    Mqtt(paho_mqtt::Error),
     #[error("Storage connection pool closed")]
     StorageConnectionError,
     #[cfg(feature = "sqlx")]
@@ -79,6 +81,12 @@ impl From<sqlx::Error> for AppError {
             }
             _ => Self::Sql(err),
         }
+    }
+}
+
+impl From<paho_mqtt::Error> for AppError {
+    fn from(value: paho_mqtt::Error) -> Self {
+        Self::Mqtt(value)
     }
 }
 
@@ -245,6 +253,16 @@ impl IntoResponse for AppError {
                     title: Some(StatusCode::INTERNAL_SERVER_ERROR.to_string()),
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     detail: Some("A database error occurred".to_string()),
+                    instance: Some(reference.to_string()),
+                }
+            }
+            AppError::Mqtt(err) => {
+                error!(%reference, "MQTT error: {}", err);
+                Problem {
+                    r#type: Default::default(),
+                    title: Some(StatusCode::INTERNAL_SERVER_ERROR.to_string()),
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    detail: Some("An mqtt error occurred".to_string()),
                     instance: Some(reference.to_string()),
                 }
             }
