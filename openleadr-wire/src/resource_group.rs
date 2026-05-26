@@ -167,7 +167,6 @@ mod test {
         assert_eq!(expected, parsed);
     }
 
-    // TODO: BL_RESOURCE_GROUP_REQUEST as discriminator?
     #[test]
     fn request_discriminator() {
         let bl_request = r#"

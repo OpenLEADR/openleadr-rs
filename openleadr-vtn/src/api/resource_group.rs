@@ -123,8 +123,6 @@ pub async fn edit(
 ) -> AppResponse<ResourceGroup> {
     let new_resource_group = BlResourceGroupRequest {
         resource_group_name: update.resource_group_name,
-        // TODO: Check if this is still correct
-        // VEN clients are not allowed to specify the targets of their resources
         targets: update.targets,
         attributes: update.attributes,
         children: update.children,
