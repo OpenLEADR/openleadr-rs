@@ -29,8 +29,10 @@ serde_with = { version = "3.17.0", features = ["macros"] }
 reqwest = { version = "0.13.2", default-features = false, features = ["http2", "charset", "rustls", "json", "query", "form"] }
 tokio = { version = "1.50.0", features = ["full", "test-util"] }
 tokio-test = "0.4.5"
+futures = "0.3.32"
 axum = { version = "0.8.8", features = ["macros"] }
 axum-extra = { version = "0.12.5", features = ["query", "typed-header"] }
+tokio-tungstenite = "0.29.0"
 tower = { version = "0.5.3", features = ["util"] }
 
 tracing = "0.1.44"

@@ -456,27 +456,38 @@ pub(crate) async fn notifier_websocket_get(
 
 #[cfg(test)]
 mod test {
+    use std::{collections::HashMap, sync::Arc};
+
     use async_trait::async_trait;
     use axum::body::Body;
     use chrono::DateTime;
     use openleadr_wire::{
-        ClientId, Event, Program, Report, Ven,
-        event::{EventRequest, Priority},
+        ClientId, Event, ObjectType, Program, Report, Ven,
+        event::{EventId, EventRequest, Priority},
         problem::Problem,
         program::ProgramRequest,
         report::ReportRequest,
         resource::{BlResourceRequest, Resource},
         resource_group::ResourceGroupId,
-        subscription::{AnyObject, Subscription, SubscriptionRequest},
+        subscription::{
+            AnyObject, Notification, NotificationMechanism, Operation, Subscription,
+            SubscriptionObjectOperation, SubscriptionRequest,
+        },
         target::Target,
         ven::{BlVenRequest, VenId},
     };
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
+    use tokio::sync::{Mutex, mpsc::unbounded_channel};
+    use uuid::ContextV7;
 
     use crate::{
-        api::{subscription::privacy_filter_object, test::ApiTest},
-        data_source::VenObjectPrivacy,
+        api::{
+            event::QueryParams,
+            subscription::{NotifierState, notify, privacy_filter_object},
+            test::ApiTest,
+        },
+        data_source::{Crud, EventCrud, VenObjectPrivacy},
         error::AppError,
         jwt::{Claims, Scope},
     };
@@ -534,6 +545,298 @@ mod test {
         ) -> Result<Option<VenId>, AppError> {
             unimplemented!()
         }
+    }
+
+    struct TestEventCrud;
+
+    #[async_trait]
+    impl Crud for TestEventCrud {
+        type Type = Event;
+        type Id = EventId;
+        type NewType = EventRequest;
+        type Error = AppError;
+        type Filter = QueryParams;
+        type PermissionFilter = Option<ClientId>;
+
+        async fn create(
+            &self,
+            _new: Self::NewType,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+        async fn retrieve(
+            &self,
+            _id: &Self::Id,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+        async fn retrieve_all(
+            &self,
+            _filter: &Self::Filter,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Vec<Self::Type>, Self::Error> {
+            unimplemented!()
+        }
+        async fn update(
+            &self,
+            _id: &Self::Id,
+            _new: Self::NewType,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+        async fn delete(
+            &self,
+            _id: &Self::Id,
+            _permission_filter: &Self::PermissionFilter,
+        ) -> Result<Self::Type, Self::Error> {
+            unimplemented!()
+        }
+    }
+
+    impl EventCrud for TestEventCrud {}
+
+    #[tokio::test]
+    async fn subscription_filtering() {
+        let (test_client_a_tx, mut test_client_a_rx) = unbounded_channel();
+        let (test_client_b_tx, mut test_client_b_rx) = unbounded_channel();
+        let (test_client_c_tx, mut test_client_c_rx) = unbounded_channel();
+        let websockets = HashMap::from([
+            (
+                "test_client_a".parse().unwrap(),
+                (test_client_a_tx, Claims::from_scopes(vec![Scope::ReadAll])),
+            ),
+            (
+                "test_client_id".parse().unwrap(),
+                (
+                    test_client_b_tx,
+                    Claims::from_scopes(vec![Scope::ReadVenObjects, Scope::ReadTargets]),
+                ),
+            ),
+            (
+                "test_client_c".parse().unwrap(),
+                (test_client_c_tx, Claims::from_scopes(vec![Scope::ReadAll])),
+            ),
+        ]);
+
+        let subscription_1 = Subscription {
+            id: "subscription_1".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            client_id: "test_client_a".parse().unwrap(),
+            content: SubscriptionRequest {
+                client_name: "subscription 1".into(),
+                program_id: None,
+                object_operations: vec![SubscriptionObjectOperation {
+                    objects: vec![ObjectType::Event],
+                    operations: vec![Operation::Create],
+                    mechanism: NotificationMechanism::Websocket,
+                    callback_url: None,
+                    bearer_token: None,
+                }],
+            },
+        };
+
+        let subscription_2 = Subscription {
+            id: "subscription_2".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            client_id: "test_client_id".parse().unwrap(),
+            content: SubscriptionRequest {
+                client_name: "subscription 2".into(),
+                program_id: None,
+                object_operations: vec![SubscriptionObjectOperation {
+                    objects: vec![ObjectType::Event],
+                    operations: vec![Operation::Create, Operation::Delete],
+                    mechanism: NotificationMechanism::Websocket,
+                    callback_url: None,
+                    bearer_token: None,
+                }],
+            },
+        };
+
+        let subscription_3 = Subscription {
+            id: "subscription_3".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            client_id: "test_client_c".parse().unwrap(),
+            content: SubscriptionRequest {
+                client_name: "subscription 3".into(),
+                program_id: Some("program_2".parse().unwrap()),
+                object_operations: vec![SubscriptionObjectOperation {
+                    objects: vec![ObjectType::Event],
+                    operations: vec![Operation::Create],
+                    mechanism: NotificationMechanism::Websocket,
+                    callback_url: None,
+                    bearer_token: None,
+                }],
+            },
+        };
+
+        let subscriptions = HashMap::from([
+            ("subscription_1".parse().unwrap(), subscription_1),
+            ("subscription_2".parse().unwrap(), subscription_2),
+            ("subscription_3".parse().unwrap(), subscription_3),
+        ]);
+
+        let state = NotifierState {
+            uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
+            websockets: Mutex::new(websockets),
+            subscriptions: Mutex::new(subscriptions),
+        };
+
+        notify(
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Create,
+            AnyObject::Event(Event {
+                id: "test_event_1".parse().unwrap(),
+                created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                content: EventRequest {
+                    program_id: "program_1".parse().unwrap(),
+                    event_name: None,
+                    duration: None,
+                    priority: Priority::MIN,
+                    targets: vec!["test_target_1".parse().unwrap()],
+                    report_descriptors: None,
+                    payload_descriptors: None,
+                    interval_period: None,
+                    intervals: None,
+                },
+            }),
+        )
+        .await;
+
+        assert!(test_client_a_rx.try_recv().is_ok());
+        assert!(test_client_a_rx.try_recv().is_err());
+        assert!(test_client_b_rx.try_recv().is_ok());
+        assert!(test_client_b_rx.try_recv().is_err());
+        assert!(test_client_c_rx.try_recv().is_err());
+
+        notify(
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Create,
+            AnyObject::Event(Event {
+                id: "test_event_2".parse().unwrap(),
+                created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                content: EventRequest {
+                    program_id: "program_2".parse().unwrap(),
+                    event_name: None,
+                    duration: None,
+                    priority: Priority::MIN,
+                    targets: vec!["test_target_2".parse().unwrap()],
+                    report_descriptors: None,
+                    payload_descriptors: None,
+                    interval_period: None,
+                    intervals: None,
+                },
+            }),
+        )
+        .await;
+
+        assert!(test_client_a_rx.try_recv().is_ok());
+        assert!(test_client_a_rx.try_recv().is_err());
+        assert!(test_client_b_rx.try_recv().is_err());
+        assert!(test_client_c_rx.try_recv().is_ok());
+        assert!(test_client_c_rx.try_recv().is_err());
+
+        notify(
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Delete,
+            AnyObject::Event(Event {
+                id: "test_event_1".parse().unwrap(),
+                created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                content: EventRequest {
+                    program_id: "program_1".parse().unwrap(),
+                    event_name: None,
+                    duration: None,
+                    priority: Priority::MIN,
+                    targets: vec!["test_target_1".parse().unwrap()],
+                    report_descriptors: None,
+                    payload_descriptors: None,
+                    interval_period: None,
+                    intervals: None,
+                },
+            }),
+        )
+        .await;
+
+        assert!(test_client_a_rx.try_recv().is_err());
+        assert!(test_client_b_rx.try_recv().is_ok());
+        assert!(test_client_b_rx.try_recv().is_err());
+        assert!(test_client_c_rx.try_recv().is_err());
+    }
+
+    #[cfg(feature = "experimental-websockets")]
+    #[sqlx::test(fixtures("vens", "programs", "events"))]
+    async fn websocket_end_to_end(db: PgPool) {
+        use futures::StreamExt;
+        use tokio_tungstenite::{
+            connect_async,
+            tungstenite::{ClientRequestBuilder, Message},
+        };
+
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![
+                Scope::WriteReports,
+                Scope::WriteSubscriptionsBl,
+                Scope::ReadAll,
+            ],
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(r#"{"clientName": "ven-1-name", "programID": "program-1", "objectOperations": [{"objects": ["REPORT"], "operations": ["CREATE"], "mechanism": "WEBHOOK"}]}"#),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (token, addr, handle) = server.run().await;
+        let request = ClientRequestBuilder::new(
+            format!("ws://localhost:{}/notifiers/ws", addr.port())
+                .parse()
+                .unwrap(),
+        )
+        .with_header("Authorization", format!("Bearer {token}"));
+        let (mut client_socket, _) = connect_async(request).await.unwrap();
+
+        let (status, _) = server
+            .request::<Report>(
+                Method::POST,
+                "/reports",
+                Body::from(
+                    r#"{"eventID": "event-1", "clientName": "report-1-name", "resources": []}"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let Message::Text(notification) = client_socket.next().await.unwrap().unwrap() else {
+            panic!("Unexpected message type");
+        };
+
+        let notification: Notification = serde_json::from_str(&notification).unwrap();
+
+        assert_eq!(notification.operation, Operation::Create);
+
+        client_socket.close(None).await.ok();
+
+        handle.abort();
     }
 
     #[tokio::test]

@@ -115,7 +115,12 @@ pub mod test {
     use reqwest::Method;
     use serde::de::DeserializeOwned;
     use sqlx::PgPool;
-    use std::fmt::Display;
+    use std::{
+        fmt::Display,
+        future::IntoFuture,
+        net::{Ipv4Addr, SocketAddr},
+    };
+    use tokio::{net::TcpListener, task::JoinHandle};
     use tower::ServiceExt;
 
     pub(crate) struct ApiTest {
@@ -140,6 +145,18 @@ pub mod test {
             let router = app_state.into_router();
 
             Self { router, token }
+        }
+
+        #[cfg(feature = "experimental-websockets")]
+        pub(crate) async fn run(
+            &self,
+        ) -> (String, SocketAddr, JoinHandle<Result<(), std::io::Error>>) {
+            let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+                .await
+                .unwrap();
+            let listen_addr = listener.local_addr().unwrap();
+            let handle = tokio::spawn(axum::serve(listener, self.router.clone()).into_future());
+            (self.token.clone(), listen_addr, handle)
         }
 
         pub(crate) async fn request<T: DeserializeOwned>(
