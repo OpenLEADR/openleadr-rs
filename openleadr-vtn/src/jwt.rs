@@ -255,8 +255,10 @@ pub(crate) struct Claims {
     /// Can be a single string or an array of strings in the JWT, always deserialized as Vec.
     #[serde(default, deserialize_with = "string_or_vec::deserialize")]
     aud: Option<Vec<String>>,
-    #[serde(default, alias = "roles")]
+    #[serde(default)]
     pub(crate) scope: Scopes,
+    #[serde(default)]
+    pub(crate) roles: Scopes,
 }
 
 impl Claims {
@@ -266,6 +268,11 @@ impl Claims {
                 "OAuth2 subject cannot be parsed as OpenADR clientId: {err}"
             ))
         })
+    }
+
+    /// Returns true if either the `scope` or `roles` claim contains the given scope.
+    pub(crate) fn has_scope(&self, scope: Scope) -> bool {
+        self.scope.contains(scope) || self.roles.contains(scope)
     }
 }
 
@@ -399,6 +406,7 @@ impl JwtManager {
             nbf: Some(now.timestamp()),
             aud,
             scope: scope.into(),
+            roles: Scopes::default(),
         };
 
         if let Some(encoding_key) = &self.encoding_key {
@@ -684,7 +692,8 @@ mod test {
                 exp: 1,
                 iat: None,
                 nbf: None,
-                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+                scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+                roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
         );
         assert_eq!(
@@ -695,7 +704,8 @@ mod test {
                 exp: 2,
                 iat: None,
                 nbf: None,
-                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+                scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+                roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
         );
         assert_eq!(
@@ -706,7 +716,8 @@ mod test {
                 exp: 3,
                 iat: None,
                 nbf: None,
-                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+                scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+                roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
         );
         assert_eq!(
@@ -717,7 +728,8 @@ mod test {
                 exp: 4,
                 iat: None,
                 nbf: None,
-                scope: crate::jwt::Scopes(Vec::with_capacity(0))
+                scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+                roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
         );
     }

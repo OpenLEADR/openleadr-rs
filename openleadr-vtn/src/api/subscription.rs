@@ -86,11 +86,11 @@ pub async fn get_all(
         return Err(AppError::BadRequest(error));
     }
 
-    let resources = if user.scope.contains(Scope::ReadAll) {
+    let resources = if user.has_scope(Scope::ReadAll) {
         subscription_source
             .retrieve_all(&query_params, &None)
             .await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         subscription_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -114,9 +114,9 @@ pub async fn get(
     Path(id): Path<SubscriptionId>,
     User(user): User,
 ) -> AppResponse<Subscription> {
-    let subscription = if user.scope.contains(Scope::ReadAll) {
+    let subscription = if user.has_scope(Scope::ReadAll) {
         subscription_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         subscription_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
@@ -144,7 +144,7 @@ pub async fn add(
 ) -> Result<(StatusCode, Json<Subscription>), AppError> {
     let client_id = user.client_id()?;
 
-    let subscription = if user.scope.contains(Scope::WriteSubscriptions) {
+    let subscription = if user.has_scope(Scope::WriteSubscriptions) {
         subscription_source
             .create(new_subscription, &Some(client_id))
             .await?
@@ -176,7 +176,7 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<SubscriptionRequest>,
 ) -> AppResponse<Subscription> {
-    let subscription = if user.scope.contains(Scope::WriteSubscriptions) {
+    let subscription = if user.has_scope(Scope::WriteSubscriptions) {
         subscription_source
             .update(&id, update, &Some(user.client_id()?))
             .await?
@@ -207,7 +207,7 @@ pub async fn delete(
     Path(id): Path<SubscriptionId>,
     User(user): User,
 ) -> AppResponse<Subscription> {
-    let subscription = if user.scope.contains(Scope::WriteSubscriptions) {
+    let subscription = if user.has_scope(Scope::WriteSubscriptions) {
         subscription_source
             .delete(&id, &Some(user.client_id()?))
             .await?
@@ -308,7 +308,7 @@ pub(crate) async fn notify(
 }
 
 pub(crate) async fn notifier_get(User(user): User) -> Result<Json<NotifiersResponse>, AppError> {
-    if !user.scope.contains(Scope::ReadAll) {
+    if !user.has_scope(Scope::ReadAll) {
         return Err(AppError::Forbidden("Missing 'read_all' scope"));
     }
 
@@ -323,7 +323,7 @@ pub(crate) async fn notifier_websocket_get(
     User(user): User,
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
-    if !user.scope.contains(Scope::ReadAll) {
+    if !user.has_scope(Scope::ReadAll) {
         return Err(AppError::Forbidden("Missing 'read_all' scope"));
     }
 
