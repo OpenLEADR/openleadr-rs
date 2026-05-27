@@ -319,8 +319,9 @@ impl<'de> Visitor<'de> for ScopesVisitor {
         A: de::SeqAccess<'de>,
     {
         let mut scopes = Vec::new();
-        while let Some(scope) = seq.next_element::<Scope>().transpose() {
-            match scope {
+        // First parse as String and only then attempt to parse as Scope
+        while let Some(scope_str) = seq.next_element::<String>()? {
+            match scope_str.parse::<Scope>() {
                 Ok(scope) => scopes.push(scope),
                 Err(err) => warn!("Ignoring invalid scope: {err}"),
             }
@@ -667,6 +668,57 @@ mod test {
             .await;
         assert_eq!(problem.detail, Some("OAuth2 subject cannot be parsed as OpenADR clientId: identifier contains characters besides [a-zA-Z0-9_-]: This is not a valid client ID".to_string()));
         assert_eq!(status_code, 401);
+    }
+
+    #[test]
+    fn check_both_scopes_and_roles() {
+        let claim = r#"{
+            "sub": "test",
+            "exp": 1,
+            "scope": ["read_targets"],
+            "roles": ["write_reports"]
+        }"#;
+        let claim = serde_json::from_str::<Claims>(claim).unwrap();
+        assert!(claim.has_scope(Scope::ReadTargets));
+        assert!(claim.has_scope(Scope::WriteReports));
+    }
+
+    #[test]
+    fn missing_quote_does_not_timeout() {
+        let missing_quotes_around_scope = r#"{
+            "sub": "test",
+            "exp": 1,
+            "scope": [unquoted_value],
+        }"#;
+        let claim = serde_json::from_str::<Claims>(missing_quotes_around_scope);
+
+        // This is invalid JSON, but should not hang
+        let claim_error = claim.unwrap_err();
+        assert!(claim_error
+            .to_string()
+            .starts_with("expected value at line"));
+    }
+
+    #[test]
+    fn invalid_scope_is_ignored() {
+        let claim = r#"{
+            "sub": "test",
+            "exp": 1,
+            "scope": ["bogus"]
+        }"#;
+        let claim = serde_json::from_str::<Claims>(claim).unwrap();
+        assert_eq!(
+            claim,
+            Claims {
+                sub: "test".to_string(),
+                aud: None,
+                exp: 1,
+                iat: None,
+                nbf: None,
+                scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+                roles: crate::jwt::Scopes(Vec::with_capacity(0)),
+            }
+        );
     }
 
     #[test]
