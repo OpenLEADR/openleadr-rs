@@ -126,13 +126,13 @@ pub trait ResourceCrud:
 
 pub trait ResourceGroupCrud:
     Crud<
-    Type = ResourceGroup,
-    Id = ResourceGroupId,
-    NewType = BlResourceGroupRequest,
-    Error = AppError,
-    Filter = crate::api::resource_group::QueryParams,
-    PermissionFilter = Option<ClientId>,
->
+        Type = ResourceGroup,
+        Id = ResourceGroupId,
+        NewType = BlResourceGroupRequest,
+        Error = AppError,
+        Filter = crate::api::resource_group::QueryParams,
+        PermissionFilter = Option<ClientId>,
+    >
 {
 }
 
