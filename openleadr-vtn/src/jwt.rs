@@ -693,9 +693,11 @@ mod test {
 
         // This is invalid JSON, but should not hang
         let claim_error = claim.unwrap_err();
-        assert!(claim_error
-            .to_string()
-            .starts_with("expected value at line"));
+        assert!(
+            claim_error
+                .to_string()
+                .starts_with("expected value at line")
+        );
     }
 
     #[test]
