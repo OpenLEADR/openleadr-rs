@@ -1,3 +1,4 @@
+.zed/
 .idea/
 **/target
 oadr*.yaml
