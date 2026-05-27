@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -16,8 +16,8 @@ use openleadr_wire::{
 
 use crate::{
     api::{
-        subscription::{self, NotifierState},
         AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery,
+        subscription::{self, NotifierState},
     },
     data_source::{EventCrud, ResourceGroupCrud},
     error::AppError,
@@ -241,10 +241,12 @@ mod test {
                 .await;
 
             assert_eq!(status, StatusCode::BAD_REQUEST);
-            assert!(error
-                .detail
-                .unwrap()
-                .contains("outside of allowed range 1..=128"))
+            assert!(
+                error
+                    .detail
+                    .unwrap()
+                    .contains("outside of allowed range 1..=128")
+            )
         }
     }
 
@@ -326,12 +328,14 @@ mod test {
         assert_eq!(resource_group.id.as_str(), "ouroboros");
 
         // This resource group _should_ be its own child
-        assert!(resource_group
-            .content
-            .children
-            .contains(&ResourceGroupChild::ResourceGroup(
-                "ouroboros".parse().unwrap()
-            )));
+        assert!(
+            resource_group
+                .content
+                .children
+                .contains(&ResourceGroupChild::ResourceGroup(
+                    "ouroboros".parse().unwrap()
+                ))
+        );
         assert_eq!(resource_group.content.children.len(), 1)
     }
 

@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
+use serde_with::{DefaultOnNull, serde_as, skip_serializing_none};
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
 
 use crate::{
-    resource::ResourceId, target::Target, values_map::ValuesMap, Identifier, IdentifierError,
+    Identifier, IdentifierError, resource::ResourceId, target::Target, values_map::ValuesMap,
 };
 
 /// A [`ResourceGroup`] is a grouping of nested resource groups or VEN resources, which is managed
