@@ -1,13 +1,13 @@
 //! Types used for the `event/` endpoint
 
 use crate::{
-    interval::IntervalPeriod, program::ProgramId, report::ReportDescriptor, target::Target,
-    values_map::Value, Duration, Identifier, IdentifierError, Unit,
+    Duration, Identifier, IdentifierError, Unit, interval::IntervalPeriod, program::ProgramId,
+    report::ReportDescriptor, target::Target, values_map::Value,
 };
 use chrono::{DateTime, Utc};
 use iso_currency::Currency;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, skip_serializing_none, DefaultOnNull};
+use serde_with::{DefaultOnNull, serde_as, skip_serializing_none};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -360,7 +360,7 @@ fn validate_value_error(value_type: &EventType, value: &Value) -> ValidationErro
 
 #[cfg(test)]
 mod tests {
-    use crate::{values_map::Value, Duration};
+    use crate::{Duration, values_map::Value};
     use std::borrow::Cow;
 
     use super::*;

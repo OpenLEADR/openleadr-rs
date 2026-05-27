@@ -1,14 +1,14 @@
 use crate::{
     api::resource::QueryParams,
-    data_source::{postgres::to_json_value, Crud, ResourceCrud},
+    data_source::{Crud, ResourceCrud, postgres::to_json_value},
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
+    ClientId,
     resource::{BlResourceRequest, Resource, ResourceId},
     target::Target,
-    ClientId,
 };
 use sqlx::PgPool;
 use tracing::{error, trace, warn};
@@ -295,8 +295,8 @@ impl Crud for PgResourceStorage {
 #[cfg(feature = "live-db-test")]
 mod test {
     use crate::{
-        api::{resource::QueryParams, TargetQueryParams},
-        data_source::{postgres::resource::PgResourceStorage, Crud},
+        api::{TargetQueryParams, resource::QueryParams},
+        data_source::{Crud, postgres::resource::PgResourceStorage},
     };
     use sqlx::PgPool;
 

@@ -1,6 +1,6 @@
 //! Descriptions of temporal periods
 
-use crate::{values_map::ValuesMap, Duration};
+use crate::{Duration, values_map::ValuesMap};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;

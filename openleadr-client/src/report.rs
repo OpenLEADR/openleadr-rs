@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use openleadr_wire::{report::ReportRequest, Report};
+use openleadr_wire::{Report, report::ReportRequest};
 
-use crate::{error::Result, ClientKind, ClientRef};
+use crate::{ClientKind, ClientRef, error::Result};
 
 /// Client to manage the data of a specific report
 ///

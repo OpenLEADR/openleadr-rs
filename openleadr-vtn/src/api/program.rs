@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -11,17 +11,17 @@ use validator::Validate;
 
 use crate::{
     api::{
-        subscription, subscription::NotifierState, AppResponse, TargetQueryParams, ValidatedJson,
-        ValidatedQuery,
+        AppResponse, TargetQueryParams, ValidatedJson, ValidatedQuery, subscription,
+        subscription::NotifierState,
     },
     data_source::{EventCrud, ProgramCrud},
     error::AppError,
     jwt::{Scope, User},
 };
 use openleadr_wire::{
+    Program,
     program::{ProgramId, ProgramRequest},
     subscription::{AnyObject, Operation},
-    Program,
 };
 
 pub async fn get_all(
@@ -198,9 +198,9 @@ mod test {
     use super::*;
     use crate::data_source::DataSource;
     use axum::{
+        Router,
         body::Body,
         http::{self, Request, Response, StatusCode},
-        Router,
     };
     use http_body_util::BodyExt;
     use openleadr_wire::{problem::Problem, target::Target};

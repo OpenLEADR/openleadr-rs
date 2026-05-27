@@ -1,11 +1,11 @@
 use crate::{
-    error::{Error, Result},
     Client, ClientKind, EventClient, Filter, PaginationOptions, ProgramId, ProgramRequest,
     Timeline,
+    error::{Error, Result},
 };
 use openleadr_wire::{
-    event::{EventInterval, EventRequest, Priority},
     Program,
+    event::{EventInterval, EventRequest, Priority},
 };
 
 /// A client for interacting with the data in a specific program and the events

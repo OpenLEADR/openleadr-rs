@@ -41,10 +41,8 @@ pub async fn discover_local_vtns(
                                 });
 
                                 // Check if we've hit the limit
-                                if let Some(vtn_limit) = vtn_limit {
-                                    if found_vtns.len() >= vtn_limit {
-                                        return found_vtns;
-                                    }
+                                if let Some(vtn_limit) = vtn_limit && found_vtns.len() >= vtn_limit {
+                                    return found_vtns;
                                 }
                             }
                             Err(e) => {

@@ -1,17 +1,17 @@
 use crate::{
     api::program::QueryParams,
     data_source::{
-        postgres::{get_ven_targets, intersection, to_json_value},
         Crud, ProgramCrud,
+        postgres::{get_ven_targets, intersection, to_json_value},
     },
     error::AppError,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use openleadr_wire::{
+    ClientId, Program,
     program::{ProgramId, ProgramRequest},
     target::Target,
-    ClientId, Program,
 };
 use sqlx::PgPool;
 use tracing::error;
@@ -438,16 +438,16 @@ impl PgProgramStorage {
 #[cfg(feature = "live-db-test")]
 mod tests {
     use crate::{
-        api::{program::QueryParams, TargetQueryParams},
-        data_source::{postgres::program::PgProgramStorage, Crud},
+        api::{TargetQueryParams, program::QueryParams},
+        data_source::{Crud, postgres::program::PgProgramStorage},
         error::AppError,
     };
     use openleadr_wire::{
+        ClientId, Program,
         event::{EventPayloadDescriptor, EventType},
         interval::IntervalPeriod,
         program::{PayloadDescriptor, ProgramDescription, ProgramRequest},
         target::Target,
-        ClientId, Program,
     };
     use sqlx::PgPool;
     use std::str::FromStr;

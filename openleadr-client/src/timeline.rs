@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use tracing::warn;
 
 use openleadr_wire::{
+    Program,
     event::{EventRequest, EventValuesMap, Priority},
     interval::IntervalPeriod,
-    Program,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
