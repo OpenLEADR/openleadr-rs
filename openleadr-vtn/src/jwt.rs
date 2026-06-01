@@ -255,9 +255,9 @@ pub(crate) struct Claims {
     #[serde(default, deserialize_with = "string_or_vec::deserialize")]
     aud: Option<Vec<String>>,
     #[serde(default)]
-    pub(crate) scope: Scopes,
+    scope: Scopes,
     #[serde(default)]
-    pub(crate) roles: Scopes,
+    roles: Scopes,
 }
 
 impl Claims {
