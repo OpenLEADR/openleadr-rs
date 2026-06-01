@@ -1,9 +1,4 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    convert::Infallible,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 
 use axum::{
     Json,
@@ -471,25 +466,59 @@ pub(crate) async fn notify(
 
         macro_rules! publish_mqtt_push_by_targets {
             ($kind:literal, $targets:expr) => {
-                let mut vens = BTreeSet::new();
-                for target in &$targets {
-                    if let Ok(new_vens) = ven_source
-                        .retrieve_all(
-                            &super::ven::QueryParams {
-                                ven_name: None,
-                                targets: crate::api::TargetQueryParams(Some(vec![target.clone()])),
-                                skip: 0,
-                                limit: i64::MAX,
-                            },
-                            &None,
+                if let Ok(vens) = ven_source
+                    .retrieve_all(
+                        &super::ven::QueryParams {
+                            ven_name: None,
+                            targets: crate::api::TargetQueryParams(None),
+                            skip: 0,
+                            limit: i64::MAX,
+                        },
+                        &None,
+                    )
+                    .await
+                {
+                    for ven in vens {
+                        if let Some(object) = privacy_filter_object(
+                            &object,
+                            privacy,
+                            &ven.content.client_id,
+                            &Claims::temporary_claims_for_mqtt_ven(&ven),
                         )
                         .await
-                    {
-                        vens.extend(new_vens.into_iter().map(|ven| ven.id));
+                        {
+                            let mqtt_notification = serde_json::to_vec(&Notification {
+                                id: uuid.clone(),
+                                operation,
+                                object,
+                            })
+                            .unwrap();
+                            mqtt_state
+                                .client
+                                .publish(paho_mqtt::Message::new(
+                                    format!(
+                                        "{}vens/{}/{}/{operation_str}",
+                                        mqtt_state.topic_prefix, ven.id, $kind,
+                                    ),
+                                    &*mqtt_notification,
+                                    QoS::AtMostOnce,
+                                ))
+                                .await
+                                .unwrap();
+                            mqtt_state
+                                .client
+                                .publish(paho_mqtt::Message::new(
+                                    format!(
+                                        "{}push/vens/{}/{}/{operation_str}",
+                                        mqtt_state.topic_prefix, ven.id, $kind,
+                                    ),
+                                    &*mqtt_push_notification,
+                                    QoS::AtMostOnce,
+                                ))
+                                .await
+                                .unwrap()
+                        }
                     }
-                }
-                for ven in vens {
-                    publish_mqtt_push!(format!("vens/{ven}/{}/", $kind));
                 }
             };
         }
@@ -508,19 +537,13 @@ pub(crate) async fn notify(
             AnyObject::ResourceGroup(_) => {}
             AnyObject::Program(program) => {
                 publish_mqtt_push!(&format!("programs/{}/", program.id));
-                if program.content.targets.is_empty() {
-                    publish_mqtt_push!("programs/"); // Public event
-                } else {
-                    publish_mqtt_push_by_targets!("programs", program.content.targets);
-                }
+                publish_mqtt_push!("programs/"); // Public event
+                publish_mqtt_push_by_targets!("programs", program.content.targets);
             }
             AnyObject::Event(event) => {
                 publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
-                if event.content.targets.is_empty() {
-                    publish_mqtt_push!("events/");
-                } else {
-                    publish_mqtt_push_by_targets!("events", event.content.targets);
-                }
+                publish_mqtt_push!("events/");
+                publish_mqtt_push_by_targets!("events", event.content.targets);
             }
             AnyObject::Report(_) => publish_mqtt_push!("reports/"),
             AnyObject::Subscription(_) => {}
@@ -1940,7 +1963,7 @@ mod test {
                             .strip_prefix(&vtn_config.mqtt_topic_prefix)
                             .unwrap(),
                     ) {
-                        panic!("{msg}");
+                        panic!("unexpected message {msg:?}");
                     }
                     let msg_data: MqttPushNotification =
                         serde_json::from_slice(msg.payload()).unwrap();
@@ -2000,7 +2023,13 @@ mod test {
             Operation::Create,
             &[
                 "push/programs/create",
+                "push/vens/ven-1/programs/create",
+                "push/vens/ven-2/programs/create",
+                "push/vens/ven-3/programs/create",
+                "push/vens/ven-4/programs/create",
+                "push/vens/ven-has-no-targets/programs/create",
                 &format!("push/programs/{}/create", program.id),
+                &format!("push/vens/{}/programs/create", ven.id),
             ],
         );
 
@@ -2027,6 +2056,7 @@ mod test {
             ObjectType::Program,
             Operation::Create,
             &[
+                "push/programs/create",
                 &format!("push/programs/{}/create", program.id),
                 &format!("push/vens/{}/programs/create", ven.id),
             ],

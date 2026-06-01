@@ -4,7 +4,10 @@ use std::sync::Arc;
 use jsonwebtoken::{Header, encode};
 
 use crate::api::auth::ResponseOAuthError;
-use openleadr_wire::oauth::{OAuthError, OAuthErrorType};
+use openleadr_wire::{
+    Ven,
+    oauth::{OAuthError, OAuthErrorType},
+};
 
 use crate::{error::AppError, state::OAuthKeyType};
 use axum::{
@@ -275,6 +278,19 @@ impl Claims {
     /// Returns true if either the `scope` or `roles` claim contains the given scope.
     pub(crate) fn has_scope(&self, scope: Scope) -> bool {
         self.scope.contains(scope) || self.roles.contains(scope)
+    }
+
+    /// A read-only set of claims to use as the basis for mqtt object privacy.
+    pub(crate) fn temporary_claims_for_mqtt_ven(ven: &Ven) -> Self {
+        Self {
+            sub: ven.content.client_id.as_str().into(),
+            exp: 0,
+            iat: None,
+            nbf: None,
+            aud: None,
+            scope: vec![].into(),
+            roles: vec![Scope::ReadVenObjects, Scope::ReadTargets].into(),
+        }
     }
 
     #[cfg(test)]
