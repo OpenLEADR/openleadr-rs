@@ -158,7 +158,7 @@ and restart the setup afterwards with
 docker compose up
 ```
 
-For more details on the development of the components, see also the readme of the individual components.
+For more details on the development of the components, see also the README of the individual components.
 
 ## Contributing
 We expect you to follow our [code of conduct](CODE_OF_CONDUCT.md) for any contribution.
