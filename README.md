@@ -66,9 +66,9 @@ please refer to the READMEs in the [`./openleadr-client`](./openleadr-client) an
 
 This repository contains only OpenADR 3.1, older versions are not supported.
 
-Currently, real-time updates, known as subscriptions in the specification, are
-supported via webhooks. Subscriptions via websockets and MQTT, as described in
-version 3.1 of OpenADR, are a work-in-progress, but expected to arrive soon.
+Currently, real-time updates via the webhook mechanism, known as subscriptions in the specification, are not supported.
+While we currently do not plan to add this ourselves, we warmly welcome any contribution or sponsoring to add it.
+See the [Contributing section](#contributing) if you are interested.
 
 The VTN implements its own OAuth provider, which is mainly relevant for testing and prototyping.
 Besides that, the VTN can also be configured to use a third-party OAuth provider,
