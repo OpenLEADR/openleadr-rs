@@ -31,11 +31,11 @@ pub async fn get_all(
 ) -> AppResponse<Vec<ResourceGroup>> {
     trace!(?query_params);
 
-    let resource_groups = if user.scope.contains(Scope::ReadAll) {
+    let resource_groups = if user.has_scope(Scope::ReadAll) {
         resource_group_source
             .retrieve_all(&query_params, &None)
             .await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         resource_group_source
             .retrieve_all(&query_params, &Some(user.client_id()?))
             .await?
@@ -59,9 +59,9 @@ pub async fn get(
     Path(id): Path<ResourceGroupId>,
     User(user): User,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = if user.scope.contains(Scope::ReadAll) {
+    let resource_group = if user.has_scope(Scope::ReadAll) {
         resource_group_source.retrieve(&id, &None).await?
-    } else if user.scope.contains(Scope::ReadVenObjects) {
+    } else if user.has_scope(Scope::ReadVenObjects) {
         resource_group_source
             .retrieve(&id, &Some(user.client_id()?))
             .await?
@@ -88,7 +88,7 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_resource_group): ValidatedJson<BlResourceGroupRequest>,
 ) -> Result<(StatusCode, Json<ResourceGroup>), AppError> {
-    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+    let resource_group = if user.has_scope(Scope::WriteVensBl) {
         resource_group_source
             .create(new_resource_group, &None)
             .await?
@@ -128,7 +128,7 @@ pub async fn edit(
         children: update.children,
     };
 
-    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+    let resource_group = if user.has_scope(Scope::WriteVensBl) {
         resource_group_source
             .update(&id, new_resource_group, &None)
             .await?
@@ -160,7 +160,7 @@ pub async fn delete(
     User(user): User,
     Path(id): Path<ResourceGroupId>,
 ) -> AppResponse<ResourceGroup> {
-    let resource_group = if user.scope.contains(Scope::WriteVensBl) {
+    let resource_group = if user.has_scope(Scope::WriteVensBl) {
         resource_group_source.delete(&id, &None).await?
     } else {
         return Err(AppError::Forbidden("Missing 'write_vens_bl' scope"));
