@@ -2,6 +2,7 @@
 use crate::api::auth;
 use crate::{
     VtnConfig,
+    api::subscription::MqttConfig,
     data_source::{ResourceGroupCrud, SubscriptionCrud},
 };
 #[cfg(feature = "internal-oauth")]
@@ -292,27 +293,27 @@ impl AppState {
             OAuthType::External => external_oauth_from_env(key_type).await,
         };
 
-        let notifier = subscription::NotifierState::load_from_storage(
-            &*storage.subscriptions(),
-            config
-                .mqtt_url
-                .as_ref()
-                .expect("MQTT_URL environment variable must be set.")
-                .clone(),
-            config
-                .mqtt_username
-                .as_ref()
-                .expect("MQTT_USERNAME environment variable must be set.")
-                .clone(),
-            config
-                .mqtt_password
-                .as_ref()
-                .expect("MQTT_PASSWORD environment variable must be set.")
-                .clone(),
-            config.mqtt_topic_prefix.clone(),
-        )
-        .await
-        .expect("failed to retrieve subscriptions from database");
+        let mqtt_config = match (
+            &config.mqtt_url,
+            &config.mqtt_username,
+            &config.mqtt_password,
+        ) {
+            (Some(url), Some(username), Some(password)) => Some(MqttConfig {
+                url: url.clone(),
+                username: username.clone(),
+                password: password.clone(),
+                topic_prefix: config.mqtt_topic_prefix.clone(),
+            }),
+            (None, None, None) => None,
+            _ => panic!(
+                "Incomplete MQTT configuration. Expect all of the MQTT_URL, MQTT_USERNAME and MQTT_PASSWORD environment variables to be set when one of them is present."
+            ),
+        };
+
+        let notifier =
+            subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_config)
+                .await
+                .expect("failed to retrieve subscriptions from database");
 
         Self {
             storage: Arc::new(storage),
