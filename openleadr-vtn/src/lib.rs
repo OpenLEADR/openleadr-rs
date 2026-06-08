@@ -50,7 +50,7 @@ impl VtnConfig {
             mqtt_url: std::env::var("MQTT_URL").ok(),
             mqtt_username: std::env::var("MQTT_USERNAME").ok(),
             mqtt_password: std::env::var("MQTT_PASSWORD").ok(),
-            mqtt_topic_prefix: String::new(),
+            mqtt_topic_prefix: std::env::var("MQTT_TOPIC_PREFIX").unwrap_or_default(),
         }
     }
 }
