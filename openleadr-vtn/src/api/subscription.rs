@@ -396,7 +396,6 @@ pub(crate) async fn notify(
     .to_string()
     .parse()
     .expect("uuid should always be a valid identifier");
-    let notification_date_time = Utc::now();
 
     let event_program_id;
     let target_program_id = match &object {
@@ -418,137 +417,17 @@ pub(crate) async fn notify(
 
     trace!(id = %object.id(), object = ?object, "notify {operation:?}");
 
-    if let Some(mqtt_state) = &notifier_state.mqtt_state {
-        let operation_str = match operation {
-            Operation::Create => "create",
-            Operation::Update => "update",
-            Operation::Delete => "delete",
-        };
-        let mqtt_notification = serde_json::to_vec(&Notification {
+    notify_mqtt(
+        ven_source,
+        privacy,
+        notifier_state,
+        Notification {
             id: uuid.clone(),
             operation,
             object: object.clone(),
-        })
-        .unwrap();
-        let mqtt_push_notification = serde_json::to_vec(&MqttPushNotification {
-            id: object.id(),
-            notification_id: uuid.clone(),
-            object_type: object.kind(),
-            operation,
-            notification_date_time,
-        })
-        .unwrap();
-        macro_rules! publish_mqtt_push {
-            ($topic_base:expr) => {{
-                mqtt_state
-                    .client
-                    .publish(paho_mqtt::Message::new(
-                        format!("{}{}{operation_str}", mqtt_state.topic_prefix, $topic_base,),
-                        &*mqtt_notification,
-                        QoS::AtMostOnce,
-                    ))
-                    .await
-                    .unwrap();
-                mqtt_state
-                    .client
-                    .publish(paho_mqtt::Message::new(
-                        format!(
-                            "{}push/{}{operation_str}",
-                            mqtt_state.topic_prefix, $topic_base,
-                        ),
-                        &*mqtt_push_notification,
-                        QoS::AtMostOnce,
-                    ))
-                    .await
-                    .unwrap()
-            }};
-        }
-
-        macro_rules! publish_mqtt_push_by_targets {
-            ($kind:literal, $targets:expr) => {
-                if let Ok(vens) = ven_source
-                    .retrieve_all(
-                        &super::ven::QueryParams {
-                            ven_name: None,
-                            targets: crate::api::TargetQueryParams(None),
-                            skip: 0,
-                            limit: i64::MAX,
-                        },
-                        &None,
-                    )
-                    .await
-                {
-                    for ven in vens {
-                        if let Some(object) = privacy_filter_object(
-                            &object,
-                            privacy,
-                            &ven.content.client_id,
-                            &Claims::temporary_claims_for_mqtt_ven(&ven),
-                        )
-                        .await
-                        {
-                            let mqtt_notification = serde_json::to_vec(&Notification {
-                                id: uuid.clone(),
-                                operation,
-                                object,
-                            })
-                            .unwrap();
-                            mqtt_state
-                                .client
-                                .publish(paho_mqtt::Message::new(
-                                    format!(
-                                        "{}vens/{}/{}/{operation_str}",
-                                        mqtt_state.topic_prefix, ven.id, $kind,
-                                    ),
-                                    &*mqtt_notification,
-                                    QoS::AtMostOnce,
-                                ))
-                                .await
-                                .unwrap();
-                            mqtt_state
-                                .client
-                                .publish(paho_mqtt::Message::new(
-                                    format!(
-                                        "{}push/vens/{}/{}/{operation_str}",
-                                        mqtt_state.topic_prefix, ven.id, $kind,
-                                    ),
-                                    &*mqtt_push_notification,
-                                    QoS::AtMostOnce,
-                                ))
-                                .await
-                                .unwrap()
-                        }
-                    }
-                }
-            };
-        }
-
-        match &object {
-            AnyObject::Ven(ven) => {
-                publish_mqtt_push!("vens/");
-                if operation != Operation::Create {
-                    publish_mqtt_push!(&format!("vens/{}/", ven.id));
-                }
-            }
-            AnyObject::Resource(resource) => {
-                publish_mqtt_push!("resources/");
-                publish_mqtt_push!(&format!("vens/{}/resources/", resource.content.ven_id));
-            }
-            AnyObject::ResourceGroup(_) => {}
-            AnyObject::Program(program) => {
-                publish_mqtt_push!(&format!("programs/{}/", program.id));
-                publish_mqtt_push!("programs/"); // Public event
-                publish_mqtt_push_by_targets!("programs", program.content.targets);
-            }
-            AnyObject::Event(event) => {
-                publish_mqtt_push!(&format!("events/program/{}/", event.content.program_id));
-                publish_mqtt_push!("events/");
-                publish_mqtt_push_by_targets!("events", event.content.targets);
-            }
-            AnyObject::Report(_) => publish_mqtt_push!("reports/"),
-            AnyObject::Subscription(_) => {}
-        }
-    }
+        },
+    )
+    .await;
 
     for subscription in notifier_state.subscriptions.lock().await.values() {
         let program_id = subscription.content.program_id.as_ref();
@@ -575,6 +454,205 @@ pub(crate) async fn notify(
                     object: object.clone(),
                 });
             }
+        }
+    }
+}
+
+async fn publish_mqtt_push(
+    mqtt_state: &MqttState,
+    notification: Vec<u8>,
+    push_notification: Vec<u8>,
+    topic: &str,
+) {
+    mqtt_state
+        .client
+        .publish(paho_mqtt::Message::new(
+            format!("{}{}", mqtt_state.topic_prefix, topic,),
+            notification,
+            QoS::AtMostOnce,
+        ))
+        .await
+        .unwrap();
+    mqtt_state
+        .client
+        .publish(paho_mqtt::Message::new(
+            format!("{}push/{}", mqtt_state.topic_prefix, topic,),
+            push_notification,
+            QoS::AtMostOnce,
+        ))
+        .await
+        .unwrap()
+}
+
+async fn publish_mqtt_push_by_targets(
+    ven_source: &dyn VenCrud,
+    privacy: &dyn VenObjectPrivacy,
+    mqtt_state: &MqttState,
+    notification: &Notification,
+    push_notification: Vec<u8>,
+    topic: &str,
+) {
+    if let Ok(vens) = ven_source
+        .retrieve_all(
+            &super::ven::QueryParams {
+                ven_name: None,
+                targets: crate::api::TargetQueryParams(None),
+                skip: 0,
+                limit: i64::MAX,
+            },
+            &None,
+        )
+        .await
+    {
+        for ven in vens {
+            if let Some(object) = privacy_filter_object(
+                &notification.object,
+                privacy,
+                &ven.content.client_id,
+                &Claims::temporary_claims_for_mqtt_ven(&ven),
+            )
+            .await
+            {
+                publish_mqtt_push(
+                    mqtt_state,
+                    serde_json::to_vec(&Notification {
+                        id: notification.id.clone(),
+                        operation: notification.operation,
+                        object,
+                    })
+                    .unwrap(),
+                    push_notification.clone(),
+                    &format!("vens/{}/{}", ven.id, topic),
+                )
+                .await;
+            }
+        }
+    }
+}
+
+async fn notify_mqtt(
+    ven_source: &dyn VenCrud,
+    privacy: &dyn VenObjectPrivacy,
+    notifier_state: &NotifierState,
+    notification: Notification,
+) {
+    let notification_date_time = Utc::now();
+    let operation_str = match notification.operation {
+        Operation::Create => "create",
+        Operation::Update => "update",
+        Operation::Delete => "delete",
+    };
+
+    if let Some(mqtt_state) = &notifier_state.mqtt_state {
+        let mqtt_notification = serde_json::to_vec(&notification).unwrap();
+        let mqtt_push_notification = serde_json::to_vec(&MqttPushNotification {
+            id: notification.object.id(),
+            notification_id: notification.id.clone(),
+            object_type: notification.object.kind(),
+            operation: notification.operation,
+            notification_date_time,
+        })
+        .unwrap();
+
+        match notification.object {
+            AnyObject::Ven(ven) => {
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("vens/{operation_str}"),
+                )
+                .await;
+                if notification.operation != Operation::Create {
+                    publish_mqtt_push(
+                        mqtt_state,
+                        mqtt_notification,
+                        mqtt_push_notification,
+                        &format!("vens/{}/{operation_str}", ven.id),
+                    )
+                    .await;
+                }
+            }
+            AnyObject::Resource(resource) => {
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("resources/{operation_str}"),
+                )
+                .await;
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("vens/{}/resources/{operation_str}", resource.content.ven_id),
+                )
+                .await;
+            }
+            AnyObject::ResourceGroup(_) => {}
+            AnyObject::Program(ref program) => {
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("programs/{}/{operation_str}", program.id),
+                )
+                .await;
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("programs/{operation_str}"),
+                )
+                .await;
+                publish_mqtt_push_by_targets(
+                    ven_source,
+                    privacy,
+                    mqtt_state,
+                    &notification,
+                    mqtt_push_notification,
+                    &format!("programs/{operation_str}"),
+                )
+                .await;
+            }
+            AnyObject::Event(ref event) => {
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!(
+                        "events/program/{}/{operation_str}",
+                        event.content.program_id
+                    ),
+                )
+                .await;
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("events/{operation_str}"),
+                )
+                .await;
+                publish_mqtt_push_by_targets(
+                    ven_source,
+                    privacy,
+                    mqtt_state,
+                    &notification,
+                    mqtt_push_notification,
+                    &format!("events/{operation_str}"),
+                )
+                .await;
+            }
+            AnyObject::Report(_) => {
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("reports/{operation_str}"),
+                )
+                .await;
+            }
+            AnyObject::Subscription(_) => {}
         }
     }
 }
