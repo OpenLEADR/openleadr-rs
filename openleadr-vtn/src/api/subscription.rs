@@ -474,24 +474,36 @@ async fn publish_mqtt_push(
     push_notification: Vec<u8>,
     topic: &str,
 ) {
-    mqtt_state
+    if let Err(err) = mqtt_state
         .client
         .publish(paho_mqtt::Message::new(
-            format!("{}{}", mqtt_state.topic_prefix, topic,),
+            format!("{}{}", mqtt_state.topic_prefix, topic),
             notification,
             QoS::AtMostOnce,
         ))
         .await
-        .unwrap();
-    mqtt_state
+    {
+        tracing::warn!(
+            topic = format!("{}{}", mqtt_state.topic_prefix, topic),
+            "Could not send mqtt notification: {}",
+            err
+        )
+    }
+    if let Err(err) = mqtt_state
         .client
         .publish(paho_mqtt::Message::new(
-            format!("{}push/{}", mqtt_state.topic_prefix, topic,),
+            format!("{}push/{}", mqtt_state.topic_prefix, topic),
             push_notification,
             QoS::AtMostOnce,
         ))
         .await
-        .unwrap()
+    {
+        tracing::warn!(
+            topic = format!("{}push/{}", mqtt_state.topic_prefix, topic),
+            "Could not send mqtt notification: {}",
+            err
+        )
+    }
 }
 
 async fn publish_mqtt_push_by_targets(
