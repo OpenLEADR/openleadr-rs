@@ -49,13 +49,17 @@ pub(crate) struct NotifierState {
     mqtt_state: Option<MqttState>,
 }
 
+pub(crate) struct MqttConfig {
+    pub(crate) url: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) topic_prefix: String,
+}
+
 impl NotifierState {
     pub(crate) async fn load_from_storage(
         storage: &dyn SubscriptionCrud,
-        mqtt_url: String,
-        mqtt_username: String,
-        mqtt_password: String,
-        mqtt_topic_prefix: String,
+        mqtt_config: Option<MqttConfig>,
     ) -> Result<Self, AppError> {
         let subscriptions = storage
             .retrieve_all(
@@ -70,17 +74,27 @@ impl NotifierState {
             )
             .await?;
 
-        let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
-        mqtt_client
-            .connect(
-                paho_mqtt::ConnectOptionsBuilder::new()
-                    .server_uris(&[&mqtt_url])
-                    .user_name(mqtt_username)
-                    .password(mqtt_password)
-                    .automatic_reconnect(Duration::from_millis(1), Duration::from_secs(16))
-                    .finalize(),
-            )
-            .await?;
+        let mqtt_state = if let Some(mqtt_config) = mqtt_config {
+            let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
+            mqtt_client
+                .connect(
+                    paho_mqtt::ConnectOptionsBuilder::new()
+                        .server_uris(&[&mqtt_config.url])
+                        .user_name(mqtt_config.username)
+                        .password(mqtt_config.password)
+                        .automatic_reconnect(Duration::from_millis(1), Duration::from_secs(16))
+                        .finalize(),
+                )
+                .await?;
+
+            Some(MqttState {
+                url: mqtt_config.url,
+                client: mqtt_client,
+                topic_prefix: mqtt_config.topic_prefix,
+            })
+        } else {
+            None
+        };
 
         Ok(Self {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
@@ -91,11 +105,7 @@ impl NotifierState {
                     .map(|subscription| (subscription.id.clone(), subscription))
                     .collect(),
             ),
-            mqtt_state: Some(MqttState {
-                url: mqtt_url,
-                client: mqtt_client,
-                topic_prefix: mqtt_topic_prefix,
-            }),
+            mqtt_state,
         })
     }
 }
