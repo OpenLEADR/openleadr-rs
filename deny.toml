@@ -25,3 +25,9 @@ allow = [
 name = "ring"
 expression = "ISC AND MIT AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[advisories]
+ignore = [
+    # proc-macro-error2
+    "RUSTSEC-2026-0173",
+]
