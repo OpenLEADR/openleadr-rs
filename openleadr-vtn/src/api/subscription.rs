@@ -589,7 +589,24 @@ async fn notify_mqtt(
                 )
                 .await;
             }
-            AnyObject::ResourceGroup(_) => {}
+            AnyObject::ResourceGroup(_) => {
+                publish_mqtt_push(
+                    mqtt_state,
+                    mqtt_notification.clone(),
+                    mqtt_push_notification.clone(),
+                    &format!("resource_groups/{operation_str}"),
+                )
+                .await;
+                publish_mqtt_push_by_targets(
+                    ven_source,
+                    privacy,
+                    mqtt_state,
+                    &notification,
+                    mqtt_push_notification,
+                    &format!("resource_groups/{operation_str}"),
+                )
+                .await;
+            }
             AnyObject::Program(ref program) => {
                 publish_mqtt_push(
                     mqtt_state,
@@ -732,6 +749,10 @@ pub(crate) fn mqtt_notifier() -> axum::Router<AppState> {
         .route("/topics/vens", mqtt_route_bl("vens/", true))
         .route("/topics/resources", mqtt_route_bl("resources/", true))
         .route(
+            "/topics/resource_groups",
+            mqtt_route_bl("resource_groups/", true),
+        )
+        .route(
             "/topics/programs/{program_id}",
             mqtt_route_bl_by_program_id("programs/", false),
         )
@@ -754,6 +775,10 @@ pub(crate) fn mqtt_notifier() -> axum::Router<AppState> {
             "/topics/vens/{ven_id}/resources",
             mqtt_route_by_ven_id("resources/", true),
         )
+        .route(
+            "/topics/vens/{ven_id}/resource_groups",
+            mqtt_route_by_ven_id("resource_groups/", true),
+        )
 }
 
 pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
@@ -770,6 +795,10 @@ pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
         //.route("/topics/subscriptions", mqtt_route_bl("push/subscriptions/", true))
         .route("/topics/vens", mqtt_route_bl("push/vens/", true))
         .route("/topics/resources", mqtt_route_bl("push/resources/", true))
+        .route(
+            "/topics/resource_groups",
+            mqtt_route_bl("push/resource_groups/", true),
+        )
         .route(
             "/topics/programs/{program_id}",
             mqtt_route_bl_by_program_id("push/programs/", false),
@@ -795,6 +824,10 @@ pub(crate) fn push_mqtt_notifier() -> axum::Router<AppState> {
         .route(
             "/topics/vens/{ven_id}/resources",
             mqtt_route_by_ven_id("push/resources/", true),
+        )
+        .route(
+            "/topics/vens/{ven_id}/resource_groups",
+            mqtt_route_by_ven_id("push/resource_groups/", true),
         )
 }
 
