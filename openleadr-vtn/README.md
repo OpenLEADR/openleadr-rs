@@ -18,9 +18,17 @@ The OpenLEADR implementation deviates from the specification by splitting the `w
 To be as compatible as possible with the specification, the `write_vens` scope is still supported as an alias for `write_vens_ven`.
 For detailed information, see the issue on the specification if you have access ([oadr3-org/specification#396](https://github.com/oadr3-org/specification/issues/396)).
 
+In addition, we also do not provide access control on the /notifiers/mqtt endpoints. As the MQTT topic names used by openleadr-rs
+are predictable, no actual security is gained by hiding these when the user is not authorized to listen to them, and we prefer
+not to give a false impression that these topic names are unknown to adversaries.
+
 ## Getting started
 Your machine needs a recent version of Rust installed.
 Please refer to the [official installation website](https://rustup.rs/) for the setup.
+Furthermore, compilation requires the presence of a C toolchain, CMAKE, and the openssl
+library in a form suitable for source compilation. Consult your linux distributions
+documentation for information on how to install these.
+
 To apply the Database migrations, you also need the sqlx-cli installed.
 Simply run `cargo install sqlx-cli`.
 
@@ -80,6 +88,27 @@ Therefore, run
 ```bash
 cargo build/run --bin openleadr-vtn --features=internal-oauth [--release]
 ```
+
+### MQTT support
+
+The implemntation supports running with mqtt support for notifications. When using this, it is
+critical for security that the MQTT broker is configured to require authentication, and only allows
+access to the `programs/*`, `events/*`, `reports/*`, `vens/*`, `resources/*`, `resource_groups/*`, 
+`push/programs/*`, `push/events/*`, `push/reports/*`, `push/vens/*`, `push/resources/*`, and
+`push/resource_groups/*` topics when the client is authenticated as a business logic, and only 
+allows access to the `vens/{ven_id}/*` and `push/vens/{ven_id}/*` topics when the client either is
+authenticated as the owner of the ven with that ven_id, or as a business logic. Configuring such
+security is broker-specific and outside the scope of this documentation.
+
+When you have a properly configured broker, the server can be configured to use the broker with
+the following environment variables:
+- `MQTT_URL` (required) sets the URL at which the broker is reachable for the VTN.
+- `MQTT_USERNAME` (required) the username for the user the VTN can use to publish messages.
+- `MQTT_PASSWORD` (required) the password for the user the VTN can use to publish messages.
+- `MQTT_TOPIC_PREFIX` (optional) a prefix to prepend to all the topic names above. Useful for
+   avoiding overlap in topic names when the MQTT broker is also used for other applications.
+Here required indicates that when enabling mqtt, the environment variable is required. The provided
+account should have sufficient rights to publish to all topics mentioned above.
 
 ### Testing
 To run the tests, you need to start a postgres database, mqtt broker, and run the migrations:
