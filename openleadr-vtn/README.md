@@ -25,8 +25,8 @@ not to give a false impression that these topic names are unknown to adversaries
 ## Getting started
 Your machine needs a recent version of Rust installed.
 Please refer to the [official installation website](https://rustup.rs/) for the setup.
-Furthermore, compilation requires the presence of a C toolchain, CMAKE, and the openssl
-library in a form suitable for source compilation. Consult your linux distributions
+Furthermore, compilation requires the presence of a C toolchain, CMAKE, and the OpenSSL
+library in a form suitable for source compilation. Consult your Linux distribution's
 documentation for information on how to install these.
 
 To apply the Database migrations, you also need the sqlx-cli installed.
@@ -36,7 +36,7 @@ All the following commands are executed in the root directory of the Git reposit
 
 ### Database setup
 
-First, start up a postgres database. For example, using docker compose:
+First, start up a Postgres database. For example, using docker compose:
 
 ```bash
 docker compose up -d db
@@ -91,7 +91,7 @@ cargo build/run --bin openleadr-vtn --features=internal-oauth [--release]
 
 ### MQTT support
 
-The implemntation supports running with mqtt support for notifications. When using this, it is
+The implemntation supports running with MQTT support for notifications. When using this, it is
 critical for security that the MQTT broker is configured to require authentication, and only allows
 access to the `programs/*`, `events/*`, `reports/*`, `vens/*`, `resources/*`, `resource_groups/*`, 
 `push/programs/*`, `push/events/*`, `push/reports/*`, `push/vens/*`, `push/resources/*`, and
@@ -107,11 +107,11 @@ the following environment variables:
 - `MQTT_PASSWORD` (required) the password for the user the VTN can use to publish messages.
 - `MQTT_TOPIC_PREFIX` (optional) a prefix to prepend to all the topic names above. Useful for
    avoiding overlap in topic names when the MQTT broker is also used for other applications.
-Here required indicates that when enabling mqtt, the environment variable is required. The provided
+Here required indicates that when enabling MQTT, the environment variable is required. The provided
 account should have sufficient rights to publish to all topics mentioned above.
 
 ### Testing
-To run the tests, you need to start a postgres database, mqtt broker, and run the migrations:
+To run the tests, you need to start a Postgres database, MQTT broker, and run the migrations:
 ```bash
 docker compose up -d db mqtt
 cargo sqlx migrate run
