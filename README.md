@@ -40,9 +40,14 @@ to produce a detailed OpenAPI specification of the VTN API we provide.
 
 ### First time setup
 
-Your machine needs a recent version of Rust installed.
-Please refer to the [official installation website](https://rustup.rs/) for instructions for your platform. To apply the database migrations, you also need the sqlx-cli installed.
-Simply run `cargo install sqlx-cli`. Additionally, you need `postgresql-client` installed (version 18 or newer).
+Your machine needs a recent version of Rust installed. Please refer to the
+[official installation website](https://rustup.rs/) for instructions for your
+platform. To apply the database migrations, you also need the sqlx-cli
+installed. Simply run `cargo install sqlx-cli`. Additionally, you need
+`postgresql-client` installed (version 18 or newer). Furthermore, compilation
+requires the presence of a C toolchain, CMAKE, and the OpenSSL library in a
+form suitable for source compilation. Consult your Linux distribution's
+documentation for information on how to install these.
 
 ### Docker compose
 
@@ -69,6 +74,12 @@ This repository contains only OpenADR 3.1, older versions are not supported.
 Currently, real-time updates via the webhook mechanism, known as subscriptions in the specification, are not supported.
 While we currently do not plan to add this ourselves, we warmly welcome any contribution or sponsoring to add it.
 See the [Contributing section](#contributing) if you are interested.
+
+MQTT is supported, but requires additional configuration of an MQTT broker.
+Please see the [vtn documentation](./openleadr-vtn/README.md#MQTT-support) for
+details and security considerations. The MQTT broker included in the the docker
+compose file should only be used for testing purposes and is _not_
+production-ready.
 
 The VTN implements its own OAuth provider, which is mainly relevant for testing and prototyping.
 Besides that, the VTN can also be configured to use a third-party OAuth provider,
@@ -107,7 +118,7 @@ These tests are executed in GitHub Actions on every pull request.
 To execute them locally, run:
 
 ```bash
-docker compose up db -d     # start up a Postgres DB in the background
+docker compose up -d db mqtt     # start up a Postgres DB and MQTT broker in the background
 cargo sqlx migrate run # apply the DB scheme
 # load default credentials for integration testing of the client library
 psql -U openadr -W openadr -h localhost openadr < fixtures/users.sql
