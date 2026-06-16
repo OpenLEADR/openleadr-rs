@@ -27,7 +27,7 @@ use derive_more::AsRef;
 use openleadr_wire::ClientId;
 use reqwest::Url;
 use serde::{
-    Deserialize, Deserializer, Serialize, de,
+    Deserialize, Deserializer, de,
     de::{DeserializeOwned, Visitor},
 };
 use std::{fmt, str::FromStr};
@@ -40,39 +40,6 @@ pub struct JwtManager {
     key_type: OAuthKeyType,
     validation: Validation,
     token_url: Url,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(remote = "Algorithm")]
-pub enum AlgorithmDef {
-    HS256,
-    HS384,
-    HS512,
-    ES256,
-    ES384,
-    RS256,
-    RS384,
-    RS512,
-    PS256,
-    PS384,
-    PS512,
-    EdDSA,
-}
-
-mod opt_algorithm_def {
-    use super::{Algorithm, AlgorithmDef};
-    use serde::{Deserialize, Deserializer};
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Algorithm>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper(#[serde(with = "AlgorithmDef")] Algorithm);
-
-        let helper = Option::deserialize(deserializer)?;
-        Ok(helper.map(|Helper(external)| external))
-    }
 }
 
 fn deserialize_vec_skipping_invalid<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
@@ -115,7 +82,6 @@ mod string_or_vec {
         {
             Ok(None)
         }
-
         fn visit_unit<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -200,7 +166,7 @@ impl FromStr for Scope {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct RsaKey {
     kty: OAuthKeyType,
-    #[serde(default, with = "opt_algorithm_def")]
+    #[serde(default)]
     alg: Option<Algorithm>,
     n: String,
     e: String,
@@ -216,7 +182,7 @@ struct RsaKeys {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct EcKey {
     kty: OAuthKeyType,
-    #[serde(default, with = "opt_algorithm_def")]
+    #[serde(default)]
     alg: Option<Algorithm>,
     x: String,
     y: String,
@@ -233,7 +199,7 @@ struct EcKeys {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct EdKey {
     kty: OAuthKeyType,
-    #[serde(default, with = "opt_algorithm_def")]
+    #[serde(default)]
     alg: Option<Algorithm>,
     x: String,
     crv: String,
