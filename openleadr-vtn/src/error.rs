@@ -6,6 +6,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use axum::http::{header, HeaderValue};
 use axum_extra::extract::QueryRejection;
 use openleadr_wire::{IdentifierError, problem::Problem};
 #[cfg(feature = "sqlx")]
@@ -362,7 +363,14 @@ impl IntoResponse for AppError {
                 }
             }
         };
+        let mut response = (problem.status, Json(problem)).into_response();
+        if response.status() == StatusCode::UNAUTHORIZED {
+            response.headers_mut().insert(
+                header::WWW_AUTHENTICATE,
+                HeaderValue::from_static(r#"Bearer realm="VTN""#),
+            );
+        }
+        response
 
-        (problem.status, Json(problem)).into_response()
     }
 }

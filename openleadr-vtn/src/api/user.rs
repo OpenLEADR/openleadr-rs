@@ -166,7 +166,7 @@ mod test {
         Router,
         body::Body,
         http,
-        http::{Request, Response, StatusCode},
+        http::{Request, Response, StatusCode, header},
     };
     use http_body_util::BodyExt;
     use sqlx::PgPool;
@@ -518,6 +518,7 @@ mod test {
 
         let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers().get(header::WWW_AUTHENTICATE).unwrap(),r#"Bearer realm="VTN""#);
     }
 
     #[sqlx::test(fixtures("users"))]
@@ -534,5 +535,6 @@ mod test {
 
         let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers().get(header::WWW_AUTHENTICATE).unwrap(),r#"Bearer realm="VTN""#);
     }
 }
