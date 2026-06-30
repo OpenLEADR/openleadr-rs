@@ -518,7 +518,10 @@ mod test {
 
         let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(response.headers().get(header::WWW_AUTHENTICATE).unwrap(),r#"Bearer realm="VTN""#);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            r#"Bearer realm="VTN""#
+        );
     }
 
     #[sqlx::test(fixtures("users"))]
@@ -535,6 +538,9 @@ mod test {
 
         let response = help_login(&mut app, "bl-client", "bl-client").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(response.headers().get(header::WWW_AUTHENTICATE).unwrap(),r#"Bearer realm="VTN""#);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            r#"Bearer realm="VTN""#
+        );
     }
 }
