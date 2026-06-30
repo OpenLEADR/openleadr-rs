@@ -3,10 +3,9 @@ use argon2::password_hash;
 use axum::{
     Json,
     extract::rejection::{FormRejection, JsonRejection},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use axum::http::{header, HeaderValue};
 use axum_extra::extract::QueryRejection;
 use openleadr_wire::{IdentifierError, problem::Problem};
 #[cfg(feature = "sqlx")]
@@ -363,6 +362,7 @@ impl IntoResponse for AppError {
                 }
             }
         };
+
         let mut response = (problem.status, Json(problem)).into_response();
         if response.status() == StatusCode::UNAUTHORIZED {
             response.headers_mut().insert(
@@ -371,6 +371,5 @@ impl IntoResponse for AppError {
             );
         }
         response
-
     }
 }
