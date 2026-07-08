@@ -48,6 +48,28 @@ impl PartialEq for Value {
 
 impl Eq for Value {}
 
+#[derive(PartialEq, Eq)]
+pub enum ValueKind {
+    Integer,
+    Number,
+    Boolean,
+    Point,
+    Text,
+    Any,
+}
+
+impl Value {
+    pub(crate) fn kind(&self) -> ValueKind {
+        match self {
+            Value::Integer(_) => ValueKind::Integer,
+            Value::Number(_) => ValueKind::Number,
+            Value::Boolean(_) => ValueKind::Boolean,
+            Value::Point(_) => ValueKind::Point,
+            Value::String(_) => ValueKind::Text,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Point {
     /// A value on an x axis.

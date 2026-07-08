@@ -1,8 +1,12 @@
 //! Types used for the `event/` endpoint
 
 use crate::{
-    Duration, Identifier, IdentifierError, Unit, interval::IntervalPeriod, program::ProgramId,
-    report::ReportDescriptor, target::Target, values_map::Value,
+    Duration, Identifier, IdentifierError, Unit,
+    interval::IntervalPeriod,
+    program::ProgramId,
+    report::ReportDescriptor,
+    target::Target,
+    values_map::{Value, ValueKind},
 };
 use chrono::{DateTime, Utc};
 use iso_currency::Currency;
@@ -250,7 +254,6 @@ pub struct EventValuesMap {
     #[serde(rename = "type")]
     pub value_type: EventType,
     /// A list of data points. Most often a singular value such as a price.
-    // TODO: The type of Value is actually defined by value_type, see #93
     pub values: Vec<Value>,
 }
 
@@ -276,9 +279,11 @@ impl<'de> Deserialize<'de> for EventValuesMap {
 }
 
 fn coerce_value(value_type: &EventType, value: Value) -> Value {
-    match (value_type, value) {
-        (EventType::Price, Value::Integer(i)) => Value::Number(i as f64),
-        (_, value) => value,
+    match value {
+        Value::Integer(i) if value_type.expected_value() == ValueKind::Number => {
+            Value::Number(i as f64)
+        }
+        other => other,
     }
 }
 /// Validate each value in the payload matches the given value type.
@@ -339,44 +344,47 @@ pub enum EventType {
     Private(String),
 }
 
+impl EventType {
+    fn expected_value(&self) -> ValueKind {
+        use EventType::*;
+        match self {
+            Price
+            | ExportPrice
+            | GHG
+            | OLS
+            | ChargeStateSetpoint
+            | DispatchSetpoint
+            | DispatchSetpointRelative
+            | ImportCapacitySubscription
+            | ImportCapacityReservation
+            | ImportCapacityReservationFee
+            | ImportCapacityAvailable
+            | ImportCapacityAvailablePrice
+            | ExportCapacitySubscription
+            | ExportCapacityReservation
+            | ExportCapacityReservationFee
+            | ExportCapacityAvailable
+            | ExportCapacityAvailablePrice
+            | ImportCapacityLimit
+            | ExportCapacityLimit => ValueKind::Number,
+
+            Simple | CTA2045Reboot | CTA2045SetOverrideStatus => ValueKind::Integer,
+            Curve => ValueKind::Point,
+            AlertGridEmergency | AlertBlackStart | AlertPossibleOutage | AlertFlexAlert
+            | AlertFire | AlertFreezing | AlertWind | AlertTsunami | AlertAirQuality
+            | AlertOther => ValueKind::Text,
+
+            ControlSetpoint | Private(_) => ValueKind::Any,
+        }
+    }
+}
+
 fn validate_value(value_type: &EventType, value: &Value) -> Result<(), ValidationError> {
-    match (value_type, value) {
-        (EventType::Simple, Value::Integer(_)) => Ok(()), // integer
-        (EventType::Price, Value::Number(_)) => Ok(()),   // float
-        (EventType::ChargeStateSetpoint, Value::Number(_)) => Ok(()),
-        (EventType::DispatchSetpoint, Value::Number(_)) => Ok(()), // float
-        (EventType::DispatchSetpointRelative, Value::Number(_)) => Ok(()), // float
-        (EventType::ControlSetpoint, _) => Ok(()),                 // "depends"
-        (EventType::ExportPrice, Value::Number(_)) => Ok(()),      // float
-        (EventType::GHG, Value::Number(_)) => Ok(()),              // float
-        (EventType::Curve, Value::Point(_)) => Ok(()),             // pairs of floats
-        (EventType::OLS, Value::Number(_)) => Ok(()),              // 0.0 to 1.0
-        (EventType::ImportCapacitySubscription, Value::Number(_)) => Ok(()), // float
-        (EventType::ImportCapacityReservation, Value::Number(_)) => Ok(()), // float
-        (EventType::ImportCapacityReservationFee, Value::Number(_)) => Ok(()), // float
-        (EventType::ImportCapacityAvailable, Value::Number(_)) => Ok(()), // float
-        (EventType::ImportCapacityAvailablePrice, Value::Number(_)) => Ok(()), // float
-        (EventType::ExportCapacitySubscription, Value::Number(_)) => Ok(()), // float
-        (EventType::ExportCapacityReservation, Value::Number(_)) => Ok(()), // float
-        (EventType::ExportCapacityReservationFee, Value::Number(_)) => Ok(()), // float
-        (EventType::ExportCapacityAvailable, Value::Number(_)) => Ok(()), // float
-        (EventType::ExportCapacityAvailablePrice, Value::Number(_)) => Ok(()), // float
-        (EventType::ImportCapacityLimit, Value::Number(_)) => Ok(()), // float
-        (EventType::ExportCapacityLimit, Value::Number(_)) => Ok(()), // float
-        (EventType::AlertGridEmergency, Value::String(_)) => Ok(()), // human-readable string
-        (EventType::AlertBlackStart, Value::String(_)) => Ok(()),  // human-readable string
-        (EventType::AlertPossibleOutage, Value::String(_)) => Ok(()), // human-readable string
-        (EventType::AlertFlexAlert, Value::String(_)) => Ok(()),   // human-readable string
-        (EventType::AlertFire, Value::String(_)) => Ok(()),        // human-readable string
-        (EventType::AlertFreezing, Value::String(_)) => Ok(()),    // human-readable string
-        (EventType::AlertWind, Value::String(_)) => Ok(()),        // human-readable string
-        (EventType::AlertTsunami, Value::String(_)) => Ok(()),     // human-readable string
-        (EventType::AlertAirQuality, Value::String(_)) => Ok(()),  // human-readable string
-        (EventType::AlertOther, Value::String(_)) => Ok(()),       // human-readable string
-        (EventType::CTA2045Reboot, Value::Integer(_)) => Ok(()),   // 0 = SOFT, 1 = HARD
-        (EventType::CTA2045SetOverrideStatus, Value::Integer(_)) => Ok(()), // 0 = No Override, 1 = Override
-        (EventType::Private(_), _) => Ok(()), // Allow all types for private types
-        (value_type, value) => Err(validate_value_error(value_type, value)),
+    let expected = value_type.expected_value();
+    if expected == ValueKind::Any || value.kind() == expected {
+        Ok(())
+    } else {
+        Err(validate_value_error(value_type, value))
     }
 }
 
