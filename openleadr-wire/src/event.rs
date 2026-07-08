@@ -243,7 +243,7 @@ impl EventInterval {
 }
 
 /// Represents one or more values associated with a type. E.g. a type of PRICE contains a single float value.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Validate)]
 #[validate(schema(function = "validate_payload"))]
 pub struct EventValuesMap {
     /// Enumerated or private string signifying the nature of values. E.G. \"PRICE\" indicates value is to be interpreted as a currency.
@@ -254,6 +254,33 @@ pub struct EventValuesMap {
     pub values: Vec<Value>,
 }
 
+impl<'de> Deserialize<'de> for EventValuesMap {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(rename = "type")]
+            value_type: EventType,
+            values: Vec<Value>,
+        }
+
+        let Raw { value_type, values } = Raw::deserialize(deserializer)?;
+        let values = values
+            .into_iter()
+            .map(|v| coerce_value(&value_type, v))
+            .collect();
+        Ok(EventValuesMap { value_type, values })
+    }
+}
+
+fn coerce_value(value_type: &EventType, value: Value) -> Value {
+    match (value_type, value) {
+        (EventType::Price, Value::Integer(i)) => Value::Number(i as f64),
+        (_, value) => value,
+    }
+}
 /// Validate each value in the payload matches the given value type.
 ///
 /// Errors on the first mistyped value. It might be useful to return all validation errors rather
@@ -577,5 +604,44 @@ mod tests {
             .unwrap()
             .validate();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn price_integer_json_coerces_to_number() {
+        // `1` and `1.0` are the same price — both must land as Number(1.0).
+        let from_int: EventValuesMap =
+            serde_json::from_str(r#"{"type": "PRICE", "values": [1]}"#).unwrap();
+        let from_float: EventValuesMap =
+            serde_json::from_str(r#"{"type": "PRICE", "values": [1.0]}"#).unwrap();
+
+        assert_eq!(from_int.values, vec![Value::Number(1.0)]);
+        assert_eq!(from_float.values, vec![Value::Number(1.0)]);
+        assert!(from_int.validate().is_ok());
+        assert!(from_float.validate().is_ok());
+    }
+
+    #[test]
+    fn price_coerces_every_element() {
+        let map: EventValuesMap =
+            serde_json::from_str(r#"{"type": "PRICE", "values": [1, 2.5, 3]}"#).unwrap();
+        assert_eq!(
+            map.values,
+            vec![Value::Number(1.0), Value::Number(2.5), Value::Number(3.0)]
+        );
+    }
+
+    #[test]
+    fn integer_typed_values_are_not_coerced() {
+        let map: EventValuesMap =
+            serde_json::from_str(r#"{"type": "SIMPLE", "values": [1]}"#).unwrap();
+        assert_eq!(map.values, vec![Value::Integer(1)]);
+        assert!(map.validate().is_ok());
+    }
+
+    #[test]
+    fn genuine_mismatch_is_still_rejected() {
+        let map: EventValuesMap =
+            serde_json::from_str(r#"{"type": "PRICE", "values": ["1"]}"#).unwrap();
+        assert!(map.validate().is_err());
     }
 }
