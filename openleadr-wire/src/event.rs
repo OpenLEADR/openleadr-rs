@@ -375,7 +375,7 @@ impl EventType {
 
             AlertGridEmergency | AlertBlackStart | AlertPossibleOutage | AlertFlexAlert
             | AlertFire | AlertFreezing | AlertWind | AlertTsunami | AlertAirQuality
-            | AlertOther => ValueKind::Text,
+            | AlertOther => ValueKind::String,
 
             ControlSetpoint | Private(_) => ValueKind::Any,
         }

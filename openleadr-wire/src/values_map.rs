@@ -54,7 +54,7 @@ pub(crate) enum ValueKind {
     Number,
     Boolean,
     Point,
-    Text,
+    String,
     Any,
 }
 
@@ -65,7 +65,7 @@ impl Value {
             Value::Number(_) => ValueKind::Number,
             Value::Boolean(_) => ValueKind::Boolean,
             Value::Point(_) => ValueKind::Point,
-            Value::String(_) => ValueKind::Text,
+            Value::String(_) => ValueKind::String,
         }
     }
 }
