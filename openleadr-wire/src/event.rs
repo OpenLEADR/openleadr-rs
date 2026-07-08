@@ -655,4 +655,13 @@ mod tests {
             serde_json::from_str(r#"{"type": "PRICE", "values": ["1"]}"#).unwrap();
         assert!(map.validate().is_err());
     }
+
+    #[test]
+    fn boolean_value_is_rejected() {
+        // No EventType expects a boolean, so `true` under any concrete type is a mismatch.
+        // This exercises the ValueKind::Boolean / Value::kind() path specifically.
+        let map: EventValuesMap =
+            serde_json::from_str(r#"{"type": "PRICE", "values": [true]}"#).unwrap();
+        assert!(map.validate().is_err());
+    }
 }
