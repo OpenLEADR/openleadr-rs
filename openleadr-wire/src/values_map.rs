@@ -48,8 +48,8 @@ impl PartialEq for Value {
 
 impl Eq for Value {}
 
-#[derive(PartialEq, Eq)]
-pub enum ValueKind {
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum ValueKind {
     Integer,
     Number,
     Boolean,
