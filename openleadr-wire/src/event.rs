@@ -280,12 +280,13 @@ impl<'de> Deserialize<'de> for EventValuesMap {
 
 fn coerce_value(value_type: &EventType, value: Value) -> Value {
     match value {
-        Value::Integer(i) if value_type.expected_value() == ValueKind::Number => {
+        Value::Integer(i) if value_type.expected_value_kind() == ValueKind::Number => {
             Value::Number(i as f64)
         }
         other => other,
     }
 }
+
 /// Validate each value in the payload matches the given value type.
 ///
 /// Errors on the first mistyped value. It might be useful to return all validation errors rather
@@ -345,7 +346,7 @@ pub enum EventType {
 }
 
 impl EventType {
-    fn expected_value(&self) -> ValueKind {
+    fn expected_value_kind(&self) -> ValueKind {
         use EventType::*;
         match self {
             Price
@@ -369,7 +370,9 @@ impl EventType {
             | ExportCapacityLimit => ValueKind::Number,
 
             Simple | CTA2045Reboot | CTA2045SetOverrideStatus => ValueKind::Integer,
+
             Curve => ValueKind::Point,
+
             AlertGridEmergency | AlertBlackStart | AlertPossibleOutage | AlertFlexAlert
             | AlertFire | AlertFreezing | AlertWind | AlertTsunami | AlertAirQuality
             | AlertOther => ValueKind::Text,
@@ -380,7 +383,7 @@ impl EventType {
 }
 
 fn validate_value(value_type: &EventType, value: &Value) -> Result<(), ValidationError> {
-    let expected = value_type.expected_value();
+    let expected = value_type.expected_value_kind();
     if expected == ValueKind::Any || value.kind() == expected {
         Ok(())
     } else {
