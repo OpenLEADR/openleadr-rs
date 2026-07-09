@@ -272,13 +272,13 @@ impl<'de> Deserialize<'de> for EventValuesMap {
         let Raw { value_type, values } = Raw::deserialize(deserializer)?;
         let values = values
             .into_iter()
-            .map(|v| coerce_value(&value_type, v))
+            .map(|v| normalize_value(&value_type, v))
             .collect();
         Ok(EventValuesMap { value_type, values })
     }
 }
 
-fn coerce_value(value_type: &EventType, value: Value) -> Value {
+fn normalize_value(value_type: &EventType, value: Value) -> Value {
     match value {
         Value::Integer(i) if value_type.expected_value_kind() == ValueKind::Number => {
             Value::Number(i as f64)
