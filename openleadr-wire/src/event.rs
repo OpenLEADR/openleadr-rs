@@ -352,7 +352,7 @@ impl EventType {
             Price
             | ExportPrice
             | GHG
-            | OLS
+            | OLS // 0.0 to 1.0
             | ChargeStateSetpoint
             | DispatchSetpoint
             | DispatchSetpointRelative
@@ -369,7 +369,10 @@ impl EventType {
             | ImportCapacityLimit
             | ExportCapacityLimit => ValueKind::Number,
 
-            Simple | CTA2045Reboot | CTA2045SetOverrideStatus => ValueKind::Integer,
+            Simple |
+            CTA2045Reboot | // 0 = SOFT, 1 = HARD
+            CTA2045SetOverrideStatus // 0 = No Override, 1 = Override
+            => ValueKind::Integer,
 
             Curve => ValueKind::Point,
 
@@ -377,7 +380,9 @@ impl EventType {
             | AlertFire | AlertFreezing | AlertWind | AlertTsunami | AlertAirQuality
             | AlertOther => ValueKind::String,
 
-            ControlSetpoint | Private(_) => ValueKind::Any,
+            ControlSetpoint | // "depends"
+            Private(_) // Allow all types for private types
+            => ValueKind::Any,
         }
     }
 }
