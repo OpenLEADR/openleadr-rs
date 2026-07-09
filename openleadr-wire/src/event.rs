@@ -623,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn price_integer_json_coerces_to_number() {
+    fn price_integer_json_normalize_to_number() {
         // `1` and `1.0` are the same price — both must land as Number(1.0).
         let from_int: EventValuesMap =
             serde_json::from_str(r#"{"type": "PRICE", "values": [1]}"#).unwrap();
@@ -637,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn price_coerces_every_element() {
+    fn price_normalize_every_element() {
         let map: EventValuesMap =
             serde_json::from_str(r#"{"type": "PRICE", "values": [1, 2.5, 3]}"#).unwrap();
         assert_eq!(
@@ -647,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn integer_typed_values_are_not_coerced() {
+    fn integer_typed_values_are_not_normalize() {
         let map: EventValuesMap =
             serde_json::from_str(r#"{"type": "SIMPLE", "values": [1]}"#).unwrap();
         assert_eq!(map.values, vec![Value::Integer(1)]);
