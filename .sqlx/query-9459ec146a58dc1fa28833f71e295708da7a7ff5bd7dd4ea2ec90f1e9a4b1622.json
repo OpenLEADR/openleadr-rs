@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rg_child_ven_resource_id FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rg_child_ven_resource_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9459ec146a58dc1fa28833f71e295708da7a7ff5bd7dd4ea2ec90f1e9a4b1622"
+}
