@@ -35,7 +35,7 @@ pub struct Event {
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", tag = "objectType", rename = "EVENT")]
 pub struct EventRequest {
     /// URL safe VTN assigned object ID.
     #[serde(rename = "programID")]
