@@ -403,15 +403,6 @@ impl Crud for PgResourceGroupStorage {
         .try_into()?;
 
         sqlx::query!(
-            r#"
-            DELETE FROM rg_child_rg rg_child_ven_resource WHERE rg_parent_rg_id = $1
-            "#,
-            id.as_str()
-        )
-        .execute(tx.as_mut())
-        .await?;
-
-        sqlx::query!(
             r#"DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1"#,
             id.as_str()
         )
