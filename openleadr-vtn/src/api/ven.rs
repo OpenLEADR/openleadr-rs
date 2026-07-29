@@ -309,7 +309,7 @@ mod tests {
         }
 
         #[sqlx::test(fixtures("vens"))]
-        async fn cannot_edit_vev_without_correct_scope(db: PgPool) {
+        async fn cannot_edit_ven_without_correct_scope(db: PgPool) {
             let test = ApiTest::new(
                 db.clone(),
                 "ven-1-client-id",
