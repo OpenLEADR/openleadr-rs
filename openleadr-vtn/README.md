@@ -107,6 +107,9 @@ the following environment variables:
 - `MQTT_PASSWORD` (required) the password for the user the VTN can use to publish messages.
 - `MQTT_TOPIC_PREFIX` (optional) a prefix to prepend to all the topic names above. Useful for
    avoiding overlap in topic names when the MQTT broker is also used for other applications.
+- `MQTT_CA_PATH` (optional) path to a PEM file containing the CA certificate(s)
+  to trust when connecting to the broker over MQTTS. If not set, the OS default
+  trust store is used.
 Here required indicates that when enabling MQTT, the environment variable is required. The provided
 account should have sufficient rights to publish to all topics mentioned above.
 

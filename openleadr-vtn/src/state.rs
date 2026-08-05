@@ -303,6 +303,7 @@ impl AppState {
                 username: username.clone(),
                 password: password.clone(),
                 topic_prefix: config.mqtt_topic_prefix.clone(),
+                ca_path: config.mqtt_ca_path.clone(),
             }),
             (None, None, None) => None,
             _ => panic!(
