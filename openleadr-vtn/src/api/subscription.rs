@@ -84,13 +84,11 @@ impl NotifierState {
                 .password(mqtt_config.password)
                 .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(16));
 
-            if paho_mqtt::is_secure_uri(&mqtt_config.url) {
-                let mut ssl_options = paho_mqtt::SslOptionsBuilder::new();
-                if let Some(ca_path) = &mqtt_config.ca_path {
-                    ssl_options.trust_store(ca_path)?;
-                }
-                connect_options.ssl_options(ssl_options.finalize());
+            let mut ssl_options = paho_mqtt::SslOptionsBuilder::new();
+            if let Some(ca_path) = &mqtt_config.ca_path {
+                ssl_options.trust_store(ca_path)?;
             }
+            connect_options.ssl_options(ssl_options.finalize());
 
             mqtt_client.connect(connect_options.finalize()).await?;
 
