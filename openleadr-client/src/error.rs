@@ -48,7 +48,7 @@ impl Error {
     /// `403 Forbidden` HTTP status code.
     pub fn is_forbidden(&self) -> bool {
         match self {
-            Error::Problem(openleadr_wire::problem::Problem { status, ..}) => {
+            Error::Problem(openleadr_wire::problem::Problem { status, .. }) => {
                 *status == StatusCode::FORBIDDEN
             }
             _ => false,
