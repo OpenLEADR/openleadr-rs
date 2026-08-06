@@ -43,6 +43,17 @@ impl Error {
             _ => false,
         }
     }
+
+    /// Checks if the [`Problem`](openleadr_wire::problem::Problem) response of the VTN is a
+    /// `403 Forbidden` HTTP status code.
+    pub fn is_forbidden(&self) -> bool {
+        match self {
+            Error::Problem(openleadr_wire::problem::Problem { status, ..}) => {
+                *status == StatusCode::FORBIDDEN
+            }
+            _ => false,
+        }
+    }
 }
 
 impl From<reqwest::Error> for Error {
