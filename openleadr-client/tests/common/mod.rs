@@ -19,7 +19,7 @@ pub enum AuthRole {
 fn default_credentials(auth_role: AuthRole) -> ClientCredentials {
     let (id, secr) = match auth_role {
         AuthRole::Bl => ("bl-client", "bl-client"),
-        AuthRole::Ven => ("ven-client", "ven-client"),
+        AuthRole::Ven => ("ven-client-client-id", "ven-client"),
     };
 
     ClientCredentials::new(id.to_string(), secr.to_string())
@@ -167,4 +167,11 @@ pub async fn setup_program_client<K: ClientKind>(
     };
 
     client.create_program(program_content).await.unwrap()
+}
+
+pub async fn setup_client_with_role<K: ClientKind>(db: PgPool, role: AuthRole) -> Client<K> {
+    let cred = default_credentials(role);
+    let storage = PostgresStorage::new(db).unwrap();
+    let app_state = AppState::new(storage, &VtnConfig::from_env()).await;
+    MockClientRef::new(app_state.into_router()).into_client(Some(cred))
 }
