@@ -63,7 +63,6 @@ async fn report_crud(db: PgPool) {
         assert!(err.is_forbidden());
     }
 
-
     // Update
     let before = *report.modification_date_time();
     report.content_mut().report_name = Some("renamed".to_string());
