@@ -55,6 +55,15 @@ async fn report_crud(db: PgPool) {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id(), report.id());
 
+    {
+        let err = bl_event
+            .create_report(bl_event.new_report("bl".to_string()))
+            .await
+            .unwrap_err();
+        assert!(err.is_forbidden());
+    }
+
+
     // Update
     let before = *report.modification_date_time();
     report.content_mut().report_name = Some("renamed".to_string());
