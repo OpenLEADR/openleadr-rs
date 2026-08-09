@@ -108,7 +108,7 @@ pub mod test {
     use axum::{
         Router,
         body::Body,
-        http::{self, Request, StatusCode},
+        http::{self, Request, StatusCode, header},
     };
     use http_body_util::BodyExt;
     use openleadr_wire::problem::Problem;
@@ -312,6 +312,49 @@ pub mod test {
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test]
+    async fn missing_token_is_401_with_www_authenticate(db: PgPool) {
+        let mut test = state(db).await.into_router();
+
+        let response = (&mut test)
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/programs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let headers = response.headers();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(headers[header::WWW_AUTHENTICATE], r#"Bearer realm="VTN""#);
+    }
+
+    #[sqlx::test]
+    async fn invalid_token_is_403_without_www_authenticate(db: PgPool) {
+        let mut test = ApiTest::new(db.clone(), "test-client", vec![]).await;
+
+        let response = (&mut test.router)
+            .oneshot(
+                Request::builder()
+                    .header(header::AUTHORIZATION, "Bearer invalid")
+                    .method(Method::GET)
+                    .uri("/programs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let headers = response.headers();
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!headers.contains_key(header::WWW_AUTHENTICATE));
     }
 
     #[sqlx::test]

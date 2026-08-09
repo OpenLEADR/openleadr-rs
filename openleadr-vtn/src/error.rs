@@ -373,3 +373,69 @@ impl IntoResponse for AppError {
         response
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use http_body_util::BodyExt;
+
+    async fn problem_of(err: AppError) -> (Problem, axum::http::HeaderMap) {
+        let response = err.into_response();
+        let headers = response.headers().clone();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let problem: Problem = serde_json::from_slice(&body)
+            .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&body)));
+        (problem, headers)
+    }
+
+    // Not circular: each arm of `into_response` writes `title` and `status` as two separate
+    // literals, so this catches a copy-paste mismatch. Delete it if `title` is ever derived from
+    // `status` in one place.
+    fn assert_title_matches_status(problem: &Problem) {
+        assert_eq!(problem.title, Some(problem.status.to_string()))
+    }
+
+    #[tokio::test]
+    async fn wrapped_causes_do_not_reach_the_client() {
+        for err in [
+            #[cfg(feature = "sqlx")]
+            AppError::Sql(sqlx::Error::Protocol("relation users_secret".into())), //passes
+            AppError::Mqtt(paho_mqtt::Error::Failure), //passes
+            AppError::PasswordHashError(password_hash::Error::Password),
+        ] {
+            let source = err.to_string();
+            let debug = format!("{err:?}");
+            let (problem, _) = problem_of(err).await;
+
+            assert_title_matches_status(&problem);
+            assert!(
+                problem.status.is_server_error(),
+                "expected 5xx for {debug}, got {}",
+                problem.status
+            );
+            assert!(!problem.detail.unwrap_or_default().contains(&source))
+        }
+    }
+
+    #[tokio::test]
+    async fn not_found_omits_cause() {
+        let (problem, _) = problem_of(AppError::NotFound).await;
+        assert_eq!(problem.status, StatusCode::NOT_FOUND);
+        assert_title_matches_status(&problem);
+        assert!(problem.detail.is_none());
+    }
+
+    #[tokio::test]
+    async fn unauthorized_carries_www_authenticate() {
+        let (problem, headers) = problem_of(AppError::Auth("bad token".to_string())).await;
+        assert_eq!(problem.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(headers[header::WWW_AUTHENTICATE], r#"Bearer realm="VTN""#)
+    }
+
+    #[tokio::test]
+    async fn forbidden_omits_www_authenticate() {
+        let (problem, headers) = problem_of(AppError::Forbidden("Forbidden")).await;
+        assert_eq!(problem.status, StatusCode::FORBIDDEN);
+        assert!(!headers.contains_key(header::WWW_AUTHENTICATE));
+    }
+}
