@@ -169,6 +169,7 @@ pub async fn setup_program_client<K: ClientKind>(
     client.create_program(program_content).await.unwrap()
 }
 
+#[allow(unused)]
 pub async fn setup_client_with_role<K: ClientKind>(db: PgPool, role: AuthRole) -> Client<K> {
     let cred = default_credentials(role);
     let storage = PostgresStorage::new(db).unwrap();
