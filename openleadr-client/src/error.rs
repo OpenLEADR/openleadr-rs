@@ -34,7 +34,8 @@ impl Error {
         }
     }
 
-    #[allow(missing_docs)]
+    /// Checks if the [`Problem`](openleadr_wire::problem::Problem) response of the VTN is a
+    /// `404 Not Found` HTTP status code.
     pub fn is_not_found(&self) -> bool {
         match self {
             Error::Problem(openleadr_wire::problem::Problem { status, .. }) => {
