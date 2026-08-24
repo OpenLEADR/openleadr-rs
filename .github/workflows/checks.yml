@@ -53,18 +53,18 @@ jobs:
         run: echo "TARGET_RUST_VERSION=$(if [ "${{matrix.rust}}" = "msrv" ]; then grep rust-version Cargo.toml | grep MSRV | cut -d'"' -f2; else echo "${{matrix.rust}}"; fi)" >> $GITHUB_ENV
 
       - name: Install toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: "${TARGET_RUST_VERSION}"
           targets: "${{ matrix.target }}"
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2.85.5
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
         with:
           tool: cargo-llvm-cov
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: "${{matrix.rust}}-${{matrix.target}}"
           cache-on-failure: true
@@ -109,12 +109,12 @@ jobs:
           persist-credentials: false
 
       - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: nightly
 
       - name: Install udeps
-        uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2.85.5
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
         with:
           tool: cargo-udeps
 
@@ -130,7 +130,7 @@ jobs:
           persist-credentials: false
 
       - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: nightly
           components: rustfmt
@@ -167,7 +167,7 @@ jobs:
         run: sudo apt install -y clang libclang-dev cmake
 
       - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
           components: clippy
@@ -182,7 +182,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: "stable-${{matrix.target}}"
 
