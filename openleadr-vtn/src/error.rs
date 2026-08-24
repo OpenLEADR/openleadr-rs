@@ -388,9 +388,8 @@ mod test {
         (problem, headers)
     }
 
-    // Not circular: each arm of `into_response` writes `title` and `status` as two separate
-    // literals, so this catches a copy-paste mismatch. Delete it if `title` is ever derived from
-    // `status` in one place.
+    // Each arm of `into_response` writes `title` and `status` as two separate
+    // literals, so this catches a copy-paste mismatch.
     fn assert_title_matches_status(problem: &Problem) {
         assert_eq!(problem.title, Some(problem.status.to_string()))
     }
