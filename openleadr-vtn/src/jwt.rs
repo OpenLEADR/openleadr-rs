@@ -126,7 +126,9 @@ pub enum Scope {
     ReadVenObjects,
     WritePrograms,
     WriteEvents,
-    WriteReports,
+    WriteReportsBl,
+    #[serde(alias = "write_reports")]
+    WriteReportsVen,
     WriteSubscriptionsBl,
     #[serde(alias = "write_subscriptions")]
     WriteSubscriptionsVen,
@@ -150,7 +152,9 @@ impl FromStr for Scope {
             "read_ven_objects" => Ok(Scope::ReadVenObjects),
             "write_programs" => Ok(Scope::WritePrograms),
             "write_events" => Ok(Scope::WriteEvents),
-            "write_reports" => Ok(Scope::WriteReports),
+            "write_reports_bl" => Ok(Scope::WriteReportsBl),
+            "write_reports_ven" => Ok(Scope::WriteReportsVen),
+            "write_reports" => Ok(Scope::WriteReportsVen),
             "write_subscriptions_bl" => Ok(Scope::WriteSubscriptionsBl),
             "write_subscriptions_ven" => Ok(Scope::WriteSubscriptionsVen),
             "write_vens_bl" => Ok(Scope::WriteVensBl),
@@ -642,7 +646,8 @@ mod test {
                 Scope::ReadVenObjects,
                 Scope::WritePrograms,
                 Scope::WriteEvents,
-                Scope::WriteReports,
+                Scope::WriteReportsBl,
+                Scope::WriteReportsVen,
                 Scope::WriteSubscriptionsBl,
                 Scope::WriteSubscriptionsVen,
                 Scope::WriteVensBl,
@@ -678,7 +683,7 @@ mod test {
         }"#;
         let claim = serde_json::from_str::<Claims>(claim).unwrap();
         assert!(claim.has_scope(Scope::ReadTargets));
-        assert!(claim.has_scope(Scope::WriteReports));
+        assert!(claim.has_scope(Scope::WriteReportsVen));
     }
 
     #[test]

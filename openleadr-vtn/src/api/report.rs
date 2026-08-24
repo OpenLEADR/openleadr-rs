@@ -83,12 +83,15 @@ pub async fn add(
     User(user): User,
     ValidatedJson(new_report): ValidatedJson<ReportRequest>,
 ) -> Result<(StatusCode, Json<Report>), AppError> {
-    let report = if user.has_scope(Scope::WriteReports) {
+    let report = if user.has_scope(Scope::WriteReportsBl) || user.has_scope(Scope::WriteReportsVen)
+    {
         report_source
             .create(new_report, &Some(user.client_id()?))
             .await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_reports' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_reports_bl' or 'write_reports_ven' scope",
+        ));
     };
 
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report created");
@@ -121,12 +124,16 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(content): ValidatedJson<ReportRequest>,
 ) -> AppResponse<Report> {
-    let report = if user.has_scope(Scope::WriteReports) {
+    let report = if user.has_scope(Scope::WriteReportsBl) {
+        report_source.update(&id, content, &None).await?
+    } else if user.has_scope(Scope::WriteReportsVen) {
         report_source
             .update(&id, content, &Some(user.client_id()?))
             .await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_reports' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_reports_bl' or 'write_reports_ven' scope",
+        ));
     };
 
     info!(%report.id, report_name=?report.content.report_name, client_id = user.sub, "report updated");
@@ -154,15 +161,14 @@ pub async fn delete(
     User(user): User,
     Path(id): Path<ReportId>,
 ) -> AppResponse<Report> {
-    // The specification does only allow VEN clients to have write access to reports.
-    // Therefore, we can safely filter for the client_id, as there is no specified use-case
-    // where a BL client can delete a report.
-    // If a BL tried to delete a report, it would either fail by not having the `write_reports` scope
-    // or because the BLs client_id does not match the reports client_id.
-    let report = if user.has_scope(Scope::WriteReports) {
+    let report = if user.has_scope(Scope::WriteReportsBl) {
+        report_source.delete(&id, &None).await?
+    } else if user.has_scope(Scope::WriteReportsVen) {
         report_source.delete(&id, &Some(user.client_id()?)).await?
     } else {
-        return Err(AppError::Forbidden("Missing 'write_reports' scope"));
+        return Err(AppError::Forbidden(
+            "Missing 'write_reports_bl' or 'write_reports_ven' scope",
+        ));
     };
 
     info!(%id, report_name=?report.content.report_name, client_id = user.sub, "deleted report");
@@ -206,6 +212,7 @@ mod test {
     use crate::{api::test::ApiTest, jwt::Scope};
     use axum::{body::Body, http, http::StatusCode};
     use openleadr_wire::{
+        Report,
         problem::Problem,
         report::{ReportPayloadDescriptor, ReportRequest, ReportType},
     };
@@ -282,5 +289,69 @@ mod test {
                     .contains("outside of allowed range 1..=128")
             )
         }
+    }
+
+    #[sqlx::test(fixtures("programs", "events", "vens"))]
+    async fn bl_client_can_delete_ven_created_report(db: PgPool) {
+        let ven = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteReportsVen]).await;
+        let bl = ApiTest::new(db, "bl-client-id", vec![Scope::WriteReportsBl]).await;
+
+        let (status, report) = ven
+            .request::<Report>(
+                http::Method::POST,
+                "/reports",
+                Body::from(
+                    serde_json::to_vec(&ReportRequest {
+                        event_id: "event-1".parse().unwrap(),
+                        client_name: "ven-1-name".to_string(),
+                        ..default()
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(report.client_id.as_str(), "ven-1-client-id");
+
+        let (status, deleted) = bl
+            .request::<Report>(
+                http::Method::DELETE,
+                &format!("/reports/{}", report.id),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(deleted.id, report.id);
+    }
+
+    #[sqlx::test(fixtures("programs", "events", "vens"))]
+    async fn ven_client_cannot_delete_other_vens_report(db: PgPool) {
+        let ven1 = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteReportsVen]).await;
+        let ven2 = ApiTest::new(db, "ven-2-client-id", vec![Scope::WriteReportsVen]).await;
+
+        let (status, report) = ven1
+            .request::<Report>(
+                http::Method::POST,
+                "/reports",
+                Body::from(
+                    serde_json::to_vec(&ReportRequest {
+                        event_id: "event-1".parse().unwrap(),
+                        client_name: "ven-1-name".to_string(),
+                        ..default()
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, _) = ven2
+            .request::<Problem>(
+                http::Method::DELETE,
+                &format!("/reports/{}", report.id),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }
