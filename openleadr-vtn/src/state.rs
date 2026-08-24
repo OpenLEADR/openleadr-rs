@@ -44,7 +44,7 @@ use std::{
     sync::Arc,
 };
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -303,12 +303,23 @@ impl AppState {
                 username: username.clone(),
                 password: password.clone(),
                 topic_prefix: config.mqtt_topic_prefix.clone(),
+                ca_path: config.mqtt_ca_path.clone(),
             }),
             (None, None, None) => None,
             _ => panic!(
                 "Incomplete MQTT configuration. Expect all of the MQTT_URL, MQTT_USERNAME and MQTT_PASSWORD environment variables to be set when one of them is present."
             ),
         };
+
+        if let Some(mqtt_config) = &mqtt_config
+            && mqtt_config.ca_path.is_some()
+            && !paho_mqtt::is_secure_uri(&mqtt_config.url)
+        {
+            warn!(
+                "MQTT_CA_PATH is set but MQTT_URL ('{}') is not a secure URL. The CA certificate will not be used!",
+                mqtt_config.url
+            );
+        }
 
         let notifier =
             subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_config)
