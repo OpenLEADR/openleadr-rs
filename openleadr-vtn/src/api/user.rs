@@ -180,7 +180,7 @@ mod test {
             scope: vec![
                 Scope::ReadTargets,
                 Scope::ReadVenObjects,
-                Scope::WriteReports,
+                Scope::WriteReportsVen,
                 Scope::WriteSubscriptionsVen,
                 Scope::WriteVensVen,
             ],

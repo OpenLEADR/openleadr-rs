@@ -5,7 +5,7 @@ INSERT INTO user_credentials (user_id, client_id, client_secret)
 VALUES ('bl-client', 'bl-client', '$argon2id$v=19$m=16,t=2,p=1$MWt1QVNFdHdlZVJhNEZzUA$Rmkguwgaz+A2GWIaDRtv8w'); -- secret: bl-client
 
 INSERT INTO "user" (id, reference, description, scopes, created, modified)
-VALUES ('ven-client', 'ven-client-ref', 'desc', '{"read_targets", "read_ven_objects", "write_reports", "write_subscriptions_ven", "write_vens_ven"}', '2024-07-25 08:31:10.776000 +00:00', '2024-07-25 08:31:10.776000 +00:00');
+VALUES ('ven-client', 'ven-client-ref', 'desc', '{"read_targets", "read_ven_objects", "write_reports_ven", "write_subscriptions_ven", "write_vens_ven"}', '2024-07-25 08:31:10.776000 +00:00', '2024-07-25 08:31:10.776000 +00:00');
 
 INSERT INTO user_credentials (user_id, client_id, client_secret)
 VALUES ('ven-client', 'ven-client-client-id',
