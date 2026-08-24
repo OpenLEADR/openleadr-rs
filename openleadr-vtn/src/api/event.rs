@@ -553,7 +553,6 @@ mod test {
             .request::<Vec<Event>>(Method::GET, "/events?targets=nonsense", Body::empty())
             .await;
         assert_eq!(status, StatusCode::OK);
-        dbg!(&events);
         assert_eq!(events.len(), 0);
 
         let (status, events) = test
