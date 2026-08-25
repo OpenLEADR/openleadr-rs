@@ -30,3 +30,4 @@ UPDATE "user" SET scopes = array(
     FROM (SELECT unnest(_scopes) AS scope)
 );
 ALTER TABLE "user" DROP COLUMN _scopes;
+DROP TYPE _scope;
