@@ -37,7 +37,7 @@ pub enum AppError {
     #[error("Conflict: {0}")]
     Conflict(String, Option<Box<dyn DatabaseError>>),
     #[cfg(feature = "sqlx")]
-    #[error("Unprocessable Content: {0}")]
+    #[error("Conflict: {0}")]
     ForeignKeyConstraintViolated(String, Option<Box<dyn DatabaseError>>),
     #[error("Authentication error: {0}")]
     Auth(String),
@@ -314,7 +314,7 @@ impl IntoResponse for AppError {
             #[cfg(feature = "sqlx")]
             AppError::ForeignKeyConstraintViolated(err, db_err) => {
                 trace!(%reference,
-                    "Unprocessable Content: {}, DB details: {:?}",
+                    "Conflict: {}, DB details: {:?}",
                     err,
                     db_err
                 );

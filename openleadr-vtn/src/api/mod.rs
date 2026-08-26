@@ -336,7 +336,7 @@ pub mod test {
     }
 
     #[sqlx::test]
-    async fn invalid_token_is_403_without_www_authenticate(db: PgPool) {
+    async fn invalid_token_is_401_with_www_authenticate(db: PgPool) {
         let mut test = ApiTest::new(db.clone(), "test-client", vec![]).await;
 
         let response = (&mut test.router)
@@ -353,8 +353,8 @@ pub mod test {
 
         let status = response.status();
         let headers = response.headers();
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert!(!headers.contains_key(header::WWW_AUTHENTICATE));
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(headers[header::WWW_AUTHENTICATE], r#"Bearer realm="VTN""#);
     }
 
     #[sqlx::test]
