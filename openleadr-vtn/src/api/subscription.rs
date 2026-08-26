@@ -54,6 +54,7 @@ pub(crate) struct MqttConfig {
     pub(crate) username: String,
     pub(crate) password: String,
     pub(crate) topic_prefix: String,
+    pub(crate) ca_path: Option<String>,
 }
 
 impl NotifierState {
@@ -76,16 +77,20 @@ impl NotifierState {
 
         let mqtt_state = if let Some(mqtt_config) = mqtt_config {
             let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
-            mqtt_client
-                .connect(
-                    paho_mqtt::ConnectOptionsBuilder::new()
-                        .server_uris(&[&mqtt_config.url])
-                        .user_name(mqtt_config.username)
-                        .password(mqtt_config.password)
-                        .automatic_reconnect(Duration::from_millis(1), Duration::from_secs(16))
-                        .finalize(),
-                )
-                .await?;
+            let mut connect_options = paho_mqtt::ConnectOptionsBuilder::new();
+            connect_options
+                .server_uris(&[&mqtt_config.url])
+                .user_name(mqtt_config.username)
+                .password(mqtt_config.password)
+                .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(16));
+
+            let mut ssl_options = paho_mqtt::SslOptionsBuilder::new();
+            if let Some(ca_path) = &mqtt_config.ca_path {
+                ssl_options.trust_store(ca_path)?;
+            }
+            connect_options.ssl_options(ssl_options.finalize());
+
+            mqtt_client.connect(connect_options.finalize()).await?;
 
             Some(MqttState {
                 url: mqtt_config.url,
@@ -1364,7 +1369,7 @@ mod test {
             db,
             "ven-1-client-id",
             vec![
-                Scope::WriteReports,
+                Scope::WriteReportsVen,
                 Scope::WriteSubscriptionsBl,
                 Scope::ReadAll,
             ],

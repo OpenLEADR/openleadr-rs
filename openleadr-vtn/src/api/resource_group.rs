@@ -520,4 +520,51 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn put_deletes_resource_group_children(db: PgPool) {
+        let test = ApiTest::new(db.clone(), "test-client", vec![Scope::WriteVensBl]).await;
+
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::PUT,
+                "/resource_groups/resource-group-2",
+                Body::from(
+                    r#"
+                      {
+                        "resourceGroupName":"updated-resource-group",
+                        "targets": ["group-3"],
+                        "objectType": "RESOURCE_GROUP_REQUEST",
+                        "children": []
+                      }"#,
+                ),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(resource_group.content.children.is_empty());
+
+        let mut tx = db.begin().await.unwrap();
+
+        let naive_rg_children: Vec<_> = sqlx::query!(
+            r#"SELECT rg_child_rg_id FROM rg_child_rg WHERE rg_parent_rg_id = $1"#,
+            "resource-group-2",
+        )
+        .fetch_all(tx.as_mut())
+        .await
+        .unwrap();
+
+        let naive_ven_children: Vec<_> = sqlx::query!(
+            r#"SELECT rg_child_ven_resource_id FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1"#,
+            "resource-group-2",
+        )
+        .fetch_all(tx.as_mut())
+        .await
+        .unwrap();
+
+        tx.commit().await.unwrap();
+
+        assert!(naive_ven_children.is_empty());
+        assert!(naive_rg_children.is_empty());
+    }
 }

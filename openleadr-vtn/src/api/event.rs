@@ -306,6 +306,7 @@ mod test {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let db_event: Event = serde_json::from_slice(&body).unwrap();
 
+        assert!(body.windows(10).any(|w| w == b"objectType"));
         assert_eq!(event, db_event);
     }
 
