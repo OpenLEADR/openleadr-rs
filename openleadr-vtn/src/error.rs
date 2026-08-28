@@ -54,7 +54,7 @@ pub enum AppError {
     #[cfg(feature = "sqlx")]
     #[error("Json (de)serialization error : {0}")]
     SerdeJsonBadRequest(serde_json::Error),
-    #[error("Malformed Identifier")]
+    #[error("Malformed Identifier: {0}")]
     Identifier(#[from] IdentifierError),
     #[error("Method not allowed")]
     MethodNotAllowed,
