@@ -1,6 +1,9 @@
 use crate::{
     api::resource_group::QueryParams,
-    data_source::{Crud, ResourceGroupCrud, postgres::to_json_value},
+    data_source::{
+        Crud, ResourceGroupCrud,
+        postgres::{get_ven_targets, to_json_value},
+    },
     error::AppError,
 };
 use async_trait::async_trait;
@@ -253,6 +256,11 @@ impl Crud for PgResourceGroupStorage {
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let targets = match client_id {
+            Some(client_id) => get_ven_targets(self.db.clone(), client_id).await?,
+            None => vec![],
+        };
+
         let mut tx = self.db.begin().await?;
 
         let mut resource_group: ResourceGroup = sqlx::query_as!(
@@ -272,6 +280,8 @@ impl Crud for PgResourceGroupStorage {
                     -- If client_id is null, it is a business logic request
                     $2::text IS NULL
 
+                    OR (rg.targets && $3)
+
                     -- Otherwise, for a VEN, the resource group should only be visible if there
                     -- is at least 1 VEN resource (grand) child, with matching client_id.
                     OR EXISTS (
@@ -282,12 +292,12 @@ impl Crud for PgResourceGroupStorage {
                             ON rg_fam.id = rcvr.rg_parent_rg_id
                         WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
                           AND rg_fam.root = $1
-
                     )
                 )
                 "#,
             id.as_str(),
-            client_id as _
+            client_id as _,
+            targets as _,
         )
         .fetch_one(tx.as_mut())
         .await?
