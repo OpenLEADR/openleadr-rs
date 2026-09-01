@@ -78,6 +78,7 @@ where
 /// A string that matches `/^[a-zA-Z0-9_-]*$/` with length in 1..=128
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
 #[sqlx(transparent)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Identifier(#[serde(deserialize_with = "identifier")] String);
 
 impl<'de> Deserialize<'de> for Identifier {
@@ -145,6 +146,7 @@ impl Display for Identifier {
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ObjectType {
     Program,
     Event,
@@ -337,6 +339,7 @@ pub enum Attribute {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum Unit {
     /// Kilowatt-hours (kWh)
     #[serde(rename = "KWH")]
@@ -377,6 +380,7 @@ pub enum Unit {
 // example: 249rj49jiej
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, sqlx::Type)]
 #[sqlx(transparent)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ClientId(pub(crate) Identifier);
 
 impl Display for ClientId {

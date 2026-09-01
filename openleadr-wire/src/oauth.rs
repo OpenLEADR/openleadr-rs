@@ -4,6 +4,7 @@ use validator::{Validate, ValidateLength, ValidationErrors};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum OAuthErrorType {
     OAuthNotEnabled,
     InvalidRequest,
@@ -22,6 +23,7 @@ pub enum OAuthErrorType {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct OAuthError {
     pub error: OAuthErrorType,
     #[serde(skip_serializing_if = "Option::is_none")]

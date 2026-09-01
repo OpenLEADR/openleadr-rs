@@ -24,6 +24,23 @@ use crate::{
     jwt::{Scope, User},
 };
 
+
+#[utoipa::path(
+    get,
+    path = "/vens",
+    tag = "VENs",
+    params(
+        // openleadr_wire::QueryParams
+    ),
+    responses(
+        (status = 200, description = "List all VENs", body = Vec<Ven>),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get_all(
     State(ven_source): State<Arc<dyn VenCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -48,6 +65,22 @@ pub async fn get_all(
     Ok(Json(vens))
 }
 
+#[utoipa::path(
+    get,
+    path = "/vens/{id}",
+    tag = "VENs",
+    params(
+        ("id" = String, Path, description = "Unique VEN or Client ID")
+    ),
+    responses(
+        (status = 200, description = "VEN details retrieved", body = Ven),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "VEN not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get(
     State(ven_source): State<Arc<dyn VenCrud>>,
     Path(id): Path<VenId>,
@@ -68,6 +101,21 @@ pub async fn get(
     Ok(Json(ven))
 }
 
+#[utoipa::path(
+    post,
+    path = "/vens",
+    tag = "VENs",
+    request_body = Ven,
+    responses(
+        (status = 201, description = "VEN created successfully", body = Ven),
+        (status = 400, description = "Invalid payload"),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "VEN already exists")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn add(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -120,6 +168,24 @@ pub async fn add(
     Ok((StatusCode::CREATED, Json(ven)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/vens/{id}",
+    tag = "VENs",
+    params(
+        ("id" = String, Path, description = "Unique VEN or Client ID")
+    ),
+    request_body = Ven,
+    responses(
+        (status = 200, description = "VEN updated successfully", body = Ven),
+        (status = 400, description = "Invalid payload"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "VEN not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn edit(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -175,6 +241,22 @@ pub async fn edit(
     Ok(Json(ven))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/vens/{id}",
+    tag = "VENs",
+    params(
+        ("id" = String, Path, description = "Unique VEN or Client ID")
+    ),
+    responses(
+        (status = 204, description = "VEN deleted successfully"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "VEN not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete(
     State(event_source): State<Arc<dyn EventCrud>>,
     State(ven_source): State<Arc<dyn VenCrud>>,

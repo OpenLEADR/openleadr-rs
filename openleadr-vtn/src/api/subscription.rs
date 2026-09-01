@@ -1369,7 +1369,7 @@ mod test {
             db,
             "ven-1-client-id",
             vec![
-                Scope::WriteReportsVen,
+                Scope::WriteReports,
                 Scope::WriteSubscriptionsBl,
                 Scope::ReadAll,
             ],

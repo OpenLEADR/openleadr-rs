@@ -18,6 +18,7 @@ use validator::{Validate, ValidationError};
 /// default start time and duration of intervals.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Event {
     /// URL safe VTN assigned object ID.
     pub id: EventId,
@@ -36,6 +37,7 @@ pub struct Event {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "EVENT")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EventRequest {
     /// URL safe VTN assigned object ID.
     #[serde(rename = "programID")]
@@ -116,6 +118,7 @@ impl EventRequest {
 
 /// URL safe VTN assigned object ID
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EventId(pub(crate) Identifier);
 
 impl Display for EventId {
@@ -146,6 +149,7 @@ impl FromStr for EventId {
 /// i.e., equals to [`Priority::MIN`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Priority(Option<u32>);
 
 impl Priority {
@@ -196,6 +200,7 @@ impl From<Priority> for Option<i64> {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EventPayloadDescriptor {
     /// Represents the nature of values.
     ///
@@ -204,6 +209,7 @@ pub struct EventPayloadDescriptor {
     /// Units of measure.
     pub units: Option<Unit>,
     /// Currency of price payload.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))] // Map external type to String schema
     pub currency: Option<Currency>,
 }
 
@@ -222,6 +228,7 @@ impl EventPayloadDescriptor {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EventInterval {
     /// A client generated number assigned an interval object. Not a sequence number.
     pub id: i32,
@@ -245,6 +252,7 @@ impl EventInterval {
 /// Represents one or more values associated with a type. E.g. a type of PRICE contains a single float value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Validate)]
 #[validate(schema(function = "validate_payload"))]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EventValuesMap {
     /// Enumerated or private string signifying the nature of values. E.G. \"PRICE\" indicates value is to be interpreted as a currency.
     #[serde(rename = "type")]
@@ -268,6 +276,7 @@ fn validate_payload(payload: &EventValuesMap) -> Result<(), ValidationError> {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum EventType {
     Simple,
     Price,

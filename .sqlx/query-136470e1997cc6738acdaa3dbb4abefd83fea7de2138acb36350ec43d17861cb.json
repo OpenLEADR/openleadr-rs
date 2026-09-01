@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE report r\n            SET modification_date_time = now(),\n                event_id = $2,\n                client_name = $3,\n                report_name = $4,\n                payload_descriptors = $5,\n                resources = $6\n            WHERE r.id = $1\n              AND ($7::text IS NULL OR r.client_id = $7)\n            RETURNING r.*\n            ",
+  "query": "\n            DELETE FROM report r\n                   WHERE r.id = $1\n                     AND r.client_id = $2\n                   RETURNING r.*\n            ",
   "describe": {
     "columns": [
       {
@@ -52,11 +52,6 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Jsonb",
         "Text"
       ]
     },
@@ -72,5 +67,5 @@
       false
     ]
   },
-  "hash": "b131e66f679e7c009e335c9e3433e49c1970448b0dadadeb7b7301c9406d8933"
+  "hash": "136470e1997cc6738acdaa3dbb4abefd83fea7de2138acb36350ec43d17861cb"
 }

@@ -10,6 +10,7 @@ use std::fmt::Display;
     Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, FromStr, sqlx::Type, PartialOrd, Ord,
 )]
 #[sqlx(transparent)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Target(pub(crate) Identifier);
 
 impl Display for Target {

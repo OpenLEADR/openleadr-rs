@@ -9,6 +9,7 @@ use serde_with::skip_serializing_none;
 /// temporal aspects of interval or override event.intervalPeriod.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Interval {
     /// A client generated number assigned an interval object. Not a sequence number.
     pub id: i32,
@@ -37,6 +38,7 @@ impl Interval {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct IntervalPeriod {
     /// The start time of an interval or set of intervals.
     #[serde(with = "crate::serde_rfc3339")]
