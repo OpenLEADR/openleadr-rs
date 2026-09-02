@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tracing::{info, trace};
 use validator::Validate;
 
-#[derive(Deserialize, Debug, Validate)]
+#[derive(Deserialize, Debug, Validate,utoipa::ToSchema)]
 #[cfg_attr(test, derive(Serialize))]
 pub struct NewUser {
     reference: String,
@@ -24,13 +24,26 @@ pub struct NewUser {
     scope: Vec<Scope>,
 }
 
-#[derive(Deserialize, Validate)]
+#[derive(Deserialize, Validate, utoipa::ToSchema)]
 #[cfg_attr(test, derive(Serialize, Default))]
 pub struct NewCredential {
     client_id: String,
     client_secret: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/users",
+    tag = "Users",
+    responses(
+        (status = 200, description = "List all user details"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get_all(
     State(auth_source): State<Arc<dyn AuthSource>>,
     User(user): User,
@@ -45,6 +58,23 @@ pub async fn get_all(
     Ok(Json(users))
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/{id}",
+    tag = "Users",
+    params(
+        ("id" = String, Path, description = "Unique User ID")
+    ),
+    responses(
+        (status = 200, description = "User details retrieved successfully"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope"),
+        (status = 404, description = "User not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
@@ -59,6 +89,21 @@ pub async fn get(
     Ok(Json(u))
 }
 
+#[utoipa::path(
+    post,
+    path = "/users",
+    tag = "Users",
+    request_body = NewUser,
+    responses(
+        (status = 201, description = "User created successfully"),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn add_user(
     State(auth_source): State<Arc<dyn AuthSource>>,
     User(user): User,
@@ -79,6 +124,25 @@ pub async fn add_user(
     Ok((StatusCode::CREATED, Json(u)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/users/{id}",
+    tag = "Users",
+    params(
+        ("id" = String, Path, description = "Unique User ID")
+    ),
+    request_body = NewCredential,
+    responses(
+        (status = 200, description = "Credential added successfully to user"),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope"),
+        (status = 404, description = "User not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn add_credential(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
@@ -101,6 +165,25 @@ pub async fn add_credential(
     Ok(Json(u))
 }
 
+#[utoipa::path(
+    put,
+    path = "/users/{id}",
+    tag = "Users",
+    params(
+        ("id" = String, Path, description = "Unique User ID")
+    ),
+    request_body = NewUser,
+    responses(
+        (status = 200, description = "User details updated successfully"),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope"),
+        (status = 404, description = "User not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn edit(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
@@ -124,6 +207,23 @@ pub async fn edit(
     Ok(Json(u))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/users/{id}",
+    tag = "Users",
+    params(
+        ("id" = String, Path, description = "Unique User ID")
+    ),
+    responses(
+        (status = 200, description = "User deleted successfully"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope"),
+        (status = 404, description = "User not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete_user(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path(id): Path<String>,
@@ -138,6 +238,24 @@ pub async fn delete_user(
     Ok(Json(u))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/users/{user_id}/{client_id}",
+    tag = "Users",
+    params(
+        ("user_id" = String, Path, description = "Unique User ID"),
+        ("client_id" = String, Path, description = "Unique Client ID to remove")
+    ),
+    responses(
+        (status = 200, description = "Credential removed successfully"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - missing 'write_users' scope"),
+        (status = 404, description = "User or Client ID not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete_credential(
     State(auth_source): State<Arc<dyn AuthSource>>,
     Path((user_id, client_id)): Path<(String, String)>,

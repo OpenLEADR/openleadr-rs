@@ -116,7 +116,7 @@ mod string_or_vec {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "scope", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(test, derive(PartialOrd, Ord))]

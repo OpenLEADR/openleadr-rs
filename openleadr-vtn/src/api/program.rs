@@ -24,6 +24,22 @@ use openleadr_wire::{
     subscription::{AnyObject, Operation},
 };
 
+#[utoipa::path(
+    get,
+    path = "/programs",
+    tag = "Programs",
+    params(
+        // openleadr_wire::QueryParams
+    ),
+    responses(
+        (status = 200, description = "List all programs", body = Vec<Program>),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get_all(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -52,6 +68,23 @@ pub async fn get_all(
     Ok(Json(programs))
 }
 
+#[utoipa::path(
+    get,
+    path = "/programs/{id}",
+    tag = "Programs",
+    params(
+        ("id" = String, Path, description = "Unique Program ID")
+    ),
+    responses(
+        (status = 200, description = "Program details retrieved", body = openleadr_wire::program::Program),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Program not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get(
     State(program_source): State<Arc<dyn ProgramCrud>>,
     Path(id): Path<ProgramId>,
@@ -79,6 +112,21 @@ pub async fn get(
     Ok(Json(program))
 }
 
+#[utoipa::path(
+    post,
+    path = "/programs",
+    tag = "Programs",
+    request_body = ProgramRequest,
+    responses(
+        (status = 201, description = "Program created successfully", body = openleadr_wire::program::Program),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
@@ -120,6 +168,25 @@ pub async fn add(
     clippy::too_many_arguments,
     reason = "Handler which uses many aspects of the state"
 )]
+#[utoipa::path(
+    put,
+    path = "/programs/{id}",
+    tag = "Programs",
+    params(
+        ("id" = String, Path, description = "Unique Program ID")
+    ),
+    request_body = ProgramRequest,
+    responses(
+        (status = 200, description = "Program updated successfully", body = openleadr_wire::program::Program),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Program not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
@@ -158,6 +225,23 @@ pub async fn edit(
     Ok(Json(program))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/programs/{id}",
+    tag = "Programs",
+    params(
+        ("id" = String, Path, description = "Unique Program ID")
+    ),
+    responses(
+        (status = 200, description = "Program deleted successfully", body = openleadr_wire::program::Program),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Program not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete(
     State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,

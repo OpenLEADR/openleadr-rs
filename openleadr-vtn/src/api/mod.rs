@@ -95,6 +95,15 @@ where
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Service is healthy and database connection is active", body = String, example = "OK"),
+        (status = 500, description = "Storage connection is inactive or unreachable")
+    )
+)]
 pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     if !app_state.storage.connection_active() {
         return Err(AppError::StorageConnectionError);

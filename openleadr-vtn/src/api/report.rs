@@ -27,6 +27,22 @@ use crate::{
     jwt::{Scope, User},
 };
 
+#[utoipa::path(
+    get,
+    path = "/reports",
+    tag = "Reports",
+    params(
+        // openleadr_wire::QueryParams
+    ),
+    responses(
+        (status = 200, description = "List all reports", body = Vec<openleadr_wire::report::Report>),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 #[instrument(skip(user, report_source))]
 pub async fn get_all(
     State(report_source): State<Arc<dyn ReportCrud>>,
@@ -50,6 +66,23 @@ pub async fn get_all(
     Ok(Json(reports))
 }
 
+#[utoipa::path(
+    get,
+    path = "/reports/{id}",
+    tag = "Reports",
+    params(
+        ("id" = String, Path, description = "Unique Report ID")
+    ),
+    responses(
+        (status = 200, description = "Report details retrieved", body = openleadr_wire::report::Report),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Report not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 #[instrument(skip(user, report_source))]
 pub async fn get(
     State(report_source): State<Arc<dyn ReportCrud>>,
@@ -73,6 +106,21 @@ pub async fn get(
     Ok(Json(report))
 }
 
+#[utoipa::path(
+    post,
+    path = "/reports",
+    tag = "Reports",
+    request_body = ReportRequest,
+    responses(
+        (status = 201, description = "Report created successfully", body = openleadr_wire::report::Report),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 #[instrument(skip(user, ven_source, event_source, privacy, report_source, notifier_state))]
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -110,6 +158,25 @@ pub async fn add(
     clippy::too_many_arguments,
     reason = "Handler which uses many aspects of the state"
 )]
+#[utoipa::path(
+    put,
+    path = "/reports/{id}",
+    tag = "Reports",
+    params(
+        ("id" = String, Path, description = "Unique Report ID")
+    ),
+    request_body = ReportRequest,
+    responses(
+        (status = 200, description = "Report updated successfully", body = openleadr_wire::report::Report),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Report not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 #[instrument(skip(user, ven_source, event_source, privacy, report_source, notifier_state))]
 pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -144,6 +211,23 @@ pub async fn edit(
     Ok(Json(report))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/reports/{id}",
+    tag = "Reports",
+    params(
+        ("id" = String, Path, description = "Unique Report ID")
+    ),
+    responses(
+        (status = 200, description = "Report deleted successfully", body = openleadr_wire::report::Report),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Report not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 #[instrument(skip(user, ven_source, event_source, privacy, report_source, notifier_state))]
 pub async fn delete(
     State(ven_source): State<Arc<dyn VenCrud>>,
