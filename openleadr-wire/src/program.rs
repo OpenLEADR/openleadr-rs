@@ -15,6 +15,7 @@ pub type Programs = Vec<Program>;
 /// Provides program specific metadata from VTN to VEN.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Program {
     /// VTN provisioned on object creation.
     ///
@@ -42,6 +43,7 @@ pub struct Program {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "PROGRAM")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ProgramRequest {
     /// Short name to uniquely identify program.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
@@ -75,6 +77,7 @@ impl ProgramRequest {
 
 // example: object-999
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ProgramId(pub(crate) Identifier);
 
 impl Display for ProgramId {
@@ -102,6 +105,7 @@ impl FromStr for ProgramId {
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ProgramDescription {
     /// A human or machine readable program description
     #[serde(rename = "URL")]
@@ -111,6 +115,7 @@ pub struct ProgramDescription {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "objectType", rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum PayloadDescriptor {
     EventPayloadDescriptor(EventPayloadDescriptor),
     ReportPayloadDescriptor(ReportPayloadDescriptor),

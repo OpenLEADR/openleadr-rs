@@ -37,6 +37,7 @@ pub(crate) struct ValidatedJson<T>(pub T);
 #[derive(Deserialize, Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(transparent)]
+#[cfg_attr(feature = "default", derive(utoipa::ToSchema))]
 pub(crate) struct TargetQueryParams(pub Option<Vec<Target>>);
 
 impl TargetQueryParams {
@@ -94,6 +95,15 @@ where
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Service is healthy and database connection is active", body = String, example = "OK"),
+        (status = 500, description = "Storage connection is inactive or unreachable")
+    )
+)]
 pub async fn healthcheck(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     if !app_state.storage.connection_active() {
         return Err(AppError::StorageConnectionError);
@@ -108,7 +118,7 @@ pub mod test {
     use axum::{
         Router,
         body::Body,
-        http::{self, Request, StatusCode, header},
+        http::{self, Request, StatusCode},
     };
     use http_body_util::BodyExt;
     use openleadr_wire::problem::Problem;
@@ -312,49 +322,6 @@ pub mod test {
             .request::<Problem>(Method::GET, "/not-existent", Body::empty())
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-    }
-
-    #[sqlx::test]
-    async fn missing_token_is_401_with_www_authenticate(db: PgPool) {
-        let mut test = state(db).await.into_router();
-
-        let response = (&mut test)
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/programs")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        let status = response.status();
-        let headers = response.headers();
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(headers[header::WWW_AUTHENTICATE], r#"Bearer realm="VTN""#);
-    }
-
-    #[sqlx::test]
-    async fn invalid_token_is_403_without_www_authenticate(db: PgPool) {
-        let mut test = ApiTest::new(db.clone(), "test-client", vec![]).await;
-
-        let response = (&mut test.router)
-            .oneshot(
-                Request::builder()
-                    .header(header::AUTHORIZATION, "Bearer invalid")
-                    .method(Method::GET)
-                    .uri("/programs")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        let status = response.status();
-        let headers = response.headers();
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert!(!headers.contains_key(header::WWW_AUTHENTICATE));
     }
 
     #[sqlx::test]

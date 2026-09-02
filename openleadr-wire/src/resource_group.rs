@@ -18,6 +18,7 @@ use crate::{
     tag = "objectType",
     rename = "RESOURCE_GROUP"
 )]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResourceGroup {
     /// URL safe VTN assigned object ID.
     pub id: ResourceGroupId,
@@ -35,6 +36,7 @@ pub struct ResourceGroup {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ResourceGroupChild {
     ResourceGroup(ResourceGroupId),
     VenResource(ResourceId),
@@ -53,6 +55,7 @@ impl ResourceGroupChild {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct BlResourceGroupRequest {
     /// A list of targets.
     #[serde(default)]
@@ -72,6 +75,7 @@ pub struct BlResourceGroupRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResourceGroupId(pub(crate) Identifier);
 
 impl Display for ResourceGroupId {

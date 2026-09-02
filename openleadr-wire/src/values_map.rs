@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 /// See enumerations in Definitions for defined string values, or use privately defined strings
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ValuesMap {
     /// Represents the nature of values.
     ///
@@ -18,12 +19,14 @@ pub struct ValuesMap {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ValueType(
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")] pub String,
 );
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum Value {
     Integer(i64),
     Number(f64),
@@ -49,6 +52,7 @@ impl PartialEq for Value {
 impl Eq for Value {}
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Point {
     /// A value on an x axis.
     pub x: f32,

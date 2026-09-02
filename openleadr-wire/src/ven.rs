@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DefaultOnNull, serde_as, skip_serializing_none};
 use std::{fmt::Display, str::FromStr};
 use validator::Validate;
-
+use utoipa::ToSchema;
 use crate::{ClientId, Identifier, IdentifierError, target::Target, values_map::ValuesMap};
 
 /// Ven represents a client with the ven role.
 #[skip_serializing_none]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Ven {
     /// URL safe VTN assigned object ID.
@@ -61,6 +61,7 @@ impl VenRequest {
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))] 
 #[serde(rename_all = "camelCase")]
 pub struct BlVenRequest {
     #[serde(rename = "clientID")]
@@ -108,6 +109,7 @@ impl BlVenRequest {
 )]
 #[serde(transparent)]
 #[sqlx(transparent)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct VenId(pub(crate) Identifier);
 
 impl Display for VenId {

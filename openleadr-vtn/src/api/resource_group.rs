@@ -24,6 +24,22 @@ use crate::{
     jwt::{Scope, User},
 };
 
+#[utoipa::path(
+    get,
+    path = "/resource_groups",
+    tag = "ResourceGroups",
+    params(
+        // openleadr_wire::QueryParams
+    ),
+    responses(
+        (status = 200, description = "List all resource groups", body = Vec<openleadr_wire::resource_group::ResourceGroup>),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get_all(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -54,6 +70,23 @@ pub async fn get_all(
     Ok(Json(resource_groups))
 }
 
+#[utoipa::path(
+    get,
+    path = "/resource_groups/{id}",
+    tag = "ResourceGroups",
+    params(
+        ("id" = String, Path, description = "Unique Resource Group ID")
+    ),
+    responses(
+        (status = 200, description = "Resource group details retrieved", body = openleadr_wire::resource_group::ResourceGroup),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Resource group not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get(
     State(resource_group_source): State<Arc<dyn ResourceGroupCrud>>,
     Path(id): Path<ResourceGroupId>,
@@ -81,6 +114,21 @@ pub async fn get(
     Ok(Json(resource_group))
 }
 
+#[utoipa::path(
+    post,
+    path = "/resource_groups",
+    tag = "ResourceGroups",
+    request_body = BlResourceGroupRequest,
+    responses(
+        (status = 201, description = "Resource group created successfully", body = openleadr_wire::resource_group::ResourceGroup),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,
@@ -120,6 +168,25 @@ pub async fn add(
 #[expect(
     clippy::too_many_arguments,
     reason = "Handler needs access to a lot of the state"
+)]
+#[utoipa::path(
+    put,
+    path = "/resource_groups/{id}",
+    tag = "ResourceGroups",
+    params(
+        ("id" = String, Path, description = "Unique Resource Group ID")
+    ),
+    request_body = BlResourceGroupRequest,
+    responses(
+        (status = 200, description = "Resource group updated successfully", body = openleadr_wire::resource_group::ResourceGroup),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Resource group not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
 )]
 pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -165,6 +232,23 @@ pub async fn edit(
     Ok(Json(resource_group))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/resource_groups/{id}",
+    tag = "ResourceGroups",
+    params(
+        ("id" = String, Path, description = "Unique Resource Group ID")
+    ),
+    responses(
+        (status = 200, description = "Resource group deleted successfully", body = openleadr_wire::resource_group::ResourceGroup),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Resource group not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete(
     State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,

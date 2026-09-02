@@ -3,6 +3,11 @@ use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+use openleadr_vtn::ApiDoc;
+use utoipa_swagger_ui::SwaggerUi;
+use utoipa::OpenApi; 
+
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -13,13 +18,18 @@ async fn main() {
     // Load config from environment
     let vtn_config = VtnConfig::from_env();
     let server = VtnServer::new(vtn_config).await.unwrap();
-
+    
+    let app =server.router
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+    // let app = server.router.merge(
+    //     SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi())
+    // );
     info!(
         "VTN listening on http://{}",
         server.listener.local_addr().unwrap()
     );
 
-    if let Err(e) = axum::serve(server.listener, server.router)
+    if let Err(e) = axum::serve(server.listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
     {

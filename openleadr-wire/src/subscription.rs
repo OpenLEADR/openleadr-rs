@@ -16,6 +16,7 @@ use crate::{
 /// Server provided representation of subscription
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Subscription {
     /// URL safe VTN assigned object ID.
     pub id: SubscriptionId,
@@ -38,6 +39,7 @@ pub struct Subscription {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SubscriptionRequest {
     /// User generated identifier, may be VEN identifier provisioned out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
@@ -59,6 +61,7 @@ pub struct SubscriptionRequest {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SubscriptionObjectOperation {
     /// list of objects to subscribe to.
     pub objects: Vec<ObjectType>,
@@ -81,6 +84,7 @@ pub struct SubscriptionObjectOperation {
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum Operation {
     Create,
     Update,
@@ -89,6 +93,7 @@ pub enum Operation {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum NotificationMechanism {
     #[default]
     Webhook,
@@ -97,6 +102,7 @@ pub enum NotificationMechanism {
 
 /// URL safe VTN assigned object ID
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SubscriptionId(pub(crate) Identifier);
 
 impl Display for SubscriptionId {
@@ -124,6 +130,7 @@ impl FromStr for SubscriptionId {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Notification {
     /// A unique ID of the operation that triggered this notification.
     /// Used to acknowledge receiving a notification over websockets and to allow a VEN to deduplicate notifications.
@@ -165,6 +172,7 @@ pub struct MqttPushNotification {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "objectType", content = "object", rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum AnyObject {
     Program(Program),
     Report(Report),
@@ -229,6 +237,7 @@ pub struct MqttNotifierBindingObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE", rename_all_fields = "camelCase")]
 #[serde(tag = "method")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum MqttNotifierAuthentication {
     /// Specifies anonymous authentication
     Anonymous,
@@ -241,6 +250,7 @@ pub enum MqttNotifierAuthentication {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum SerializationType {
     Json,
 }
@@ -250,6 +260,7 @@ pub enum SerializationType {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NotifierTopicsResponse {
     pub topics: NotifierOperationsTopics,
 }
@@ -259,6 +270,7 @@ pub struct NotifierTopicsResponse {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NotifierOperationsTopics {
     /// Topic path for CREATE operations,
     /// not provided for notifications for a specific object ID,

@@ -24,7 +24,12 @@ validator.workspace = true
 iso_currency.workspace = true
 derive_more.workspace = true
 sqlx.workspace = true
+utoipa = { version = "5.5", optional = true, features = ["chrono"] }
 
 [dev-dependencies]
 serde_json.workspace = true
 quickcheck.workspace = true
+
+[features]
+default = ["openapi"]
+openapi = ["dep:utoipa"]

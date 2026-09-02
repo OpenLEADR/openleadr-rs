@@ -18,14 +18,6 @@ The OpenLEADR implementation deviates from the specification by splitting the `w
 To be as compatible as possible with the specification, the `write_vens` scope is still supported as an alias for `write_vens_ven`.
 For detailed information, see the issue on the specification if you have access ([oadr3-org/specification#396](https://github.com/oadr3-org/specification/issues/396)).
 
-Similarly, the specification does not distinguish between a BL and VEN client
-with respect to the `write_reports` scope. We deviate by splitting
-`write_reports` into `write_reports_ven` (may only edit/delete reports it
-created itself) and `write_reports_bl` (may edit/delete any report, including
-ones created by a VEN). This avoids reports becoming permanently stuck, and
-undeletable via the API, once the creating VEN's credentials are revoked. The
-`write_reports` scope is still supported as an alias for `write_reports_ven`.
-
 In addition, we also do not provide access control on the /notifiers/mqtt endpoints. As the MQTT topic names used by openleadr-rs
 are predictable, no actual security is gained by hiding these when the user is not authorized to listen to them, and we prefer
 not to give a false impression that these topic names are unknown to adversaries.

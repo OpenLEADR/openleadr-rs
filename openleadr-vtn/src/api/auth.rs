@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 #[cfg(feature = "internal-oauth")]
 use validator::Validate;
-
+use utoipa::ToSchema;
 use crate::error::AppError;
 use axum::{
     Json,
@@ -25,7 +25,7 @@ use reqwest::header;
 #[cfg(feature = "internal-oauth")]
 use tracing::trace;
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 #[cfg(feature = "internal-oauth")]
 pub struct AccessTokenRequest {
     grant_type: String,
@@ -35,7 +35,7 @@ pub struct AccessTokenRequest {
     client_secret: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ToSchema)]
 pub struct ResponseOAuthError(pub OAuthError);
 
 impl IntoResponse for ResponseOAuthError {
@@ -72,7 +72,7 @@ impl From<OAuthError> for ResponseOAuthError {
 }
 
 #[cfg(feature = "internal-oauth")]
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, ToSchema)]
 pub struct AccessTokenResponse {
     access_token: String,
     token_type: &'static str,
@@ -90,6 +90,24 @@ impl IntoResponse for AccessTokenResponse {
 
 /// RFC 6749 client credentials grant flow
 #[cfg(feature = "internal-oauth")]
+#[utoipa::path(
+    post,
+    path = "/auth/token",
+    tag = "Auth",
+    request_body(
+        content = AccessTokenRequest,
+        content_type = "application/x-www-form-urlencoded"
+    ),
+    responses(
+        (status = 200, description = "Access token generated successfully", body = AccessTokenResponse),
+        (status = 400, description = "Invalid request or unsupported grant type", body = ResponseOAuthError),
+        (status = 401, description = "Invalid client credentials", body = ResponseOAuthError)
+    ),
+    security(
+        (), // Allows authenticating via form body without headers
+        ("basic_auth" = []) // Allows authenticating via Basic Auth header
+    )
+)]
 pub(crate) async fn token(
     State(auth_source): State<Arc<dyn AuthSource>>,
     State(jwt_manager): State<Arc<JwtManager>>,

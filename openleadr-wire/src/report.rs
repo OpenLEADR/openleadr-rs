@@ -18,6 +18,7 @@ use validator::{Validate, ValidateRange};
 /// report object.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Report {
     /// URL safe VTN assigned object ID.
     pub id: ReportId,
@@ -37,6 +38,7 @@ pub struct Report {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "REPORT")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReportRequest {
     /// ID attribute of the event object this report is associated with.
     #[serde(rename = "eventID")]
@@ -79,6 +81,7 @@ impl ReportRequest {
 
 /// URL safe VTN assigned object ID
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReportId(pub(crate) Identifier);
 
 impl ReportId {
@@ -104,6 +107,7 @@ impl FromStr for ReportId {
 /// Report data associated with a resource.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReportResource {
     /// User generated identifier. A value of AGGREGATED_REPORT indicates an aggregation of more
     /// that one resource's data
@@ -120,6 +124,7 @@ pub struct ReportResource {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReportDescriptor {
     /// Represents the nature of values.
     ///
@@ -175,6 +180,7 @@ impl ReportDescriptor {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ReportIntervals {
     #[default]
     Intervals,
@@ -204,6 +210,7 @@ fn pos_one() -> i32 {
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ReportPayloadDescriptor {
     /// Represents the nature of values.
     ///
@@ -234,6 +241,7 @@ impl ReportPayloadDescriptor {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, PartialOrd)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Confidence(u8);
 
 impl ValidateRange<Confidence> for Confidence {
@@ -439,6 +447,7 @@ mod tests {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ReportType {
     Reading,
     Usage,
@@ -472,6 +481,7 @@ pub enum ReportType {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ReadingType {
     #[default]
     DirectRead,
@@ -493,6 +503,7 @@ impl ReadingType {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ResourceName {
     AggregatedReport,
     #[serde(untagged)]

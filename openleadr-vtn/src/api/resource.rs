@@ -25,6 +25,22 @@ use crate::{
     jwt::{Scope, User},
 };
 
+#[utoipa::path(
+    get,
+    path = "/resources",
+    tag = "Resources",
+    params(
+        // openleadr_wire::QueryParams
+    ),
+    responses(
+        (status = 200, description = "List all resources", body = Vec<openleadr_wire::resource::Resource>),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get_all(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -53,6 +69,23 @@ pub async fn get_all(
     Ok(Json(resources))
 }
 
+#[utoipa::path(
+    get,
+    path = "/resources/{id}",
+    tag = "Resources",
+    params(
+        ("id" = String, Path, description = "Unique Resource ID")
+    ),
+    responses(
+        (status = 200, description = "Resource details retrieved", body = openleadr_wire::resource::Resource),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Resource not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get(
     State(resource_source): State<Arc<dyn ResourceCrud>>,
     Path(id): Path<ResourceId>,
@@ -83,6 +116,21 @@ pub async fn get(
 #[expect(
     clippy::too_many_arguments,
     reason = "Handler which uses many aspects of the state"
+)]
+#[utoipa::path(
+    post,
+    path = "/resources",
+    tag = "Resources",
+    request_body = ResourceRequest,
+    responses(
+        (status = 201, description = "Resource created successfully", body = openleadr_wire::resource::Resource),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
 )]
 pub async fn add(
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -154,6 +202,25 @@ pub async fn add(
 #[expect(
     clippy::too_many_arguments,
     reason = "This is a handler which needs a lot of the state."
+)]
+#[utoipa::path(
+    put,
+    path = "/resources/{id}",
+    tag = "Resources",
+    params(
+        ("id" = String, Path, description = "Unique Resource ID")
+    ),
+    request_body = ResourceRequest,
+    responses(
+        (status = 200, description = "Resource updated successfully", body = openleadr_wire::resource::Resource),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Resource not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
 )]
 pub async fn edit(
     State(ven_source): State<Arc<dyn VenCrud>>,
@@ -228,6 +295,23 @@ pub async fn edit(
     Ok(Json(resource))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/resources/{id}",
+    tag = "Resources",
+    params(
+        ("id" = String, Path, description = "Unique Resource ID")
+    ),
+    responses(
+        (status = 200, description = "Resource deleted successfully", body = openleadr_wire::resource::Resource),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Resource not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete(
     State(ven_source): State<Arc<dyn VenCrud>>,
     State(event_source): State<Arc<dyn EventCrud>>,

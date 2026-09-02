@@ -12,6 +12,7 @@ use crate::{
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", tag = "objectType", rename = "RESOURCE")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Resource {
     /// URL safe VTN assigned object ID.
     pub id: ResourceId,
@@ -33,6 +34,7 @@ pub struct Resource {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "objectType")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ResourceRequest {
     BlResourceRequest(BlResourceRequest),
     VenResourceRequest(VenResourceRequest),
@@ -67,6 +69,7 @@ impl ResourceRequest {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct BlResourceRequest {
     /// A list of targets.
     #[serde(default)]
@@ -86,6 +89,7 @@ pub struct BlResourceRequest {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct VenResourceRequest {
     /// User generated identifier, resource may be configured with identifier out-of-band.
     #[serde(deserialize_with = "crate::string_within_range_inclusive::<1, 128, _>")]
@@ -94,6 +98,7 @@ pub struct VenResourceRequest {
     pub attributes: Option<Vec<ValuesMap>>,
 }
 
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
 pub struct ResourceId(pub(crate) Identifier);
 

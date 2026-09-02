@@ -183,6 +183,12 @@ impl Crud for PgReportStorage {
         new: Self::NewType,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let Some(client_id) = client_id else {
+            return Err(AppError::Forbidden(
+                "client_id is required to update a report",
+            ));
+        };
+
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
@@ -193,8 +199,9 @@ impl Crud for PgReportStorage {
                 report_name = $4,
                 payload_descriptors = $5,
                 resources = $6
+            FROM program p
             WHERE r.id = $1
-              AND ($7::text IS NULL OR r.client_id = $7)
+              AND client_id = $7
             RETURNING r.*
             "#,
             id.as_str(),
@@ -219,12 +226,18 @@ impl Crud for PgReportStorage {
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let Some(client_id) = client_id else {
+            return Err(AppError::Forbidden(
+                "client_id is required to delete a report",
+            ));
+        };
+
         let report: Report = sqlx::query_as!(
             PostgresReport,
             r#"
             DELETE FROM report r
                    WHERE r.id = $1
-                     AND ($2::text IS NULL OR r.client_id = $2)
+                     AND r.client_id = $2
                    RETURNING r.*
             "#,
             id.as_str(),

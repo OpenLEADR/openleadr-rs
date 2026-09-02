@@ -115,6 +115,23 @@ impl NotifierState {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/subscriptions",
+    tag = "Subscriptions",
+    params(
+        // openleadr_wire::QueryParams
+    ),
+    responses(
+        (status = 200, description = "List all subscriptions", body = Vec<openleadr_wire::subscription::Subscription>),
+        (status = 400, description = "Invalid query parameters or multiple object filters provided"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get_all(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     ValidatedQuery(query_params): ValidatedQuery<QueryParams>,
@@ -156,6 +173,23 @@ pub async fn get_all(
     Ok(Json(resources))
 }
 
+#[utoipa::path(
+    get,
+    path = "/subscriptions/{id}",
+    tag = "Subscriptions",
+    params(
+        ("id" = String, Path, description = "Unique Subscription ID")
+    ),
+    responses(
+        (status = 200, description = "Subscription details retrieved", body = openleadr_wire::subscription::Subscription),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Subscription not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn get(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     Path(id): Path<SubscriptionId>,
@@ -183,6 +217,21 @@ pub async fn get(
     Ok(Json(subscription))
 }
 
+#[utoipa::path(
+    post,
+    path = "/subscriptions",
+    tag = "Subscriptions",
+    request_body = SubscriptionRequest,
+    responses(
+        (status = 201, description = "Subscription created successfully", body = openleadr_wire::subscription::Subscription),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn add(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     State(app_state): State<AppState>,
@@ -218,6 +267,25 @@ pub async fn add(
     Ok((StatusCode::CREATED, Json(subscription)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/subscriptions/{id}",
+    tag = "Subscriptions",
+    params(
+        ("id" = String, Path, description = "Unique Subscription ID")
+    ),
+    request_body = SubscriptionRequest,
+    responses(
+        (status = 200, description = "Subscription updated successfully", body = openleadr_wire::subscription::Subscription),
+        (status = 400, description = "Invalid payload or validation error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Subscription not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn edit(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     State(app_state): State<AppState>,
@@ -252,6 +320,23 @@ pub async fn edit(
     Ok(Json(subscription))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/subscriptions/{id}",
+    tag = "Subscriptions",
+    params(
+        ("id" = String, Path, description = "Unique Subscription ID")
+    ),
+    responses(
+        (status = 200, description = "Subscription deleted successfully", body = openleadr_wire::subscription::Subscription),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Subscription not found")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
 pub async fn delete(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     State(app_state): State<AppState>,
@@ -1369,7 +1454,7 @@ mod test {
             db,
             "ven-1-client-id",
             vec![
-                Scope::WriteReportsVen,
+                Scope::WriteReports,
                 Scope::WriteSubscriptionsBl,
                 Scope::ReadAll,
             ],

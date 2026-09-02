@@ -9,6 +9,89 @@ pub mod jwt;
 pub mod mdns;
 pub mod state;
 
+use utoipa::OpenApi;
+use utoipa::Modify;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+
+#[cfg(feature = "internal-oauth")]
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        api::ven::get_all,
+        api::ven::add,
+        api::ven::get,
+        api::ven::edit,
+        api::ven::delete,
+        api::program::get_all,
+        api::program::add,
+        api::program::get,
+        api::program::edit,
+        api::program::delete,
+        api::resource::get_all,
+        api::resource::add,
+        api::resource::get,
+        api::resource::edit,
+        api::resource::delete,
+        api::report::get_all,
+        api::report::add,
+        api::report::get,
+        api::report::edit,
+        api::report::delete,
+        api::resource_group::get_all,
+        api::resource_group::add,
+        api::resource_group::get,
+        api::resource_group::edit,
+        api::resource_group::delete,
+        api::subscription::get_all,
+        api::subscription::add,
+        api::subscription::get,
+        api::subscription::edit,
+        api::subscription::delete,
+        api::user::get_all,
+        api::user::add_user,
+        api::user::add_credential,
+        api::user::get,
+        api::user::edit,
+        api::user::delete_user,
+        api::user::delete_credential,
+        api::auth::token,
+        api::healthcheck,
+
+    ),
+    modifiers(&SecurityAddon),
+    security(
+        ("bearer_auth" = []) 
+    ),
+    components(
+        schemas(
+            openleadr_wire::ven::Ven,
+        )
+    ),
+    tags(
+        (name = "openleadr-vtn", description = "OpenADR 3.0 VTN Endpoints")
+    )
+)]
+pub struct ApiDoc;
+
+
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.add_security_scheme(
+            "bearer_auth", // Security scheme key used in routes
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        );
+    }
+}
+
 #[cfg(feature = "postgres")]
 use crate::data_source::PostgresStorage;
 use crate::{data_source::Migrate, state::AppState};
