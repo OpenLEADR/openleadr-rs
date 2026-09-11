@@ -417,7 +417,10 @@ impl AppState {
     }
 
     pub fn into_router(self) -> axum::Router {
-        Self::router_without_state().with_state(self)
+        let auth_layer = crate::jwt::AuthLayer::new(self.jwt_manager.clone());
+        Self::router_without_state()
+            .with_state(self)
+            .layer(auth_layer)
     }
 }
 

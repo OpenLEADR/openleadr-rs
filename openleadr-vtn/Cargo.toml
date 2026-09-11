@@ -24,6 +24,7 @@ axum-extra.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tower-http = { workspace = true }
 tower.workspace = true
+http.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
