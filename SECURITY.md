@@ -1,5 +1,12 @@
 # Security policy
 
+CRA stewardship: This project is supported under the Linux Foundation CRA
+stewardship framework, as described at https://www.linuxfoundation.org/security.
+Security vulnerabilities should be reported through the mechanisms described
+below, which we will coordinate with our CRA steward. For actively exploited
+vulnerabilities and severe incidents that may require CRA escalation, please use
+the project's emergency security reporting mechanisms as appropriate.
+
 **Do not report security vulnerabilities through public GitHub issues.**
 
 Instead, you can report them using [our security page](https://github.com/OpenLEADR/openleadr-rs/security).
@@ -15,7 +22,7 @@ Include as much of the following information as you can:
 
 ## Preferred Languages
 
-We prefer to receive reports in English. If necessary, we also understand German and Dutch.
+We prefer to receive reports in English. If necessary, we also understand Dutch.
 
 ## Disclosure Policy
 
