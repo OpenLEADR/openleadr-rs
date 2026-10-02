@@ -300,6 +300,7 @@ impl AppState {
         ) {
             (Some(url), Some(username), Some(password)) => Some(MqttConfig {
                 url: url.clone(),
+                advertise_url: config.mqtt_advertise_url.clone().unwrap_or(url.clone()),
                 username: username.clone(),
                 password: password.clone(),
                 topic_prefix: config.mqtt_topic_prefix.clone(),

@@ -13,6 +13,7 @@ The following contains information specific to the VTN application, i.e., the se
 If you are interested in information about the whole project, please visit the [project level Readme](../README.md).
 
 ## Deviations from the specification
+
 Version 3.1.0 of the OpenADR specification does not make a difference between a BL and VEN client with respect to the `write_vens` OAuth scope.
 The OpenLEADR implementation deviates from the specification by splitting the `write_vens` scope into two scopes: `write_vens_ven` and `write_vens_bl`.
 To be as compatible as possible with the specification, the `write_vens` scope is still supported as an alias for `write_vens_ven`.
@@ -31,6 +32,7 @@ are predictable, no actual security is gained by hiding these when the user is n
 not to give a false impression that these topic names are unknown to adversaries.
 
 ## Getting started
+
 Your machine needs a recent version of Rust installed.
 Please refer to the [official installation website](https://rustup.rs/) for the setup.
 Furthermore, compilation requires the presence of a C toolchain, CMAKE, and the OpenSSL
@@ -71,6 +73,7 @@ docker compose up -d
 ```
 
 ### Internal vs. external OAuth provider
+
 The VTN implementation does feature an implementation of an OAuth provider including user management APIs
 to allow for an easy setup.
 The OpenADR specification does not require this feature but mentions that there must exist some OAuth provider somewhere.
@@ -80,6 +83,7 @@ If you want to use it, you need to enable it during compile time. Otherwise you 
 
 **During runtime**
 The OAuth configuration of the VTN is done via the following environment variables:
+
 - `OAUTH_TYPE` (allowed values: `INTERNAL`, `EXTERNAL`. Defaults to `INTERNAL`)
 - `OAUTH_BASE64_SECRET` (must be at least 256 bit long. Required if `OAUTH_KEY_TYPE` is `HMAC`)
 - `OAUTH_KEY_TYPE`(allows values: `HMAC`, `RSA`, `EC`, `ED`. Defaults to `HMAC`)
@@ -93,6 +97,7 @@ The internal OAuth provider does only support `HMAC` keys.
 **During compiletime**
 If you need the internal OAuth feature, you can enable it during compilation with the feature flag `internal-oauth`.
 Therefore, run
+
 ```bash
 cargo build/run --bin openleadr-vtn --features=internal-oauth [--release]
 ```
@@ -101,16 +106,20 @@ cargo build/run --bin openleadr-vtn --features=internal-oauth [--release]
 
 The implemntation supports running with MQTT support for notifications. When using this, it is
 critical for security that the MQTT broker is configured to require authentication, and only allows
-access to the `programs/*`, `events/*`, `reports/*`, `vens/*`, `resources/*`, `resource_groups/*`, 
+access to the `programs/*`, `events/*`, `reports/*`, `vens/*`, `resources/*`, `resource_groups/*`,
 `push/programs/*`, `push/events/*`, `push/reports/*`, `push/vens/*`, `push/resources/*`, and
-`push/resource_groups/*` topics when the client is authenticated as a business logic, and only 
+`push/resource_groups/*` topics when the client is authenticated as a business logic, and only
 allows access to the `vens/{ven_id}/*` and `push/vens/{ven_id}/*` topics when the client either is
 authenticated as the owner of the ven with that ven_id, or as a business logic. Configuring such
 security is broker-specific and outside the scope of this documentation.
 
 When you have a properly configured broker, the server can be configured to use the broker with
 the following environment variables:
+
 - `MQTT_URL` (required) sets the URL at which the broker is reachable for the VTN.
+- `MQTT_ADVERTISE_URL` (optional) the URL advertised to clients in `GET /notifiers`. Useful when
+  clients reach the broker at a different address or over a different transport than the VTN does.
+  Defaults to `MQTT_URL`.
 - `MQTT_USERNAME` (required) the username for the user the VTN can use to publish messages.
 - `MQTT_PASSWORD` (required) the password for the user the VTN can use to publish messages.
 - `MQTT_TOPIC_PREFIX` (optional) a prefix to prepend to all the topic names above. Useful for
@@ -122,7 +131,9 @@ Here required indicates that when enabling MQTT, the environment variable is req
 account should have sufficient rights to publish to all topics mentioned above.
 
 ### Testing
+
 To run the tests, you need to start a Postgres database, MQTT broker, and run the migrations:
+
 ```bash
 docker compose up -d db mqtt
 cargo sqlx migrate run
@@ -132,11 +143,13 @@ cargo sqlx db reset
 
 Make sure the VTN has the necessary user accounts prepared to run the client (VEN) tests.
 For that, please apply the corresponding fixture
+
 ```bash
 psql postgres://openadr:openadr@localhost:5432/openadr < fixtures/users.sql
 ```
 
 Then, run the tests with the `live-db-test` feature enabled
+
 ```bash
 cargo test --features=live-db-test [--workspace]
 ```
