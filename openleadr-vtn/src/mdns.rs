@@ -51,6 +51,7 @@ mod tests {
             mdns_server_name: "test-vtn-instance".to_string(),
             mdns_base_path: "".to_string(),
             mqtt_url: None,
+            mqtt_advertise_url: None,
             mqtt_username: None,
             mqtt_password: None,
             mqtt_topic_prefix: String::new(),

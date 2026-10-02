@@ -37,7 +37,7 @@ use crate::{
 };
 
 struct MqttState {
-    url: String,
+    advertise_url: String,
     client: paho_mqtt::AsyncClient,
     topic_prefix: String,
 }
@@ -51,6 +51,8 @@ pub(crate) struct NotifierState {
 
 pub(crate) struct MqttConfig {
     pub(crate) url: String,
+    /// URL advertised to clients in `GET /notifiers`. Defaults to `url`.
+    pub(crate) advertise_url: String,
     pub(crate) username: String,
     pub(crate) password: String,
     pub(crate) topic_prefix: String,
@@ -93,7 +95,7 @@ impl NotifierState {
             mqtt_client.connect(connect_options.finalize()).await?;
 
             Some(MqttState {
-                url: mqtt_config.url,
+                advertise_url: mqtt_config.advertise_url,
                 client: mqtt_client,
                 topic_prefix: mqtt_config.topic_prefix,
             })
@@ -711,7 +713,7 @@ pub(crate) async fn notifier_get(
             .mqtt_state
             .as_ref()
             .map(|mqtt_state| MqttNotifierBindingObject {
-                uris: vec![mqtt_state.url.clone()],
+                uris: vec![mqtt_state.advertise_url.clone()],
                 serialization: SerializationType::Json,
                 authentication: MqttNotifierAuthentication::Oauth2BearerToken {
                     username: "{clientID}".to_owned(),
@@ -721,7 +723,7 @@ pub(crate) async fn notifier_get(
             .mqtt_state
             .as_ref()
             .map(|mqtt_state| MqttNotifierBindingObject {
-                uris: vec![mqtt_state.url.clone()],
+                uris: vec![mqtt_state.advertise_url.clone()],
                 serialization: SerializationType::Json,
                 authentication: MqttNotifierAuthentication::Oauth2BearerToken {
                     username: "{clientID}".to_owned(),
