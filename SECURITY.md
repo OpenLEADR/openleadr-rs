@@ -21,6 +21,10 @@ We prefer to receive reports in English. If necessary, we also understand German
 
 We adhere to the principle of [Coordinated Vulnerability Disclosure](https://vuls.cert.org/confluence/display/CVD/Executive+Summary).
 
+## CRA
+
+As an LF Energy project to which the Cyber Resilience Act (CRA) applies, The Linux Foundation acts as the CRA steward for this project. Any actively exploited vulnerability or severe security indident will therefore be reported to [steward@linuxfoundation.org](steward@linuxfoundation.org)
+
 # Security Advisories
 
 Security advisories will be published [on GitHub](https://github.com/OpenLEADR/openleadr-rs/security/advisories) and possibly through other channels.
