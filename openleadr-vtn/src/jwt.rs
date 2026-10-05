@@ -619,7 +619,9 @@ where
         let jwt_manager = Arc::<JwtManager>::from_ref(state);
 
         let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()).await else {
-            return Err(AppError::Forbidden("Invalid authentication token provided"));
+            return Err(AppError::Auth(
+                "Invalid authentication token provided".to_string(),
+            ));
         };
 
         trace!(user = ?claims, "Extracted User from request");
