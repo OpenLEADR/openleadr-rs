@@ -354,4 +354,44 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
+
+    #[sqlx::test(fixtures("programs", "events", "vens"))]
+    async fn report_names_are_not_unique(db: PgPool) {
+        let ven1 = ApiTest::new(db.clone(), "ven-1-client-id", vec![Scope::WriteReportsVen]).await;
+        let ven2 = ApiTest::new(db, "ven-2-client-id", vec![Scope::WriteReportsVen]).await;
+
+        let (status, _) = ven1
+            .request::<Report>(
+                http::Method::POST,
+                "/reports",
+                Body::from(
+                    serde_json::to_vec(&ReportRequest {
+                        event_id: "event-1".parse().unwrap(),
+                        client_name: "ven-1-name".to_string(),
+                        report_name: Some("not-unique".to_string()),
+                        ..default()
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, _) = ven2
+            .request::<Report>(
+                http::Method::POST,
+                "/reports",
+                Body::from(
+                    serde_json::to_vec(&ReportRequest {
+                        event_id: "event-2".parse().unwrap(),
+                        client_name: "ven-2-name".to_string(),
+                        report_name: Some("not-unique".to_string()),
+                        ..default()
+                    })
+                    .unwrap(),
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
 }
