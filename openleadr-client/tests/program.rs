@@ -67,36 +67,49 @@ async fn program_crud() {
     assert!(err.is_not_found());
 }
 
-#[sqlx::test(fixtures("users"))]
-async fn delete(db: PgPool) {
-    let client = common::setup_client::<VirtualEndNode>(db).await;
+#[tokio::test]
+#[serial]
+async fn delete() {
+    let ctx = common::setup::<openleadr_client::BusinessLogic>(common::AuthRole::Bl).await;
+    let names = [
+        "program-delete-test-1",
+        "program-delete-test-2",
+        "program-delete-test-3",
+    ];
 
-    let program1 = ProgramRequest {
-        program_name: "program1".to_string(),
-        ..default_content()
-    };
-    let program2 = ProgramRequest {
-        program_name: "program2".to_string(),
-        ..default_content()
-    };
-    let program3 = ProgramRequest {
-        program_name: "program3".to_string(),
-        ..default_content()
-    };
-
-    let mut ids = vec![];
-    for content in [program1, program2.clone(), program3] {
-        ids.push(client.create_program(content).await.unwrap());
+    // Cleanup only this test's namespace so the case remains valid on a
+    // shared or third-party VTN with unrelated programs already present.
+    if let Ok(existing) = ctx.get_program_list(Filter::none()).await {
+        for program in existing {
+            if names.contains(&program.content().program_name.as_str()) {
+                program.delete().await.unwrap();
+            }
+        }
     }
 
-    let program = client.get_program_by_id(ids[1].id()).await.unwrap();
-    assert_eq!(program.content(), &program2);
+    let mut programs = Vec::new();
+    for name in names {
+        let content = ProgramRequest {
+            program_name: name.to_string(),
+            ..default_content()
+        };
+        programs.push(ctx.create_program(content).await.unwrap());
+    }
+
+    let id = programs[1].id().clone();
+    let expected = programs[1].content().clone();
+    let program = ctx.get_program_by_id(&id).await.unwrap();
+    assert_eq!(program.content(), &expected);
 
     let removed = program.delete().await.unwrap();
-    assert_eq!(removed.content, program2);
+    assert_eq!(removed.content, expected);
 
-    let programs = client.get_program_list(Filter::none()).await.unwrap();
-    assert_eq!(programs.len(), 2);
+    let err = ctx.get_program_by_id(&id).await.unwrap_err();
+    assert!(err.is_not_found());
+
+    // Explicit cleanup without asserting global collection size.
+    programs.remove(2).delete().await.unwrap();
+    programs.remove(0).delete().await.unwrap();
 }
 
 #[sqlx::test(fixtures("users"))]
