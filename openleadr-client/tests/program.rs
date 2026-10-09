@@ -136,37 +136,53 @@ async fn update(db: PgPool) {
     assert!(program.modification_date_time() > creation_date_time);
 }
 
-#[sqlx::test(fixtures("users"))]
-async fn update_same_name(db: PgPool) {
-    let client = common::setup_client::<VirtualEndNode>(db).await;
+#[tokio::test]
+#[serial]
+async fn update_same_name() {
+    let ctx = common::setup::<openleadr_client::BusinessLogic>(common::AuthRole::Bl).await;
+    let first_name = "program-update-conflict-test-1";
+    let second_name = "program-update-conflict-test-2";
 
-    let program1 = ProgramRequest {
-        program_name: "program1".to_string(),
-        ..default_content()
-    };
+    // Keep the case independent of unrelated state in a shared VTN.
+    if let Ok(existing) = ctx.get_program_list(Filter::none()).await {
+        for program in existing {
+            if [first_name, second_name].contains(&program.content().program_name.as_str()) {
+                program.delete().await.unwrap();
+            }
+        }
+    }
 
-    let program2 = ProgramRequest {
-        program_name: "program2".to_string(),
-        ..default_content()
-    };
+    let first = ctx
+        .create_program(ProgramRequest {
+            program_name: first_name.to_string(),
+            ..default_content()
+        })
+        .await
+        .unwrap();
 
-    let _program1 = client.create_program(program1).await.unwrap();
-    let mut program2 = client.create_program(program2).await.unwrap();
-    let creation_date_time = program2.modification_date_time();
+    let mut second = ctx
+        .create_program(ProgramRequest {
+            program_name: second_name.to_string(),
+            ..default_content()
+        })
+        .await
+        .unwrap();
 
-    let content = ProgramRequest {
-        program_name: "program1".to_string(),
-        ..default_content()
-    };
+    let second_id = second.id().clone();
+    let before = ctx.get_program_by_id(&second_id).await.unwrap();
+    let before_modified = before.modification_date_time();
 
-    *program2.content_mut() = content;
+    second.content_mut().program_name = first_name.to_string();
+    let err = second.update().await.unwrap_err();
+    assert!(err.is_conflict());
 
-    let Error::Problem(problem) = program2.update().await.unwrap_err() else {
-        unreachable!()
-    };
+    // The rejected update must not leak into authoritative VTN state.
+    let after = ctx.get_program_by_id(&second_id).await.unwrap();
+    assert_eq!(after.content().program_name, second_name);
+    assert_eq!(after.modification_date_time(), before_modified);
 
-    assert_eq!(problem.status, StatusCode::CONFLICT);
-    assert_eq!(program2.modification_date_time(), creation_date_time);
+    first.delete().await.unwrap();
+    after.delete().await.unwrap();
 }
 
 #[sqlx::test(fixtures("users"))]
