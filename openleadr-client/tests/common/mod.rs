@@ -25,6 +25,15 @@ fn default_credentials(auth_role: AuthRole) -> ClientCredentials {
     ClientCredentials::new(id.to_string(), secr.to_string())
 }
 
+fn external_vtn_credentials() -> ClientCredentials {
+    let client_id =
+        std::env::var("OPENLEADR_RS_CLIENT_ID").unwrap_or_else(|_| "admin".to_string());
+    let client_secret =
+        std::env::var("OPENLEADR_RS_CLIENT_SECRET").unwrap_or_else(|_| "admin".to_string());
+
+    ClientCredentials::new(client_id, client_secret)
+}
+
 #[derive(Debug)]
 pub struct MockClientRef {
     router: Arc<tokio::sync::Mutex<axum::Router>>,
@@ -130,13 +139,7 @@ pub async fn setup_mock_client<K: ClientKind>(db: PgPool) -> Client<K> {
 }
 
 pub fn setup_url_client<K: ClientKind>(url: Url) -> Client<K> {
-    Client::with_url(
-        url,
-        Some(ClientCredentials::new(
-            "admin".to_string(),
-            "admin".to_string(),
-        )),
-    )
+    Client::with_url(url, Some(external_vtn_credentials()))
 }
 
 pub async fn setup_client<K: ClientKind>(db: PgPool) -> Client<K> {
