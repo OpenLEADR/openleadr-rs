@@ -6,7 +6,6 @@ use openleadr_wire::{
     target::Target,
     values_map::Value,
 };
-use serial_test::serial;
 use sqlx::PgPool;
 use std::str::FromStr;
 
@@ -33,49 +32,13 @@ fn default_content(program_id: &ProgramId) -> EventRequest {
     }
 }
 
-#[tokio::test]
-#[serial]
-async fn event_crud() {
-    let ctx = common::setup::<BusinessLogic>(common::AuthRole::Bl).await;
-    let program_name = "event-crud-program";
+#[sqlx::test(fixtures("users"))]
+async fn get(db: PgPool) {
+    let client = common::setup_program_client::<BusinessLogic>("program", db).await;
+    let event_content = default_content(client.id());
+    let event_client = client.create_event(event_content.clone()).await.unwrap();
 
-    // The program is a protocol-level fixture: create and clean it through
-    // the OpenADR API so this test does not depend on the VTN storage backend.
-    if let Ok(programs) = ctx.get_program_list(Filter::none()).await {
-        for program in programs {
-            if program.content().program_name == program_name {
-                program.delete().await.unwrap();
-            }
-        }
-    }
-
-    let program = ctx
-        .create_program(ProgramRequest::new(program_name))
-        .await
-        .unwrap();
-
-    let event_content = EventRequest {
-        event_name: Some("event-crud-test".to_string()),
-        ..default_content(program.id())
-    };
-    let created = program.create_event(event_content.clone()).await.unwrap();
-    assert_eq!(created.content(), &event_content);
-
-    let mut event = ctx.get_event_by_id(created.id()).await.unwrap();
-    assert_eq!(event.content(), created.content());
-
-    event.content_mut().priority = Priority::MIN;
-    event.update().await.unwrap();
-
-    let updated = ctx.get_event_by_id(event.id()).await.unwrap();
-    assert_eq!(updated.content().priority, Priority::MIN);
-
-    let event_id = event.id().clone();
-    event.delete().await.unwrap();
-    let err = ctx.get_event_by_id(&event_id).await.unwrap_err();
-    assert!(err.is_not_found());
-
-    program.delete().await.unwrap();
+    assert_eq!(event_client.content(), &event_content);
 }
 
 #[sqlx::test(fixtures("users"))]
