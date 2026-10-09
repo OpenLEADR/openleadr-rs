@@ -206,6 +206,8 @@ impl AnyObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "SCREAMING-KEBAB-CASE")]
 pub struct NotifiersResponse {
+    /// OpenADR 3.1 requires every VTN to advertise webhook notification support.
+    pub webhook: bool,
     pub websocket: bool,
     pub mqtt: Option<MqttNotifierBindingObject>,
     pub push_mqtt: Option<MqttNotifierBindingObject>,
