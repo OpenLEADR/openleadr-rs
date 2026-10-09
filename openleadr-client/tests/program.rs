@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use openleadr_client::{Error, Filter, PaginationOptions, VirtualEndNode};
 use openleadr_wire::{program::ProgramRequest, target::Target};
+use serial_test::serial;
 use sqlx::PgPool;
 use std::str::FromStr;
 
@@ -17,12 +18,30 @@ fn default_content() -> ProgramRequest {
     }
 }
 
-#[sqlx::test(fixtures("users"))]
-async fn get(db: PgPool) {
-    let client = common::setup_client::<VirtualEndNode>(db).await;
-    let program_client = client.create_program(default_content()).await.unwrap();
+#[tokio::test]
+#[serial]
+async fn get() {
+    let ctx = common::setup::<VirtualEndNode>(common::AuthRole::Ven).await;
+    let program_name = "program-get-test";
 
-    assert_eq!(program_client.content(), &default_content());
+    // Cleanup a potentially clashing program from an earlier interrupted run.
+    if let Ok(programs) = ctx.get_program_list(Filter::none()).await {
+        for program in programs {
+            if program.content().program_name == program_name {
+                program.delete().await.unwrap();
+            }
+        }
+    }
+
+    let content = ProgramRequest {
+        program_name: program_name.to_string(),
+        ..default_content()
+    };
+    let program = ctx.create_program(content.clone()).await.unwrap();
+
+    assert_eq!(program.content(), &content);
+
+    program.delete().await.unwrap();
 }
 
 #[sqlx::test(fixtures("users"))]
