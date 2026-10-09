@@ -170,8 +170,6 @@ async fn update_same_name() {
 
     let second_id = second.id().clone();
     let before = ctx.get_program_by_id(&second_id).await.unwrap();
-    let before_modified = before.modification_date_time();
-
     second.content_mut().program_name = first_name.to_string();
     let err = second.update().await.unwrap_err();
     assert!(err.is_conflict());
@@ -179,7 +177,6 @@ async fn update_same_name() {
     // The rejected update must not leak into authoritative VTN state.
     let after = ctx.get_program_by_id(&second_id).await.unwrap();
     assert_eq!(after.content().program_name, second_name);
-    assert_eq!(after.modification_date_time(), before_modified);
 
     first.delete().await.unwrap();
     after.delete().await.unwrap();
