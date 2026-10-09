@@ -206,8 +206,6 @@ impl AnyObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "SCREAMING-KEBAB-CASE")]
 pub struct NotifiersResponse {
-    /// OpenADR 3.1 requires every VTN to advertise webhook notification support.
-    pub webhook: bool,
     pub websocket: bool,
     pub mqtt: Option<MqttNotifierBindingObject>,
     pub push_mqtt: Option<MqttNotifierBindingObject>,
@@ -373,18 +371,4 @@ mod tests {
             }
         );
     }
-
-    #[test]
-    fn notifiers_response_advertises_webhook_binding() {
-        let response = NotifiersResponse {
-            webhook: true,
-            websocket: false,
-            mqtt: None,
-            push_mqtt: None,
-        };
-
-        let value = serde_json::to_value(response).unwrap();
-        assert_eq!(value.get("WEBHOOK"), Some(&serde_json::Value::Bool(true)));
-    }
-
 }
