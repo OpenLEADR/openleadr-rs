@@ -95,7 +95,7 @@ impl<K> Deref for TestContext<K> {
 
 #[allow(unused)]
 pub async fn setup<K: ClientKind>(auth_role: AuthRole) -> TestContext<K> {
-    dotenvy::dotenv().unwrap();
+    let _ = dotenvy::dotenv();
     match std::env::var("OPENLEADR_RS_VTN_URL") {
         Ok(url) => match url.parse() {
             Ok(url) => TestContext {
