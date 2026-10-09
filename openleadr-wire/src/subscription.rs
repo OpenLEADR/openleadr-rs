@@ -373,4 +373,18 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn notifiers_response_advertises_webhook_binding() {
+        let response = NotifiersResponse {
+            webhook: true,
+            websocket: false,
+            mqtt: None,
+            push_mqtt: None,
+        };
+
+        let value = serde_json::to_value(response).unwrap();
+        assert_eq!(value.get("WEBHOOK"), Some(&serde_json::Value::Bool(true)));
+    }
+
 }
