@@ -20,28 +20,51 @@ fn default_content() -> ProgramRequest {
 
 #[tokio::test]
 #[serial]
-async fn get() {
-    let ctx = common::setup::<VirtualEndNode>(common::AuthRole::Ven).await;
-    let program_name = "program-get-test";
+async fn program_crud() {
+    let ctx = common::setup::<openleadr_client::BusinessLogic>(common::AuthRole::Bl).await;
+    let original_name = "program-crud-test";
+    let updated_name = "program-crud-test-updated";
 
-    // Cleanup a potentially clashing program from an earlier interrupted run.
+    // Cleanup resources left behind by an interrupted earlier run without
+    // assuming that the VTN is otherwise empty.
     if let Ok(programs) = ctx.get_program_list(Filter::none()).await {
         for program in programs {
-            if program.content().program_name == program_name {
+            if [original_name, updated_name].contains(&program.content().program_name.as_str()) {
                 program.delete().await.unwrap();
             }
         }
     }
 
     let content = ProgramRequest {
-        program_name: program_name.to_string(),
+        program_name: original_name.to_string(),
         ..default_content()
     };
-    let program = ctx.create_program(content.clone()).await.unwrap();
 
-    assert_eq!(program.content(), &content);
+    // Create.
+    let created = ctx.create_program(content.clone()).await.unwrap();
+    assert_eq!(created.content(), &content);
 
+    // A duplicate name is rejected.
+    let err = ctx.create_program(content).await.unwrap_err();
+    assert!(err.is_conflict());
+
+    // Retrieve by ID without relying on global VTN contents.
+    let mut program = ctx.get_program_by_id(created.id()).await.unwrap();
+    assert_eq!(program.content(), created.content());
+
+    // Update.
+    program.content_mut().program_name = updated_name.to_string();
+    program.update().await.unwrap();
+    assert_eq!(program.content().program_name, updated_name);
+
+    let updated = ctx.get_program_by_id(program.id()).await.unwrap();
+    assert_eq!(updated.content().program_name, updated_name);
+
+    // Delete and verify that the resource is gone.
+    let id = program.id().clone();
     program.delete().await.unwrap();
+    let err = ctx.get_program_by_id(&id).await.unwrap_err();
+    assert!(err.is_not_found());
 }
 
 #[sqlx::test(fixtures("users"))]
