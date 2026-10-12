@@ -130,6 +130,13 @@ the following environment variables:
 Here required indicates that when enabling MQTT, the environment variable is required. The provided
 account should have sufficient rights to publish to all topics mentioned above.
 
+MQTT is disabled when none of `MQTT_URL`, `MQTT_USERNAME` and `MQTT_PASSWORD` are set. Setting only
+some of them is a configuration error and the VTN will refuse to start. The docker compose setup
+enables MQTT by default; to run it without MQTT and without starting the broker, use
+```bash
+docker compose -f docker-compose.no-mqtt.yml up -d
+```
+
 ### Testing
 
 To run the tests, you need to start a Postgres database, MQTT broker, and run the migrations:

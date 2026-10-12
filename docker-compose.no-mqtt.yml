@@ -1,0 +1,21 @@
+# Runs the VTN without MQTT notifications and without an MQTT broker.
+# Usage: docker compose -f docker-compose.no-mqtt.yml up
+services:
+  vtn:
+    extends:
+      file: docker-compose.yml
+      service: vtn
+    environment:
+      MQTT_URL: !reset null
+      MQTT_USERNAME: !reset null
+      MQTT_PASSWORD: !reset null
+    depends_on: !override
+      - db
+
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+
+volumes:
+  database-data:
