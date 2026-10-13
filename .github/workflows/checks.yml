@@ -55,7 +55,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
-          toolchain: "${TARGET_RUST_VERSION}"
+          toolchain: "${{ env.TARGET_RUST_VERSION }}"
           targets: "${{ matrix.target }}"
 
       - name: Install cargo-llvm-cov
