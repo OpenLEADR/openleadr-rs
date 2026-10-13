@@ -18,7 +18,8 @@ At the moment, we don't plan to offer upgrade instructions as we don't expect a 
 Feel free to reach out if this assumption seems wrong.
 
 Thanks to our sponsors [ElaadNL](https://elaad.nl/en/) and [Tweede Golf](https://tweedegolf.nl/en)
-for making this work possible!
+for making this work possible! This project is fully compliant under the Cyber
+Resilience Act (CRA). For more information, please see our [SECURITY.md](SECURITY.md) file.
 
 ## Interoperability
 The code in this repository is written in Rust. Nevertheless, you can easily combine the server, i.e., VTN implementation with a client, i.e., VEN written in any language you prefer, such as Python, Node.js, or Java. This because the VTN is a stand-alone binary and the interactions with the VEN happen over HTTP.
