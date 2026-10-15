@@ -10,14 +10,7 @@ use openleadr_wire::{
 };
 
 use crate::{error::AppError, state::OAuthKeyType};
-use axum::{
-    extract::{FromRef, FromRequestParts},
-    http::request::Parts,
-};
-use axum_extra::{
-    TypedHeader,
-    headers::{Authorization, authorization::Bearer},
-};
+use axum::{extract::FromRequestParts, http::request::Parts};
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
@@ -216,7 +209,7 @@ struct EdKeys {
     keys: Vec<EdKey>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub(crate) struct Claims {
     /// (subject): Subject of the JWT (the user)
     pub(crate) sub: String,
@@ -601,30 +594,128 @@ impl JwtManager {
 /// User claims extracted from the request
 pub struct User(pub(crate) Claims);
 
-impl<S: Send + Sync> FromRequestParts<S> for User
-where
-    Arc<JwtManager>: FromRef<S>,
-{
+/// Result of bearer-token extraction/validation, stashed into the request
+/// extensions by [`AuthService`]. Kept `Clone` (unlike [`AppError`], which
+/// carries non-`Clone` DB/rejection error payloads) so `http::Extensions`
+/// can store it.
+#[derive(Clone)]
+pub(crate) enum AuthOutcome {
+    Authenticated(Claims),
+    Missing,
+    Invalid,
+}
+
+impl From<AuthOutcome> for Result<Claims, AppError> {
+    fn from(outcome: AuthOutcome) -> Self {
+        match outcome {
+            AuthOutcome::Authenticated(claims) => Ok(claims),
+            AuthOutcome::Missing => Err(AppError::Auth(
+                "Authorization via Bearer token in Authorization header required".to_string(),
+            )),
+            AuthOutcome::Invalid => {
+                Err(AppError::Forbidden("Invalid authentication token provided"))
+            }
+        }
+    }
+}
+
+/// axum adapter: reads the `AuthOutcome` that [`AuthService`] already
+/// computed and stashed into the request extensions.
+impl<S: Send + Sync> FromRequestParts<S> for User {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let Ok(TypedHeader(bearer)) =
-            TypedHeader::<Authorization<Bearer>>::from_request_parts(parts, state).await
-        else {
-            return Err(AppError::Auth(
-                "Authorization via Bearer token in Authorization header required".to_string(),
-            ));
-        };
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let outcome = parts
+            .extensions
+            .remove::<AuthOutcome>()
+            .unwrap_or(AuthOutcome::Missing);
 
-        let jwt_manager = Arc::<JwtManager>::from_ref(state);
-
-        let Ok(claims) = jwt_manager.decode_and_validate(bearer.token()).await else {
-            return Err(AppError::Forbidden("Invalid authentication token provided"));
-        };
-
+        let claims = Result::<Claims, AppError>::from(outcome)?;
         trace!(user = ?claims, "Extracted User from request");
-
         Ok(User(claims))
+    }
+}
+
+/// A [`tower::Layer`] that decodes and validates the bearer token (if any) on
+/// every request, before routing happens, and stashes the result into the
+/// request extensions as an `AuthOutcome`. It never rejects a request
+/// itself (some routes, e.g. `/health`, are unauthenticated) - `User` (above)
+/// turns "absent/invalid" into the same errors it always has.
+#[derive(Clone)]
+pub struct AuthLayer {
+    jwt_manager: Arc<JwtManager>,
+}
+
+impl AuthLayer {
+    pub fn new(jwt_manager: Arc<JwtManager>) -> Self {
+        Self { jwt_manager }
+    }
+}
+
+impl<S> tower::Layer<S> for AuthLayer {
+    type Service = AuthService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        AuthService {
+            inner,
+            jwt_manager: self.jwt_manager.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AuthService<S> {
+    inner: S,
+    jwt_manager: Arc<JwtManager>,
+}
+
+impl<S, B> tower::Service<http::Request<B>> for AuthService<S>
+where
+    S: tower::Service<http::Request<B>> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+    B: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
+        let jwt_manager = self.jwt_manager.clone();
+        // Standard tower pattern for cloning a `Service` into an async block:
+        // swap in the (poll_ready-checked) clone, keep the original ready for
+        // the next call.
+        let mut inner = self.inner.clone();
+        std::mem::swap(&mut self.inner, &mut inner);
+
+        Box::pin(async move {
+            let outcome = extract_and_validate(&jwt_manager, req.headers()).await;
+            req.extensions_mut().insert(outcome);
+            inner.call(req).await
+        })
+    }
+}
+
+async fn extract_and_validate(jwt_manager: &JwtManager, headers: &http::HeaderMap) -> AuthOutcome {
+    let Some(token) = headers
+        .get(http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    else {
+        return AuthOutcome::Missing;
+    };
+
+    match jwt_manager.decode_and_validate(token).await {
+        Ok(claims) => AuthOutcome::Authenticated(claims),
+        Err(_) => AuthOutcome::Invalid,
     }
 }
 
@@ -635,8 +726,13 @@ mod test {
         jwt::{Claims, Scope},
     };
     use axum::{body::Body, http::Method};
+    use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
     use openleadr_wire::problem::Problem;
+    use reqwest::Url;
     use sqlx::PgPool;
+    use tower::{Layer, ServiceExt};
+
+    use super::{AppError, AuthLayer, AuthOutcome, JwtManager, OAuthKeyType};
 
     impl Scope {
         pub fn all() -> Vec<Scope> {
@@ -788,6 +884,134 @@ mod test {
                 scope: crate::jwt::Scopes(Vec::with_capacity(0)),
                 roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
+        );
+    }
+
+    fn hmac_manager(secret: &[u8]) -> JwtManager {
+        JwtManager::new(
+            Some(DecodingKey::from_secret(secret)),
+            None,
+            OAuthKeyType::Hmac,
+            Validation::new(Algorithm::HS256),
+            Url::parse("http://localhost/auth/token").unwrap(),
+        )
+    }
+
+    fn token_for(secret: &[u8], sub: &str) -> String {
+        let claims = Claims {
+            sub: sub.to_string(),
+            exp: chrono::Utc::now().timestamp() + 300,
+            iat: None,
+            nbf: None,
+            aud: None,
+            scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+            roles: crate::jwt::Scopes(Vec::with_capacity(0)),
+        };
+        jsonwebtoken::encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn extract_and_validate_returns_missing_without_authorization_header() {
+        let jwt_manager = hmac_manager(b"unit-test-hmac-secret-32-bytes!");
+        let headers = http::HeaderMap::new();
+
+        let outcome = super::extract_and_validate(&jwt_manager, &headers).await;
+        assert!(matches!(outcome, AuthOutcome::Missing));
+    }
+
+    #[tokio::test]
+    async fn extract_and_validate_returns_missing_for_non_bearer_scheme() {
+        let jwt_manager = hmac_manager(b"unit-test-hmac-secret-32-bytes!");
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::AUTHORIZATION,
+            "Basic dXNlcjpwYXNz".parse().unwrap(),
+        );
+
+        let outcome = super::extract_and_validate(&jwt_manager, &headers).await;
+        assert!(matches!(outcome, AuthOutcome::Missing));
+    }
+
+    #[tokio::test]
+    async fn extract_and_validate_returns_invalid_for_malformed_token() {
+        let jwt_manager = hmac_manager(b"unit-test-hmac-secret-32-bytes!");
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::AUTHORIZATION,
+            "Bearer not-a-real-jwt".parse().unwrap(),
+        );
+
+        let outcome = super::extract_and_validate(&jwt_manager, &headers).await;
+        assert!(matches!(outcome, AuthOutcome::Invalid));
+    }
+
+    #[tokio::test]
+    async fn extract_and_validate_returns_authenticated_for_valid_token() {
+        let secret = b"unit-test-hmac-secret-32-bytes!";
+        let jwt_manager = hmac_manager(secret);
+        let token = token_for(secret, "test-client");
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+
+        let outcome = super::extract_and_validate(&jwt_manager, &headers).await;
+        assert!(matches!(
+            outcome,
+            AuthOutcome::Authenticated(ref claims) if claims.sub == "test-client"
+        ));
+    }
+
+    #[test]
+    fn auth_outcome_missing_maps_to_auth_error() {
+        let result: Result<Claims, AppError> = AuthOutcome::Missing.into();
+        assert!(matches!(result, Err(AppError::Auth(_))));
+    }
+
+    #[test]
+    fn auth_outcome_invalid_maps_to_forbidden_error() {
+        let result: Result<Claims, AppError> = AuthOutcome::Invalid.into();
+        assert!(matches!(result, Err(AppError::Forbidden(_))));
+    }
+
+    #[test]
+    fn auth_outcome_authenticated_maps_to_ok_claims() {
+        let claims = Claims {
+            sub: "test-client".to_string(),
+            exp: chrono::Utc::now().timestamp() + 300,
+            iat: None,
+            nbf: None,
+            aud: None,
+            scope: crate::jwt::Scopes(Vec::with_capacity(0)),
+            roles: crate::jwt::Scopes(Vec::with_capacity(0)),
+        };
+
+        let result: Result<Claims, AppError> = AuthOutcome::Authenticated(claims.clone()).into();
+        assert_eq!(result.unwrap(), claims);
+    }
+
+    #[tokio::test]
+    async fn auth_service_stashes_missing_outcome_without_rejecting() {
+        let jwt_manager = std::sync::Arc::new(hmac_manager(b"unit-test-hmac-secret-32-bytes!"));
+        let layer = AuthLayer::new(jwt_manager);
+        let inner = tower::service_fn(|req: http::Request<()>| async move {
+            Ok::<_, std::convert::Infallible>(req.extensions().get::<AuthOutcome>().cloned())
+        });
+        let service = layer.layer(inner);
+
+        let req = http::Request::builder().body(()).unwrap();
+        let outcome = service.oneshot(req).await.unwrap();
+
+        assert!(
+            matches!(outcome, Some(AuthOutcome::Missing)),
+            "AuthService must stash an AuthOutcome instead of rejecting when no \
+             Authorization header is present"
         );
     }
 }
