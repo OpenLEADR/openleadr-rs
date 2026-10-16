@@ -103,11 +103,9 @@ impl BlVenRequest {
     }
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord, sqlx::Type,
-)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord)]
 #[serde(transparent)]
-#[sqlx(transparent)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct VenId(pub(crate) Identifier);
 
 impl Display for VenId {
