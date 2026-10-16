@@ -59,7 +59,7 @@ openleadr-client = { path = "../openleadr-client" }
 [features]
 default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd", "experimental-websockets"]
 live-db-test = ["postgres", "internal-oauth"]
-postgres = ["sqlx/postgres", "dep:dotenvy", "dep:argon2"]
+postgres = ["sqlx/postgres", "openleadr-wire/sqlx", "dep:dotenvy", "dep:argon2"]
 internal-oauth = []
 mdns = ["dep:mdns-sd", "openleadr-client/mdns"]
 experimental-websockets = ["axum/ws"] # object privacy is not yet implemented

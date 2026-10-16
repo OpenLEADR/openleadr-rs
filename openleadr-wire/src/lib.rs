@@ -76,8 +76,8 @@ where
 }
 
 /// A string that matches `/^[a-zA-Z0-9_-]*$/` with length in 1..=128
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
-#[sqlx(transparent)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct Identifier(#[serde(deserialize_with = "identifier")] String);
 
 impl<'de> Deserialize<'de> for Identifier {
@@ -375,8 +375,8 @@ pub enum Unit {
 }
 
 // example: 249rj49jiej
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq, sqlx::Type)]
-#[sqlx(transparent)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct ClientId(pub(crate) Identifier);
 
 impl Display for ClientId {
