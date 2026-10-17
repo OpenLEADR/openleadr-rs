@@ -577,6 +577,28 @@ impl<K: ClientKind> Client<K> {
             .await
     }
 
+    /// Get the program named `name`, using the `programName` query parameter
+    /// that OpenADR 3.1.1 adds to `GET /programs`.
+    ///
+    /// A VTN that predates the parameter may ignore it and list other
+    /// programs, so the response is matched by name: [`Error::ObjectNotFound`]
+    /// then means only that the program was not in the returned page, and a
+    /// caller can fall back to [`Client::get_programs`].
+    pub async fn get_program_by_name(&self, name: &str) -> Result<ProgramClient<K>> {
+        let programs: Vec<Program> = self
+            .client_ref
+            .get("programs", &[("programName", name)])
+            .await?;
+        let mut matching = programs
+            .into_iter()
+            .filter(|p| p.content.program_name == name);
+        match (matching.next(), matching.next()) {
+            (None, _) => Err(Error::ObjectNotFound),
+            (Some(program), None) => Ok(ProgramClient::from_program(self.clone(), program)),
+            (Some(_), Some(_)) => Err(Error::DuplicateObject),
+        }
+    }
+
     /// Get a program by id
     pub async fn get_program_by_id(&self, id: &ProgramId) -> Result<ProgramClient<K>> {
         let program = self
