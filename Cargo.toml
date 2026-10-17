@@ -26,7 +26,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_with = { version = "3.17.0", features = ["macros"] }
 
-reqwest = { version = "0.13.2", default-features = false, features = ["http2", "charset", "rustls", "json", "query", "form"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["http2", "charset", "json", "query", "form"] }
 tokio = { version = "1.50.0", features = ["full", "test-util"] }
 tokio-test = "0.4.5"
 futures = "0.3.32"
