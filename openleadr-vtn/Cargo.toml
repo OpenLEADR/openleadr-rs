@@ -18,7 +18,7 @@ openleadr-wire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
 axum.workspace = true
 axum-extra.workspace = true
 tokio = { workspace = true, features = ["full"] }
