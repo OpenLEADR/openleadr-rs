@@ -2,7 +2,6 @@
 use crate::api::auth;
 use crate::{
     VtnConfig,
-    api::subscription::MqttConfig,
     data_source::{ResourceGroupCrud, SubscriptionCrud},
 };
 #[cfg(feature = "internal-oauth")]
@@ -37,14 +36,57 @@ use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::PartialEq,
-    env,
-    env::VarError,
+    env::{self, VarError},
     io::{BufReader, Read},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
+
+pub(crate) struct MqttConfig {
+    pub(crate) url: String,
+    /// URL advertised to clients in `GET /notifiers`. Defaults to `url`.
+    pub(crate) advertise_url: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) topic_prefix: String,
+    pub(crate) ca_path: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct MqttState {
+    pub(crate) advertise_url: String,
+    pub(crate) client: paho_mqtt::AsyncClient,
+    pub(crate) topic_prefix: String,
+}
+
+impl MqttState {
+    pub async fn new(config: MqttConfig) -> Result<Self, AppError> {
+        let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
+        let mut connect_options = paho_mqtt::ConnectOptionsBuilder::new();
+        connect_options
+            .server_uris(&[&config.url])
+            .user_name(config.username)
+            .password(config.password)
+            .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(16));
+
+        let mut ssl_options = paho_mqtt::SslOptionsBuilder::new();
+        if let Some(ca_path) = &config.ca_path {
+            ssl_options.trust_store(ca_path)?;
+        }
+        connect_options.ssl_options(ssl_options.finalize());
+
+        mqtt_client.connect(connect_options.finalize()).await?;
+
+        Ok(MqttState {
+            advertise_url: config.advertise_url,
+            client: mqtt_client,
+            topic_prefix: config.topic_prefix,
+        })
+    }
+}
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
@@ -328,8 +370,18 @@ impl AppState {
             );
         }
 
+        let mqtt_state = if let Some(mqtt_config) = mqtt_config {
+            Some(
+                MqttState::new(mqtt_config)
+                    .await
+                    .expect("unable to connect to mqtt server"),
+            )
+        } else {
+            None
+        };
+
         let notifier =
-            subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_config)
+            subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_state)
                 .await
                 .expect("failed to retrieve subscriptions from database");
 
