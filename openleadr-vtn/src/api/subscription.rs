@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{collections::HashMap, convert::Infallible, sync::Arc};
 
 use axum::{
     Json,
@@ -33,14 +33,8 @@ use crate::{
     data_source::{EventCrud, SubscriptionCrud, VenCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Claims, Scope, User},
-    state::AppState,
+    state::{AppState, MqttState},
 };
-
-struct MqttState {
-    advertise_url: String,
-    client: paho_mqtt::AsyncClient,
-    topic_prefix: String,
-}
 
 pub(crate) struct NotifierState {
     uuidv7_context: Arc<Mutex<ContextV7>>,
@@ -49,20 +43,10 @@ pub(crate) struct NotifierState {
     mqtt_state: Option<MqttState>,
 }
 
-pub(crate) struct MqttConfig {
-    pub(crate) url: String,
-    /// URL advertised to clients in `GET /notifiers`. Defaults to `url`.
-    pub(crate) advertise_url: String,
-    pub(crate) username: String,
-    pub(crate) password: String,
-    pub(crate) topic_prefix: String,
-    pub(crate) ca_path: Option<String>,
-}
-
 impl NotifierState {
     pub(crate) async fn load_from_storage(
         storage: &dyn SubscriptionCrud,
-        mqtt_config: Option<MqttConfig>,
+        mqtt_state: Option<MqttState>,
     ) -> Result<Self, AppError> {
         let subscriptions = storage
             .retrieve_all(
@@ -76,32 +60,6 @@ impl NotifierState {
                 &None,
             )
             .await?;
-
-        let mqtt_state = if let Some(mqtt_config) = mqtt_config {
-            let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
-            let mut connect_options = paho_mqtt::ConnectOptionsBuilder::new();
-            connect_options
-                .server_uris(&[&mqtt_config.url])
-                .user_name(mqtt_config.username)
-                .password(mqtt_config.password)
-                .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(16));
-
-            let mut ssl_options = paho_mqtt::SslOptionsBuilder::new();
-            if let Some(ca_path) = &mqtt_config.ca_path {
-                ssl_options.trust_store(ca_path)?;
-            }
-            connect_options.ssl_options(ssl_options.finalize());
-
-            mqtt_client.connect(connect_options.finalize()).await?;
-
-            Some(MqttState {
-                advertise_url: mqtt_config.advertise_url,
-                client: mqtt_client,
-                topic_prefix: mqtt_config.topic_prefix,
-            })
-        } else {
-            None
-        };
 
         Ok(Self {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
