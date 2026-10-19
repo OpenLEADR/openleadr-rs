@@ -322,6 +322,12 @@ impl AppState {
             );
         }
 
+        if config.mqtt_ingest_reports && mqtt_config.is_none() {
+            warn!(
+                "MQTT_INGEST_REPORTS is set but MQTT is not configured. Sending reports via MQTT will not be possible!"
+            );
+        }
+
         let notifier =
             subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_config)
                 .await
