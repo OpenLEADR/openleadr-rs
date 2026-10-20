@@ -1,7 +1,7 @@
 //! Types used for the `report/` endpoint
 
 use crate::{
-    ClientId, Identifier, IdentifierError, Unit,
+    ClientId, Identifier, IdentifierError, ObjectType, Unit,
     event::EventId,
     interval::{Interval, IntervalPeriod},
     target::Target,
@@ -14,6 +14,32 @@ use std::{
     str::FromStr,
 };
 use validator::{Validate, ValidateRange};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct MqttUploadRequest {
+    pub object_type: ObjectType,
+    pub operation: UploadOperation,
+    pub object: ReportRequest,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum UploadOperation {
+    Post,
+    Put,
+    Delete,
+}
+
+impl UploadOperation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UploadOperation::Post => "POST",
+            UploadOperation::Put => "PUT",
+            UploadOperation::Delete => "DELETE",
+        }
+    }
+}
 
 /// report object.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]

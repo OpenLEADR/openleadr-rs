@@ -30,6 +30,7 @@ pub struct VtnConfig {
     pub mqtt_password: Option<String>,
     pub mqtt_topic_prefix: String,
     pub mqtt_ca_path: Option<String>,
+    pub mqtt_ingest_reports: bool,
 }
 
 impl VtnConfig {
@@ -55,6 +56,10 @@ impl VtnConfig {
             mqtt_password: std::env::var("MQTT_PASSWORD").ok(),
             mqtt_topic_prefix: std::env::var("MQTT_TOPIC_PREFIX").unwrap_or_default(),
             mqtt_ca_path: std::env::var("MQTT_CA_PATH").ok(),
+            mqtt_ingest_reports: std::env::var("MQTT_INGEST_REPORTS")
+                .ok()
+                .and_then(|s| s.parse::<bool>().ok())
+                .unwrap_or_default(),
         }
     }
 }

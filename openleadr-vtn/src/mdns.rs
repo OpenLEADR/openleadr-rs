@@ -56,6 +56,7 @@ mod tests {
             mqtt_password: None,
             mqtt_topic_prefix: String::new(),
             mqtt_ca_path: None,
+            mqtt_ingest_reports: false,
         };
 
         // Use a single daemon for both advertising and browsing so that we can reliably discover the service on localhost without network complexities.

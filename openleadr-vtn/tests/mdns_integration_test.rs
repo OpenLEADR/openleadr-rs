@@ -21,6 +21,7 @@ async fn test_vtn_client_mdns_discovery() {
         mqtt_password: Some("password".to_string()),
         mqtt_topic_prefix: String::new(),
         mqtt_ca_path: None,
+        mqtt_ingest_reports: false,
     };
 
     // Simulate VTN registration
