@@ -3,6 +3,7 @@ use crate::api::auth;
 use crate::{
     VtnConfig,
     data_source::{ResourceGroupCrud, SubscriptionCrud},
+    jwt::User,
 };
 #[cfg(feature = "internal-oauth")]
 use crate::{api::user, data_source::AuthSource};
@@ -24,7 +25,7 @@ use axum::{
     extract::{FromRef, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::get,
+    routing::{MethodRouter, get},
 };
 use base64::{
     Engine, alphabet,
@@ -33,11 +34,17 @@ use base64::{
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use openleadr_wire::{ClientId, oauth::AuthServerInfo, report::MqttUploadRequest};
+use openleadr_wire::{
+    ClientId,
+    oauth::AuthServerInfo,
+    report::MqttUploadRequest,
+    subscription::{NotifierOperationsTopics, NotifierTopicsResponse},
+};
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::PartialEq,
+    convert::Infallible,
     env::{self, VarError},
     io::{BufReader, Read},
     str::FromStr,
@@ -55,6 +62,7 @@ pub(crate) struct MqttConfig {
     pub(crate) password: String,
     pub(crate) topic_prefix: String,
     pub(crate) ca_path: Option<String>,
+    pub(crate) ingest_reports: bool,
 }
 
 #[derive(Clone)]
@@ -62,6 +70,7 @@ pub(crate) struct MqttState {
     pub(crate) advertise_url: String,
     pub(crate) client: paho_mqtt::AsyncClient,
     pub(crate) topic_prefix: String,
+    pub(crate) ingest_reports: bool,
 }
 
 impl MqttState {
@@ -88,6 +97,7 @@ impl MqttState {
             advertise_url: config.advertise_url,
             client: mqtt_client,
             topic_prefix: config.topic_prefix,
+            ingest_reports: config.ingest_reports,
         })
     }
 
@@ -161,6 +171,7 @@ pub struct AppState {
     pub storage: Arc<dyn DataSource>,
     pub jwt_manager: Arc<JwtManager>,
     pub(crate) notifier: Arc<subscription::NotifierState>,
+    mqtt_state: Arc<Option<MqttState>>,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -377,6 +388,37 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     )
 }
 
+fn mqtt_upload_route() -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(mqtt_state): State<Arc<Option<MqttState>>>, User(user): User| async move {
+            // We deliberately do not do access control here since these topic
+            // paths are completely predictable anyway. Therefore, doing access
+            // control can only create the false impression that hiding the
+            // names of these topics provides a level of security which is not
+            // real.
+            match mqtt_state.as_ref() {
+                Some(mqtt_state) if mqtt_state.ingest_reports => {
+                    if user.has_scope(crate::jwt::Scope::WriteReportsVen) {
+                        let prefix = &mqtt_state.topic_prefix;
+                        let client_id = user.client_id()?;
+                        Ok(Json(NotifierTopicsResponse {
+                            topics: NotifierOperationsTopics {
+                                create: Some(format!("{prefix}mqtt/upload/{client_id}")),
+                                update: format!("{prefix}mqtt/upload/{client_id}"),
+                                delete: format!("{prefix}mqtt/upload/{client_id}"),
+                                all: None,
+                            },
+                        }))
+                    } else {
+                        Err(AppError::Forbidden("Not allowed to write reports."))
+                    }
+                }
+                _ => Err(AppError::NotFound),
+            }
+        },
+    )
+}
+
 impl AppState {
     pub async fn new<S: DataSource>(storage: S, config: &VtnConfig) -> Self {
         let oauth_type: OAuthType = env::var("OAUTH_TYPE")
@@ -415,6 +457,7 @@ impl AppState {
                 password: password.clone(),
                 topic_prefix: config.mqtt_topic_prefix.clone(),
                 ca_path: config.mqtt_ca_path.clone(),
+                ingest_reports: config.mqtt_ingest_reports,
             }),
             (None, None, None) => None,
             _ => panic!(
@@ -470,6 +513,7 @@ impl AppState {
             storage,
             jwt_manager: Arc::new(jwt_manager),
             notifier,
+            mqtt_state: Arc::new(mqtt_state),
         }
     }
 
@@ -530,8 +574,11 @@ impl AppState {
         {
             router = router.route("/notifiers/ws", get(subscription::notifier_websocket_get));
         }
+        let mut mqtt_notifier_router = subscription::mqtt_notifier();
+        mqtt_notifier_router =
+            mqtt_notifier_router.route("/topics/upload/report", mqtt_upload_route());
         router = router
-            .nest("/notifiers/mqtt", subscription::mqtt_notifier())
+            .nest("/notifiers/mqtt", mqtt_notifier_router)
             .nest("/notifiers/push-mqtt", subscription::push_mqtt_notifier());
         #[cfg(feature = "internal-oauth")]
         {
