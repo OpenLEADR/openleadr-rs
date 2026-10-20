@@ -10,7 +10,7 @@ use tracing::{info, instrument, trace};
 use validator::Validate;
 
 use openleadr_wire::{
-    Report,
+    ClientId, Report,
     event::EventId,
     program::ProgramId,
     report::{ReportId, ReportRequest},
@@ -26,6 +26,35 @@ use crate::{
     error::AppError,
     jwt::{Scope, User},
 };
+
+#[instrument(skip(ven_source, event_source, privacy, report_source, notifier_state))]
+pub async fn mqtt_add(
+    ven_source: Arc<dyn VenCrud>,
+    event_source: Arc<dyn EventCrud>,
+    privacy: Arc<dyn VenObjectPrivacy>,
+    report_source: Arc<dyn ReportCrud>,
+    notifier_state: Arc<NotifierState>,
+    client_id: ClientId,
+    new_report: ReportRequest,
+) -> Result<(), AppError> {
+    let report = report_source
+        .create(new_report, &Some(client_id.clone()))
+        .await?;
+
+    info!(%report.id, report_name=?report.content.report_name, client_id = client_id.to_string(), "report created via mqtt");
+
+    subscription::notify(
+        &*ven_source,
+        &*event_source,
+        &*privacy,
+        &notifier_state,
+        Operation::Create,
+        AnyObject::Report(report.clone()),
+    )
+    .await;
+
+    Ok(())
+}
 
 #[instrument(skip(user, report_source))]
 pub async fn get_all(

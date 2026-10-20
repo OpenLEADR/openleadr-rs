@@ -8,6 +8,8 @@ use crate::{
 use crate::{api::user, data_source::AuthSource};
 #[cfg(feature = "internal-oauth")]
 use axum::routing::{delete, post};
+use paho_mqtt::QoS;
+use validator::Validate;
 
 use crate::{
     api::{event, healthcheck, program, report, resource, resource_group, subscription, ven},
@@ -31,7 +33,7 @@ use base64::{
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use openleadr_wire::oauth::AuthServerInfo;
+use openleadr_wire::{ClientId, oauth::AuthServerInfo, report::MqttUploadRequest};
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -43,7 +45,7 @@ use std::{
     time::Duration,
 };
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 pub(crate) struct MqttConfig {
     pub(crate) url: String,
@@ -63,7 +65,9 @@ pub(crate) struct MqttState {
 }
 
 impl MqttState {
-    pub async fn new(config: MqttConfig) -> Result<Self, AppError> {
+    const MQTT_BUFFER_SIZE: usize = 256;
+
+    async fn new(config: MqttConfig) -> Result<Self, AppError> {
         let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
         let mut connect_options = paho_mqtt::ConnectOptionsBuilder::new();
         connect_options
@@ -85,6 +89,70 @@ impl MqttState {
             client: mqtt_client,
             topic_prefix: config.topic_prefix,
         })
+    }
+
+    async fn startup_mqtt_handler(
+        &mut self,
+        storage: Arc<dyn DataSource>,
+        notifier_state: Arc<subscription::NotifierState>,
+    ) -> Result<(), AppError> {
+        self.client
+            .subscribe(
+                format!("{}mqtt/upload/+", self.topic_prefix),
+                QoS::ExactlyOnce,
+            )
+            .await?;
+
+        let topic_start = format!("{}mqtt/upload/", self.topic_prefix);
+        let receiver = self.client.get_stream(Some(Self::MQTT_BUFFER_SIZE));
+
+        tokio::spawn(async move {
+            while let Ok(message) = receiver.recv().await {
+                let Some(message) = message else {
+                    continue;
+                };
+
+                let Some(client_id) = message.topic().strip_prefix(&topic_start) else {
+                    continue;
+                };
+
+                let Ok(client_id) = ClientId::from_str(client_id) else {
+                    continue;
+                };
+
+                let Ok(message) = serde_json::from_slice::<MqttUploadRequest>(message.payload())
+                else {
+                    continue;
+                };
+
+                if message.validate().is_err() {
+                    continue;
+                }
+
+                match (message.object_type, message.operation) {
+                    (
+                        openleadr_wire::ObjectType::Report,
+                        openleadr_wire::report::UploadOperation::Post,
+                    ) => {
+                        let _ = report::mqtt_add(
+                            storage.vens(),
+                            storage.events(),
+                            storage.ven_object_privacy(),
+                            storage.reports(),
+                            notifier_state.clone(),
+                            client_id,
+                            message.object,
+                        )
+                        .await;
+                    }
+                    _ => {
+                        debug!(?message.object_type, ?message.operation, "mqtt upload operation/object combination not supported");
+                    }
+                }
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -364,13 +432,7 @@ impl AppState {
             );
         }
 
-        if config.mqtt_ingest_reports && mqtt_config.is_none() {
-            warn!(
-                "MQTT_INGEST_REPORTS is set but MQTT is not configured. Sending reports via MQTT will not be possible!"
-            );
-        }
-
-        let mqtt_state = if let Some(mqtt_config) = mqtt_config {
+        let mut mqtt_state = if let Some(mqtt_config) = mqtt_config {
             Some(
                 MqttState::new(mqtt_config)
                     .await
@@ -380,15 +442,34 @@ impl AppState {
             None
         };
 
-        let notifier =
-            subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_state)
+        let notifier = Arc::new(
+            subscription::NotifierState::load_from_storage(
+                &*storage.subscriptions(),
+                mqtt_state.clone(),
+            )
+            .await
+            .expect("failed to retrieve subscriptions from database"),
+        );
+
+        let storage = Arc::new(storage);
+
+        if let Some(mqtt_state) = &mut mqtt_state
+            && config.mqtt_ingest_reports
+        {
+            mqtt_state
+                .startup_mqtt_handler(storage.clone(), notifier.clone())
                 .await
-                .expect("failed to retrieve subscriptions from database");
+                .expect("failed to start mqtt handler");
+        } else if config.mqtt_ingest_reports {
+            warn!(
+                "MQTT_INGEST_REPORTS is set but MQTT is not configured. Sending reports via MQTT will not be possible!"
+            );
+        }
 
         Self {
-            storage: Arc::new(storage),
+            storage,
             jwt_manager: Arc::new(jwt_manager),
-            notifier: Arc::new(notifier),
+            notifier,
         }
     }
 
