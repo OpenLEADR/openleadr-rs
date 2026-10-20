@@ -238,13 +238,19 @@ fn get_50() -> i64 {
 #[cfg(test)]
 #[cfg(feature = "live-db-test")]
 mod test {
+    use std::{collections::BTreeSet, time::Duration};
+
     use crate::{api::test::ApiTest, jwt::Scope};
     use axum::{body::Body, http, http::StatusCode};
     use openleadr_wire::{
-        Report,
+        ObjectType, Report,
         problem::Problem,
-        report::{ReportPayloadDescriptor, ReportRequest, ReportType},
+        report::{
+            MqttUploadRequest, ReportPayloadDescriptor, ReportRequest, ReportType, UploadOperation,
+        },
+        subscription::{MqttPushNotification, NotifierTopicsResponse, Operation},
     };
+    use paho_mqtt::{Message, QoS};
     use sqlx::PgPool;
 
     fn default() -> ReportRequest {
@@ -422,5 +428,92 @@ mod test {
             )
             .await;
         assert_eq!(status, StatusCode::CREATED);
+    }
+
+    #[sqlx::test(fixtures("programs", "events", "vens", "users"))]
+    async fn report_creation_via_mqtt(db: PgPool) {
+        let server = ApiTest::new(db, "ven-100-client-id", vec![Scope::WriteReportsVen]).await;
+
+        let vtn_config = server.vtn_config();
+        let mut mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new()).unwrap();
+        mqtt_client
+            .connect(
+                paho_mqtt::ConnectOptionsBuilder::new()
+                    .server_uris(&[&vtn_config.mqtt_url.as_ref().unwrap()])
+                    .user_name(vtn_config.mqtt_username.as_ref().unwrap())
+                    .password(vtn_config.mqtt_password.as_ref().unwrap().as_bytes())
+                    .finalize(),
+            )
+            .await
+            .unwrap();
+        mqtt_client
+            .subscribe(
+                format!("{}push/#", vtn_config.mqtt_topic_prefix),
+                QoS::ExactlyOnce,
+            )
+            .await
+            .unwrap();
+        let mqtt_rx = mqtt_client.get_stream(None);
+
+        let expect_msg = async |object_type: ObjectType, operation: Operation, topics: &[&str]| {
+            let mut topics = topics.iter().copied().collect::<BTreeSet<&str>>();
+            while !topics.is_empty() {
+                let msg = tokio::time::timeout(Duration::from_millis(5000), mqtt_rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                if !topics.remove(
+                    msg.topic()
+                        .strip_prefix(&vtn_config.mqtt_topic_prefix)
+                        .unwrap(),
+                ) {
+                    panic!("unexpected message {msg:?}");
+                }
+                let msg_data: MqttPushNotification = serde_json::from_slice(msg.payload()).unwrap();
+                assert_eq!(msg_data.object_type, object_type);
+                assert_eq!(msg_data.operation, operation);
+            }
+            if let Ok(Ok(msg)) =
+                tokio::time::timeout(Duration::from_millis(50), mqtt_rx.recv()).await
+            {
+                panic!("stray message {msg:?}")
+            }
+        };
+
+        let (code, topics) = server
+            .request::<NotifierTopicsResponse>(
+                http::Method::GET,
+                "/notifiers/mqtt/topics/upload/report",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(code, StatusCode::OK);
+
+        mqtt_client
+            .publish(Message::new(
+                topics.topics.create.unwrap(),
+                serde_json::to_vec(&MqttUploadRequest {
+                    object_type: ObjectType::Report,
+                    operation: UploadOperation::Post,
+                    object: ReportRequest {
+                        event_id: "event-1".parse().unwrap(),
+                        client_name: "ven-1-name".to_string(),
+                        report_name: Some("not-unique".to_string()),
+                        ..default()
+                    },
+                })
+                .unwrap(),
+                QoS::AtMostOnce,
+            ))
+            .await
+            .unwrap();
+
+        expect_msg(
+            ObjectType::Report,
+            Operation::Create,
+            &["push/reports/create"],
+        )
+        .await;
     }
 }
