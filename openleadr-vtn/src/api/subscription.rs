@@ -2034,7 +2034,7 @@ mod test {
                 paho_mqtt::ConnectOptionsBuilder::new()
                     .server_uris(&[&vtn_config.mqtt_url.as_ref().unwrap()])
                     .user_name(vtn_config.mqtt_username.as_ref().unwrap())
-                    .password(vtn_config.mqtt_password.as_ref().unwrap())
+                    .password(vtn_config.mqtt_password.as_ref().unwrap().as_bytes())
                     .finalize(),
             )
             .await
