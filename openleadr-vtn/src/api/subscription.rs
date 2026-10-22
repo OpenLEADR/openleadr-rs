@@ -729,6 +729,8 @@ pub(crate) async fn notifier_get(
                     username: "{clientID}".to_owned(),
                 },
             }),
+        // The OpenADR spec currently requires this to always be true
+        webhook: true,
     }))
 }
 
@@ -2227,5 +2229,16 @@ mod test {
                 &format!("push/vens/{}/resources/create", ven.id),
             ],
         );
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn get_notifiers_advertises_webhook(db: PgPool) {
+        let server = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
+
+        let (status, body) = server
+            .request::<serde_json::Value>(Method::GET, "/notifiers", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["WEBHOOK"], serde_json::Value::Bool(true));
     }
 }

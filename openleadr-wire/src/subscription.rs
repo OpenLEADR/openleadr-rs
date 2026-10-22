@@ -209,6 +209,7 @@ pub struct NotifiersResponse {
     pub websocket: bool,
     pub mqtt: Option<MqttNotifierBindingObject>,
     pub push_mqtt: Option<MqttNotifierBindingObject>,
+    pub webhook: bool,
 }
 
 /// Details of MQTT binding for messaging protocol support
