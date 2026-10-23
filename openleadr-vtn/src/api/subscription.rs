@@ -1384,7 +1384,7 @@ mod test {
             .request::<Subscription>(
                 Method::POST,
                 "/subscriptions",
-                Body::from(r#"{"clientName": "ven-1-name", "programID": "program-1", "objectOperations": [{"objects": ["REPORT"], "operations": ["CREATE"], "mechanism": "WEBHOOK"}]}"#),
+                Body::from(r#"{"clientName": "ven-1-name", "programID": "program-1", "objectOperations": [{"objects": ["REPORT"], "operations": ["CREATE"], "mechanism": "WEBSOCKET"}]}"#),
             )
             .await;
         assert_eq!(status, StatusCode::CREATED);
