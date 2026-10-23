@@ -1928,6 +1928,108 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "users"))]
+    async fn bl_can_add_subscription(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
+        )
+        .await;
+
+        let new_subscription = r#"{
+            "clientName": "myClient",
+            "programID": "program-1",
+            "objectOperations": [{
+                "mechanism": "WEBSOCKET",
+                "operations": ["CREATE"],
+                "objects": ["EVENT"]
+            }]
+        }"#;
+        let (status, subscription) = server
+            .request::<Subscription>(Method::POST, "/subscriptions", Body::from(new_subscription))
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(subscription.client_id.as_str(), "ven-1-client-id");
+        assert_eq!(
+            subscription.content,
+            serde_json::from_str::<SubscriptionRequest>(new_subscription).unwrap()
+        );
+
+        let (status, retrieved) = server
+            .request::<Subscription>(
+                Method::GET,
+                &format!("/subscriptions/{}", subscription.id),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved, subscription);
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn ven_can_add_subscription(db: PgPool) {
+        let server = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteSubscriptionsVen]).await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE"],
+                            "objects": ["EVENT"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(subscription.client_id.as_str(), "ven-1-client-id");
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn cannot_add_subscription_without_correct_scope(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            Scope::all()
+                .into_iter()
+                .filter(|s| {
+                    !(*s == Scope::WriteSubscriptionsBl || *s == Scope::WriteSubscriptionsVen)
+                })
+                .collect(),
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Problem>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE"],
+                            "objects": ["EVENT"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(subscriptions.is_empty());
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
     async fn get_many(db: PgPool) {
         let server = ApiTest::new(
             db,
