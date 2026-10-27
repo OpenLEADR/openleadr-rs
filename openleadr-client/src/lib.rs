@@ -63,7 +63,12 @@ mod timeline;
 mod ven;
 
 use async_trait::async_trait;
-use openleadr_wire::{Event, Ven, event::EventId};
+use openleadr_wire::{
+    Event, Ven,
+    event::EventId,
+    subscription::{MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse},
+};
+use paho_mqtt::ConnectOptionsBuilder;
 use std::{
     fmt::Debug,
     future::Future,
@@ -114,6 +119,24 @@ pub trait HttpClient: Debug {
 #[derive(Debug, Clone)]
 pub struct Client<K> {
     client_ref: Arc<ClientRef<K>>,
+}
+
+/// Client for managing an mqtt connection with a VTN.
+///
+/// This can be used to publish reports via mqtt.
+#[derive(Clone)]
+pub struct MqttClient<K> {
+    client_ref: Arc<ClientRef<K>>,
+    mqtt_client: paho_mqtt::AsyncClient,
+}
+
+impl<K: Debug> Debug for MqttClient<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MqttClient")
+            .field("client_ref", &self.client_ref)
+            .field("mqtt_client", &"<mqtt_client>")
+            .finish()
+    }
 }
 
 /// Credentials necessary for authentication at the VTN
@@ -695,5 +718,136 @@ impl<K: ClientKind> Client<K> {
             [_] => Ok(VenClient::from_ven(self.client_ref.clone(), vens.remove(0))),
             [..] => Err(Error::DuplicateObject),
         }
+    }
+
+    /// Open an mqtt client
+    pub async fn connect_mqtt(&self) -> Result<MqttClient<K>> {
+        let notifier_data: NotifiersResponse = self.client_ref.get("notifiers", &[]).await?;
+        let Some(mqtt_info) = notifier_data.mqtt else {
+            return Err(Error::NotSupported);
+        };
+        let MqttNotifierAuthentication::Oauth2BearerToken { username } = mqtt_info.authentication
+        else {
+            return Err(Error::NotSupported);
+        };
+        let mut last_error = Error::NotSupported;
+        for url in mqtt_info.uris {
+            let client = match paho_mqtt::AsyncClient::new(url) {
+                Ok(client) => client,
+                Err(e) => {
+                    last_error = e.into();
+                    continue;
+                }
+            };
+            match client
+                .connect(
+                    ConnectOptionsBuilder::new()
+                        .user_name(&username)
+                        .password(
+                            self.client_ref
+                                .auth_token
+                                .read()
+                                .await
+                                .as_ref()
+                                .map(|inner| inner.token.as_bytes())
+                                .unwrap_or_default(),
+                        )
+                        .finalize(),
+                )
+                .await
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    last_error = e.into();
+                    continue;
+                }
+            };
+
+            return Ok(MqttClient {
+                client_ref: self.client_ref.clone(),
+                mqtt_client: client,
+            });
+        }
+        Err(last_error)
+    }
+}
+
+impl<K: ClientKind> MqttClient<K> {
+    /// Internal operation that fetches the topic for uploading of new reports.
+    async fn upload_topic(&self) -> Result<String> {
+        let response: NotifierTopicsResponse = self
+            .client_ref
+            .get("notifiers/mqtt/topics/upload/report", &[])
+            .await?;
+
+        response.topics.create.ok_or(Error::NotSupported)
+    }
+
+    /// Low-level operation that gets a list of events from the VTN with the given query parameters
+    ///
+    /// To automatically iterate pages, use [`self.get_event_list`](Self::get_event_list)
+    pub async fn get_events(
+        &self,
+        program_id: Option<&ProgramId>,
+        filter: Filter<'_, impl AsRef<str>>,
+        pagination: PaginationOptions,
+    ) -> Result<Vec<MqttEventClient<K>>> {
+        let topic = self.upload_topic().await?;
+
+        // convert query params
+        let skip_str = pagination.skip.to_string();
+        let limit_str = pagination.limit.to_string();
+        // insert into query params
+        let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
+
+        query.extend_from_slice(filter.to_query_params().as_slice());
+
+        if let Some(program_id) = program_id {
+            query.push(("programID", program_id.as_str()));
+        }
+
+        // send request and return response
+        let events: Vec<Event> = self.client_ref.get("events", &query).await?;
+        Ok(events
+            .into_iter()
+            .map(|event| {
+                MqttEventClient::from_event(topic.clone(), self.mqtt_client.clone(), event)
+            })
+            .collect())
+    }
+
+    /// Get all events from the VTN with the given query parameters.
+    ///
+    /// It automatically tries to iterate pages where necessary.
+    pub async fn get_event_list(
+        &self,
+        program_id: Option<&ProgramId>,
+        filter: Filter<'_, impl AsRef<str> + Clone>,
+    ) -> Result<Vec<MqttEventClient<K>>> {
+        self.client_ref
+            .iterate_pages(|skip, limit| {
+                self.get_events(
+                    program_id,
+                    filter.clone(),
+                    PaginationOptions { skip, limit },
+                )
+            })
+            .await
+    }
+
+    /// Get an event by id
+    pub async fn get_event_by_id(&self, id: &EventId) -> Result<MqttEventClient<K>> {
+        let topic = self.upload_topic().await?;
+
+        let event = self
+            .client_ref
+            .get(&format!("events/{}", id.as_str()), &[])
+            .await?;
+
+        Ok(MqttEventClient::from_event(
+            topic,
+            self.mqtt_client.clone(),
+            event,
+        ))
     }
 }
