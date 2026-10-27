@@ -7,6 +7,7 @@ pub enum Error {
     Reqwest(reqwest::Error),
     Serde(serde_json::Error),
     UrlParseError(url::ParseError),
+    Mqtt(paho_mqtt::Error),
     Problem(openleadr_wire::problem::Problem),
     AuthProblem(openleadr_wire::oauth::OAuthError),
     OAuthTokenNotBearer,
@@ -20,6 +21,7 @@ pub enum Error {
     /// for example.
     InvalidParentObject,
     InvalidInterval,
+    NotSupported,
 }
 
 impl Error {
@@ -75,6 +77,12 @@ impl From<url::ParseError> for Error {
     }
 }
 
+impl From<paho_mqtt::Error> for Error {
+    fn from(err: paho_mqtt::Error) -> Self {
+        Error::Mqtt(err)
+    }
+}
+
 impl From<openleadr_wire::problem::Problem> for Error {
     fn from(err: openleadr_wire::problem::Problem) -> Self {
         Error::Problem(err)
@@ -93,6 +101,7 @@ impl std::fmt::Display for Error {
             Error::Reqwest(err) => write!(f, "Reqwest error: {err}"),
             Error::Serde(err) => write!(f, "Serde error: {err}"),
             Error::UrlParseError(err) => write!(f, "URL parse error: {err}"),
+            Error::Mqtt(err) => write!(f, "Mqtt error: {err}"),
             Error::Problem(err) => write!(f, "OpenADR Problem: {err:?}"),
             Error::AuthProblem(err) => write!(f, "Authentication problem: {err:?}"),
             Error::ObjectNotFound => write!(f, "Object not found"),
@@ -100,6 +109,7 @@ impl std::fmt::Display for Error {
             Error::InvalidParentObject => write!(f, "Invalid parent object"),
             Error::InvalidInterval => write!(f, "Invalid interval specified"),
             Error::OAuthTokenNotBearer => write!(f, "OAuth token received is not a Bearer token"),
+            Error::NotSupported => write!(f, "Request not supported by VTN"),
         }
     }
 }
