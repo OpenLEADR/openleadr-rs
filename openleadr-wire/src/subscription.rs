@@ -2,11 +2,13 @@ use std::{
     fmt::{Display, Formatter},
     str::FromStr,
 };
+use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, skip_serializing_none};
-use validator::Validate;
+use url::Url;
+use validator::{Validate, ValidationError};
 
 use crate::{
     ClientId, Event, Identifier, IdentifierError, ObjectType, Program, Report, Ven,
@@ -49,6 +51,7 @@ pub struct SubscriptionRequest {
 
     /// list of objects and operations to subscribe to.
     #[validate(length(min = 1, max = 15))]
+    #[validate(nested)]
     pub object_operations: Vec<SubscriptionObjectOperation>,
     // /// A list of target objects. Used by server to filter notifications.
     // #[serde(default)]
@@ -58,6 +61,7 @@ pub struct SubscriptionRequest {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
+#[validate(schema(function = "validate_callback_url"))]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionObjectOperation {
     /// list of objects to subscribe to.
@@ -77,6 +81,42 @@ pub struct SubscriptionObjectOperation {
     /// To avoid custom integrations, callback endpoints
     /// should accept the provided bearer token to authenticate VTN requests.
     pub bearer_token: Option<String>,
+}
+
+/// Validate the webhook details of a single object operation.
+///
+/// Runs once per entry in [`SubscriptionRequest::object_operations`], via `#[validate(nested)]`.
+/// The OpenADR spec only allows HTTPS callbacks.
+/// Ignores non-Webhook notification mechanisms
+fn validate_callback_url(
+    object_operation: &SubscriptionObjectOperation,
+) -> Result<(), ValidationError> {
+    match (
+        &object_operation.mechanism,
+        object_operation.callback_url.as_deref(),
+    ) {
+        (NotificationMechanism::Webhook, Some(callback_url)) => validate_https_url(callback_url),
+        (NotificationMechanism::Webhook, None) => Err(callback_url_error(
+            "callback_url is required for the WEBHOOK mechanism")),
+        (_, Some(_)) => Err(callback_url_error("callback_url is only valid for the WEBHOOK mechanism")),
+        (_, None) => Ok(()),
+    }
+}
+
+fn validate_https_url(callback_url: &str) -> Result<(), ValidationError> {
+   let url = Url::parse(callback_url)
+       .map_err(|err| callback_url_error(
+           format!("callback_url is not a valid URL: {err}"))
+       )?;
+
+    if url.scheme() != "https" {
+        return Err(callback_url_error(format!("callback_url must use HTTPS: {url}")));
+    }
+    Ok(())
+}
+
+fn callback_url_error(message: impl Into<Cow<'static, str>>) -> ValidationError {
+    ValidationError::new("callback_url").with_message(message.into())
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -276,6 +316,7 @@ pub struct NotifierOperationsTopics {
 
 #[cfg(test)]
 mod tests {
+    use validator::ValidationErrors;
     use crate::program::ProgramRequest;
 
     use super::*;
@@ -370,6 +411,16 @@ mod tests {
                 }),
                 // targets: vec![],
             }
+        );
+    }
+
+    #[test]
+    fn validates_non_https_urls() {
+        assert_eq!(
+            validate_https_url("http://mysite.com/non_http_schema"),
+            Err(ValidationError::new("callback_url").with_message(
+                "callback_url must use HTTPS: http://mysite.com/non_http_schema".into(),
+            ))
         );
     }
 }
