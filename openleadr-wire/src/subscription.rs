@@ -1,8 +1,8 @@
 use std::{
+    borrow::Cow,
     fmt::{Display, Formatter},
     str::FromStr,
 };
-use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -97,20 +97,23 @@ fn validate_callback_url(
     ) {
         (NotificationMechanism::Webhook, Some(callback_url)) => validate_https_url(callback_url),
         (NotificationMechanism::Webhook, None) => Err(callback_url_error(
-            "callback_url is required for the WEBHOOK mechanism")),
-        (_, Some(_)) => Err(callback_url_error("callback_url is only valid for the WEBHOOK mechanism")),
+            "callback_url is required for the WEBHOOK mechanism",
+        )),
+        (_, Some(_)) => Err(callback_url_error(
+            "callback_url is only valid for the WEBHOOK mechanism",
+        )),
         (_, None) => Ok(()),
     }
 }
 
 fn validate_https_url(callback_url: &str) -> Result<(), ValidationError> {
-   let url = Url::parse(callback_url)
-       .map_err(|err| callback_url_error(
-           format!("callback_url is not a valid URL: {err}"))
-       )?;
+    let url = Url::parse(callback_url)
+        .map_err(|err| callback_url_error(format!("callback_url is not a valid URL: {err}")))?;
 
     if url.scheme() != "https" {
-        return Err(callback_url_error(format!("callback_url must use HTTPS: {url}")));
+        return Err(callback_url_error(format!(
+            "callback_url must use HTTPS: {url}"
+        )));
     }
     Ok(())
 }
@@ -316,7 +319,6 @@ pub struct NotifierOperationsTopics {
 
 #[cfg(test)]
 mod tests {
-    use validator::ValidationErrors;
     use crate::program::ProgramRequest;
 
     use super::*;
@@ -422,5 +424,42 @@ mod tests {
                 "callback_url must use HTTPS: http://mysite.com/non_http_schema".into(),
             ))
         );
+    }
+    #[test]
+    fn validation_works_on_full_payload() {
+        let example_with_non_https_callback_url = r#"{
+  "clientName": "myClient",
+  "programID": "44",
+  "objectOperations": [
+    {
+      "callbackUrl": "https://myserver.com/https_event_callbacks",
+      "operations": [
+        "CREATE",
+        "UPDATE"
+      ],
+      "objects": [
+        "EVENT"
+      ]
+    },
+    {
+      "callbackUrl": "http://myserver.com/non_https_program_callbacks",
+      "operations": [
+        "CREATE",
+        "UPDATE"
+      ],
+      "objects": [
+        "PROGRAM"
+      ]
+    }
+  ]
+}"#;
+
+        let actual =
+            serde_json::from_str::<SubscriptionRequest>(example_with_non_https_callback_url);
+
+        assert_eq!(
+            actual.unwrap_err().to_string(),
+            "object_operations[1].__all__: callback_url must use HTTPS: http://myserver.com/non_https_program_callbacks"
+        )
     }
 }
