@@ -204,7 +204,7 @@ pub struct QueryParams {
     #[serde(default)]
     #[validate(range(min = 0))]
     pub(crate) skip: i64,
-    #[validate(range(min = 1, max = 50))]
+    #[validate(range(min = 1, max = 500))]
     #[serde(default = "get_50")]
     pub(crate) limit: i64,
 }
