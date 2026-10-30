@@ -80,6 +80,8 @@ Please see the [vtn documentation](./openleadr-vtn/README.md#MQTT-support) for
 details and security considerations. The MQTT broker included in the the docker
 compose file should only be used for testing purposes and is _not_
 production-ready.
+MQTT is disabled when the `MQTT_URL`, `MQTT_USERNAME` and `MQTT_PASSWORD`
+environment variables are not set.
 
 The VTN implements its own OAuth provider, which is mainly relevant for testing and prototyping.
 Besides that, the VTN can also be configured to use a third-party OAuth provider,
