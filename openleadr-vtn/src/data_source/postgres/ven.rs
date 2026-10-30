@@ -259,9 +259,29 @@ impl Crud for PgVenStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        _client_id: &Self::PermissionFilter,
+        client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
+
+        let owner = sqlx::query!(
+            r#"
+            SELECT client_id FROM ven WHERE id = $1
+            "#,
+            id.as_str()
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if let Some(client_id) = client_id
+            && owner.client_id != client_id.as_str()
+        {
+            warn!(
+                client_id = ?client_id,
+                ven_id = id.as_str(),
+                "Client tried to delete VEN it does not own"
+            );
+            return Err(Self::Error::NotFound);
+        }
 
         let resource_id = sqlx::query_scalar!(
             r#"

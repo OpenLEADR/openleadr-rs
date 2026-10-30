@@ -361,7 +361,7 @@ mod tests {
         async fn can_delete_own_resource_with_correct_scope(db: PgPool) {
             let test = ApiTest::new(
                 db.clone(),
-                "test-client",
+                "ven-1-client-id",
                 Scope::all()
                     .into_iter()
                     .filter(|&s| s != Scope::WriteVensBl)
@@ -374,6 +374,25 @@ mod tests {
                 .await;
 
             assert_eq!(status, StatusCode::OK);
+        }
+
+        #[sqlx::test(fixtures("vens"))]
+        async fn ven_cannot_delete_other_ven(db: PgPool) {
+            let test = ApiTest::new(
+                db.clone(),
+                "test-client",
+                Scope::all()
+                    .into_iter()
+                    .filter(|&s| s != Scope::WriteVensBl)
+                    .collect(),
+            )
+            .await;
+
+            let (status, _) = test
+                .request::<Problem>(Method::DELETE, "/vens/ven-1", Body::empty())
+                .await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND);
         }
     }
 
