@@ -2,13 +2,15 @@
 use crate::api::auth;
 use crate::{
     VtnConfig,
-    api::subscription::MqttConfig,
     data_source::{ResourceGroupCrud, SubscriptionCrud},
+    jwt::User,
 };
 #[cfg(feature = "internal-oauth")]
 use crate::{api::user, data_source::AuthSource};
 #[cfg(feature = "internal-oauth")]
 use axum::routing::{delete, post};
+use paho_mqtt::QoS;
+use validator::Validate;
 
 use crate::{
     api::{event, healthcheck, program, report, resource, resource_group, subscription, ven},
@@ -23,7 +25,7 @@ use axum::{
     extract::{FromRef, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::get,
+    routing::{MethodRouter, get},
 };
 use base64::{
     Engine, alphabet,
@@ -32,25 +34,144 @@ use base64::{
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use openleadr_wire::oauth::AuthServerInfo;
+use openleadr_wire::{
+    ClientId,
+    oauth::AuthServerInfo,
+    report::MqttUploadRequest,
+    subscription::{NotifierOperationsTopics, NotifierTopicsResponse},
+};
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::PartialEq,
-    env,
-    env::VarError,
+    convert::Infallible,
+    env::{self, VarError},
     io::{BufReader, Read},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+pub(crate) struct MqttConfig {
+    pub(crate) url: String,
+    /// URL advertised to clients in `GET /notifiers`. Defaults to `url`.
+    pub(crate) advertise_url: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) topic_prefix: String,
+    pub(crate) ca_path: Option<String>,
+    pub(crate) ingest_reports: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct MqttState {
+    pub(crate) advertise_url: String,
+    pub(crate) client: paho_mqtt::AsyncClient,
+    pub(crate) topic_prefix: String,
+    pub(crate) ingest_reports: bool,
+}
+
+impl MqttState {
+    const MQTT_BUFFER_SIZE: usize = 256;
+
+    async fn new(config: MqttConfig) -> Result<Self, AppError> {
+        let mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new())?;
+        let mut connect_options = paho_mqtt::ConnectOptionsBuilder::new();
+        connect_options
+            .server_uris(&[&config.url])
+            .user_name(config.username)
+            .password(config.password)
+            .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(16));
+
+        let mut ssl_options = paho_mqtt::SslOptionsBuilder::new();
+        if let Some(ca_path) = &config.ca_path {
+            ssl_options.trust_store(ca_path)?;
+        }
+        connect_options.ssl_options(ssl_options.finalize());
+
+        mqtt_client.connect(connect_options.finalize()).await?;
+
+        Ok(MqttState {
+            advertise_url: config.advertise_url,
+            client: mqtt_client,
+            topic_prefix: config.topic_prefix,
+            ingest_reports: config.ingest_reports,
+        })
+    }
+
+    async fn startup_mqtt_handler(
+        &mut self,
+        storage: Arc<dyn DataSource>,
+        notifier_state: Arc<subscription::NotifierState>,
+    ) -> Result<(), AppError> {
+        self.client
+            .subscribe(
+                format!("{}mqtt/upload/+", self.topic_prefix),
+                QoS::ExactlyOnce,
+            )
+            .await?;
+
+        let topic_start = format!("{}mqtt/upload/", self.topic_prefix);
+        let receiver = self.client.get_stream(Some(Self::MQTT_BUFFER_SIZE));
+
+        tokio::spawn(async move {
+            while let Ok(message) = receiver.recv().await {
+                let Some(message) = message else {
+                    continue;
+                };
+
+                let Some(client_id) = message.topic().strip_prefix(&topic_start) else {
+                    continue;
+                };
+
+                let Ok(client_id) = ClientId::from_str(client_id) else {
+                    continue;
+                };
+
+                let Ok(message) = serde_json::from_slice::<MqttUploadRequest>(message.payload())
+                else {
+                    continue;
+                };
+
+                if message.validate().is_err() {
+                    continue;
+                }
+
+                match (message.object_type, message.operation) {
+                    (
+                        openleadr_wire::ObjectType::Report,
+                        openleadr_wire::report::UploadOperation::Post,
+                    ) => {
+                        let _ = report::mqtt_add(
+                            storage.vens(),
+                            storage.events(),
+                            storage.ven_object_privacy(),
+                            storage.reports(),
+                            notifier_state.clone(),
+                            client_id,
+                            message.object,
+                        )
+                        .await;
+                    }
+                    _ => {
+                        debug!(?message.object_type, ?message.operation, "mqtt upload operation/object combination not supported");
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+}
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
     pub storage: Arc<dyn DataSource>,
     pub jwt_manager: Arc<JwtManager>,
     pub(crate) notifier: Arc<subscription::NotifierState>,
+    mqtt_state: Arc<Option<MqttState>>,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -267,6 +388,37 @@ async fn external_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     )
 }
 
+fn mqtt_upload_route() -> MethodRouter<AppState, Infallible> {
+    axum::routing::get(
+        move |State(mqtt_state): State<Arc<Option<MqttState>>>, User(user): User| async move {
+            // We deliberately do not do access control here since these topic
+            // paths are completely predictable anyway. Therefore, doing access
+            // control can only create the false impression that hiding the
+            // names of these topics provides a level of security which is not
+            // real.
+            match mqtt_state.as_ref() {
+                Some(mqtt_state) if mqtt_state.ingest_reports => {
+                    if user.has_scope(crate::jwt::Scope::WriteReportsVen) {
+                        let prefix = &mqtt_state.topic_prefix;
+                        let client_id = user.client_id()?;
+                        Ok(Json(NotifierTopicsResponse {
+                            topics: NotifierOperationsTopics {
+                                create: Some(format!("{prefix}mqtt/upload/{client_id}")),
+                                update: format!("{prefix}mqtt/upload/{client_id}"),
+                                delete: format!("{prefix}mqtt/upload/{client_id}"),
+                                all: None,
+                            },
+                        }))
+                    } else {
+                        Err(AppError::Forbidden("Not allowed to write reports."))
+                    }
+                }
+                _ => Err(AppError::NotFound),
+            }
+        },
+    )
+}
+
 impl AppState {
     pub async fn new<S: DataSource>(storage: S, config: &VtnConfig) -> Self {
         let oauth_type: OAuthType = env::var("OAUTH_TYPE")
@@ -305,6 +457,7 @@ impl AppState {
                 password: password.clone(),
                 topic_prefix: config.mqtt_topic_prefix.clone(),
                 ca_path: config.mqtt_ca_path.clone(),
+                ingest_reports: config.mqtt_ingest_reports,
             }),
             (None, None, None) => None,
             _ => panic!(
@@ -322,15 +475,45 @@ impl AppState {
             );
         }
 
-        let notifier =
-            subscription::NotifierState::load_from_storage(&*storage.subscriptions(), mqtt_config)
+        let mut mqtt_state = if let Some(mqtt_config) = mqtt_config {
+            Some(
+                MqttState::new(mqtt_config)
+                    .await
+                    .expect("unable to connect to mqtt server"),
+            )
+        } else {
+            None
+        };
+
+        let notifier = Arc::new(
+            subscription::NotifierState::load_from_storage(
+                &*storage.subscriptions(),
+                mqtt_state.clone(),
+            )
+            .await
+            .expect("failed to retrieve subscriptions from database"),
+        );
+
+        let storage = Arc::new(storage);
+
+        if let Some(mqtt_state) = &mut mqtt_state
+            && config.mqtt_ingest_reports
+        {
+            mqtt_state
+                .startup_mqtt_handler(storage.clone(), notifier.clone())
                 .await
-                .expect("failed to retrieve subscriptions from database");
+                .expect("failed to start mqtt handler");
+        } else if config.mqtt_ingest_reports {
+            warn!(
+                "MQTT_INGEST_REPORTS is set but MQTT is not configured. Sending reports via MQTT will not be possible!"
+            );
+        }
 
         Self {
-            storage: Arc::new(storage),
+            storage,
             jwt_manager: Arc::new(jwt_manager),
-            notifier: Arc::new(notifier),
+            notifier,
+            mqtt_state: Arc::new(mqtt_state),
         }
     }
 
@@ -391,8 +574,11 @@ impl AppState {
         {
             router = router.route("/notifiers/ws", get(subscription::notifier_websocket_get));
         }
+        let mut mqtt_notifier_router = subscription::mqtt_notifier();
+        mqtt_notifier_router =
+            mqtt_notifier_router.route("/topics/upload/report", mqtt_upload_route());
         router = router
-            .nest("/notifiers/mqtt", subscription::mqtt_notifier())
+            .nest("/notifiers/mqtt", mqtt_notifier_router)
             .nest("/notifiers/push-mqtt", subscription::push_mqtt_notifier());
         #[cfg(feature = "internal-oauth")]
         {
