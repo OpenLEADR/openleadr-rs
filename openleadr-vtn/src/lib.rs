@@ -24,6 +24,10 @@ pub struct VtnConfig {
     pub mdns_service_type: String,
     pub mdns_server_name: String,
     pub mdns_base_path: String,
+    /// Comma-separated `programName`s for local VENs, advertised as the `program_names` TXT record
+    pub mdns_program_names: Option<String>,
+    /// URL of the VTN's OpenAPI specification, advertised as the `openapi_url` TXT record
+    pub mdns_openapi_url: Option<String>,
     pub mqtt_url: Option<String>,
     pub mqtt_advertise_url: Option<String>,
     pub mqtt_username: Option<String>,
@@ -49,6 +53,8 @@ impl VtnConfig {
             mdns_server_name: std::env::var("MDNS_SERVER_NAME")
                 .unwrap_or_else(|_| "openleadr-vtn".to_string()),
             mdns_base_path: std::env::var("MDNS_BASE_PATH").unwrap_or_else(|_| "".to_string()),
+            mdns_program_names: std::env::var("MDNS_PROGRAM_NAMES").ok(),
+            mdns_openapi_url: std::env::var("MDNS_OPENAPI_URL").ok(),
             mqtt_url: std::env::var("MQTT_URL").ok(),
             mqtt_advertise_url: std::env::var("MQTT_ADVERTISE_URL").ok(),
             mqtt_username: std::env::var("MQTT_USERNAME").ok(),
