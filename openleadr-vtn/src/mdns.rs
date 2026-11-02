@@ -9,12 +9,20 @@ pub async fn register_mdns_vtn_service(config: &VtnConfig) -> ServiceDaemon {
         config.mdns_host_name, config.port, config.mdns_base_path
     );
 
-    // Include metadata about the VTN service, such as version and API path
-    let properties = [
+    // TXT record metadata, as listed in the OpenADR 3.1.0 Definition (mDNS and DNS-SD)
+    let mut properties = vec![
         ("version", "3.1"),
         ("base_path", config.mdns_base_path.as_str()),
         ("local_url", local_url.as_str()),
+        // The OpenADR endpoints require an access token
+        ("requires_auth", "True"),
     ];
+    if let Some(program_names) = &config.mdns_program_names {
+        properties.push(("program_names", program_names.as_str()));
+    }
+    if let Some(openapi_url) = &config.mdns_openapi_url {
+        properties.push(("openapi_url", openapi_url.as_str()));
+    }
 
     let vtn_service = ServiceInfo::new(
         &config.mdns_service_type,
@@ -50,6 +58,8 @@ mod tests {
             mdns_service_type: "_openadr3._tcp.local.".to_string(),
             mdns_server_name: "test-vtn-instance".to_string(),
             mdns_base_path: "".to_string(),
+            mdns_program_names: Some("program-1,program-2".to_string()),
+            mdns_openapi_url: Some("https://example.com/openapi.yaml".to_string()),
             mqtt_url: None,
             mqtt_advertise_url: None,
             mqtt_username: None,
@@ -80,6 +90,15 @@ mod tests {
                                 let props = info.get_properties();
                                 let version_str = props.get_property_val_str("version");
                                 assert_eq!(version_str, Some("3.1"));
+                                assert_eq!(props.get_property_val_str("requires_auth"), Some("True"));
+                                assert_eq!(
+                                    props.get_property_val_str("program_names"),
+                                    Some("program-1,program-2")
+                                );
+                                assert_eq!(
+                                    props.get_property_val_str("openapi_url"),
+                                    Some("https://example.com/openapi.yaml")
+                                );
 
                                 found = true;
                                 break;
