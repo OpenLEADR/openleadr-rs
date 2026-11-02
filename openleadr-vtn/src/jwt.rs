@@ -38,6 +38,8 @@ pub struct JwtManager {
     decoding_key: Option<DecodingKey>,
     jwks_location: Option<String>,
     key_type: OAuthKeyType,
+    #[cfg(feature = "internal-oauth")]
+    key_id: Option<String>,
     validation: Validation,
     token_url: Url,
 }
@@ -355,6 +357,8 @@ impl JwtManager {
             decoding_key,
             jwks_location,
             key_type,
+            #[cfg(feature = "internal-oauth")]
+            key_id: None,
             validation,
             token_url,
         }
@@ -366,6 +370,7 @@ impl JwtManager {
         encoding_key: EncodingKey,
         decoding_key: DecodingKey,
         key_type: OAuthKeyType,
+        key_id: Option<String>,
         validation: Validation,
         token_url: Url,
     ) -> Self {
@@ -374,6 +379,7 @@ impl JwtManager {
             decoding_key: Some(decoding_key),
             jwks_location: None,
             key_type,
+            key_id,
             validation,
             token_url,
         }
@@ -412,7 +418,14 @@ impl JwtManager {
         };
 
         if let Some(encoding_key) = &self.encoding_key {
-            let token = encode(&Header::default(), &claims, encoding_key)?;
+            let token = encode(
+                &Header {
+                    kid: self.key_id.clone(),
+                    ..Header::default()
+                },
+                &claims,
+                encoding_key,
+            )?;
             Ok(token)
         } else {
             Err(OAuthError {

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use openleadr_client::{BusinessLogic, VirtualEndNode};
 use openleadr_wire::{
     event::{EventInterval, EventType, EventValuesMap},
@@ -74,4 +76,36 @@ async fn report_crud(db: PgPool) {
     report.delete().await.unwrap();
     let after_delete = event.get_report_list(None).await.unwrap();
     assert!(after_delete.is_empty());
+}
+
+#[sqlx::test(fixtures("users"))]
+async fn report_mqtt(db: PgPool) {
+    let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
+    let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
+
+    let program = bl.create_program(default_program()).await.unwrap();
+    let intervals = vec![EventInterval {
+        id: 0,
+        interval_period: None,
+        payloads: vec![EventValuesMap {
+            value_type: EventType::Price,
+            values: vec![Value::Number(123.4)],
+        }],
+    }];
+    let event_request = program.new_event(intervals);
+    let bl_event = program.create_event(event_request).await.unwrap();
+
+    let ven_mqtt = ven.connect_mqtt().await.unwrap();
+    let event_mqtt = ven_mqtt.get_event_by_id(bl_event.id()).await.unwrap();
+
+    let report_request_payload = event_mqtt.new_report("ven-client".to_string());
+    event_mqtt
+        .create_report(report_request_payload.clone())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    let listed = bl_event.get_report_list(None).await.unwrap();
+    assert!(!listed.is_empty());
 }
