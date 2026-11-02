@@ -298,13 +298,15 @@ impl PgProgramStorage {
                         -- or IF the program targets are empty
                         OR array_length(p.targets, 1) IS NULL
                   )
+              AND ($5::text IS NULL OR p.program_name = $5)
             ORDER BY created_date_time DESC
             OFFSET $3 LIMIT $4
             "#,
             filter_targets as _,
             ven_targets as _,
             filter.skip,
-            filter.limit
+            filter.limit,
+            filter.program_name,
         )
         .fetch_all(&self.db)
         .await?
@@ -396,12 +398,14 @@ impl PgProgramStorage {
               -- IF filter targets are empty, do not filter.
               -- IF filter targets are not empty, filter only if they are in the program targets.
               (array_length($1::text[], 1) IS NULL OR p.targets && $1)
+              AND ($4::text IS NULL OR p.program_name = $4)
             ORDER BY created_date_time DESC
             OFFSET $2 LIMIT $3
             "#,
             filter.targets.as_deref() as _,
             filter.skip,
-            filter.limit
+            filter.limit,
+            filter.program_name,
         )
         .fetch_all(&self.db)
         .await?
@@ -455,6 +459,7 @@ mod tests {
     impl Default for QueryParams {
         fn default() -> Self {
             Self {
+                program_name: None,
                 targets: TargetQueryParams(None),
                 skip: 0,
                 limit: 50,
@@ -619,6 +624,67 @@ mod tests {
                         ..Default::default()
                     },
                     &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 0);
+        }
+
+        #[sqlx::test(fixtures("programs"))]
+        async fn filter_program_name_get_all(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        program_name: Some("program-2".to_string()),
+                        ..Default::default()
+                    },
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs, vec![program_2()]);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        program_name: Some("not-existent".to_string()),
+                        ..Default::default()
+                    },
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs.len(), 0);
+        }
+
+        #[sqlx::test(fixtures("programs", "vens"))]
+        async fn filter_program_name_get_all_ven_client(db: PgPool) {
+            let repo: PgProgramStorage = db.into();
+
+            // Has access to targets "group-1" and "private-value"
+            let ven_1: ClientId = "ven-1-client-id".parse().unwrap();
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        program_name: Some("program-2".to_string()),
+                        ..Default::default()
+                    },
+                    &Some(ven_1.clone()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(programs, vec![without_targets(program_2(), ["group-2"])]);
+
+            let programs = repo
+                .retrieve_all(
+                    &QueryParams {
+                        program_name: Some("not-existent".to_string()),
+                        ..Default::default()
+                    },
+                    &Some(ven_1),
                 )
                 .await
                 .unwrap();

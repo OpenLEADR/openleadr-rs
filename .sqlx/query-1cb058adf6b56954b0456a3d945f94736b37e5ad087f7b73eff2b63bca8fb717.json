@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets AS \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE\n              -- IF filter targets are empty, do not filter.\n              -- IF filter targets are not empty, filter only if they are in the program targets.\n              (array_length($1::text[], 1) IS NULL OR p.targets && $1)\n            ORDER BY created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
+  "query": "\n            SELECT p.id,\n                   p.created_date_time,\n                   p.modification_date_time,\n                   p.program_name,\n                   p.interval_period,\n                   p.program_descriptions,\n                   p.payload_descriptors,\n                   p.targets AS \"targets:Vec<Target>\",\n                   p.attributes\n            FROM program p\n            WHERE\n              -- IF filter targets are empty, do not filter.\n              -- IF filter targets are not empty, filter only if they are in the program targets.\n              (array_length($1::text[], 1) IS NULL OR p.targets && $1)\n              AND ($4::text IS NULL OR p.program_name = $4)\n            ORDER BY created_date_time DESC\n            OFFSET $2 LIMIT $3\n            ",
   "describe": {
     "columns": [
       {
@@ -53,7 +53,8 @@
       "Left": [
         "TextArray",
         "Int8",
-        "Int8"
+        "Int8",
+        "Text"
       ]
     },
     "nullable": [
@@ -68,5 +69,5 @@
       true
     ]
   },
-  "hash": "3f62b51d1363b447ce7eac9cceea82000e0b5f3b568baac1b5706cc0cdd58061"
+  "hash": "1cb058adf6b56954b0456a3d945f94736b37e5ad087f7b73eff2b63bca8fb717"
 }

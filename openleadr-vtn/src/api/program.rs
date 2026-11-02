@@ -190,6 +190,8 @@ pub async fn delete(
 #[derive(Deserialize, Validate, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryParams {
+    #[validate(length(min = 1, max = 128))]
+    pub(crate) program_name: Option<String>,
     pub(crate) targets: TargetQueryParams,
     #[serde(default)]
     #[validate(range(min = 0))]
