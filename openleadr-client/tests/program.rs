@@ -58,6 +58,29 @@ async fn delete(db: PgPool) {
 }
 
 #[sqlx::test(fixtures("users"))]
+async fn get_by_name(db: PgPool) {
+    let client = common::setup_client::<VirtualEndNode>(db).await;
+
+    let program1 = ProgramRequest {
+        program_name: "program1".to_string(),
+        ..default_content()
+    };
+    let program2 = ProgramRequest {
+        program_name: "program2".to_string(),
+        ..default_content()
+    };
+    for content in [program1, program2.clone()] {
+        client.create_program(content).await.unwrap();
+    }
+
+    let program = client.get_program_by_name("program2").await.unwrap();
+    assert_eq!(program.content(), &program2);
+
+    let missing = client.get_program_by_name("program3").await;
+    assert!(matches!(missing, Err(Error::ObjectNotFound)));
+}
+
+#[sqlx::test(fixtures("users"))]
 async fn update(db: PgPool) {
     let client = common::setup_client::<VirtualEndNode>(db).await;
 

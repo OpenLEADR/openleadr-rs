@@ -577,6 +577,23 @@ impl<K: ClientKind> Client<K> {
             .await
     }
 
+    /// Get program by name from VTN.
+    /// According to the spec, a [`program_name`](ProgramRequest::program_name) must be unique for the whole VTN instance.
+    pub async fn get_program_by_name(&self, name: &str) -> Result<ProgramClient<K>> {
+        let mut programs: Vec<Program> = self
+            .client_ref
+            .get("programs", &[("programName", name)])
+            .await?;
+        match programs[..] {
+            [] => Err(Error::ObjectNotFound),
+            [_] => Ok(ProgramClient::from_program(
+                self.clone(),
+                programs.remove(0),
+            )),
+            [..] => Err(Error::DuplicateObject),
+        }
+    }
+
     /// Get a program by id
     pub async fn get_program_by_id(&self, id: &ProgramId) -> Result<ProgramClient<K>> {
         let program = self
