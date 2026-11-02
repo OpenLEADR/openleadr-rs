@@ -766,7 +766,7 @@ impl<K: ClientKind> Client<K> {
                                 .read()
                                 .await
                                 .as_ref()
-                                .map(|inner| inner.token.as_bytes())
+                                .map(|inner| std::dbg!(&inner.token).as_bytes())
                                 .unwrap_or_default(),
                         )
                         .finalize(),

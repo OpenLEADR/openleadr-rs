@@ -236,6 +236,11 @@ fn hmac_from_env() -> Result<Vec<u8>, VarError> {
     })
 }
 
+#[cfg(feature = "internal-oauth")]
+fn keyid_from_env() -> Option<String> {
+    env::var("OAUTH_KEY_ID").ok()
+}
+
 fn signing_algorithms_from_key_type(key_type: &OAuthKeyType) -> Vec<Algorithm> {
     match key_type {
         OAuthKeyType::Hmac => {
@@ -294,10 +299,13 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
         .parse()
         .expect("OAUTH_TOKEN_URL environment variable must be a valid URL");
 
+    let key_id = keyid_from_env();
+
     JwtManager::new_internal_auth(
         EncodingKey::from_secret(&secret),
         DecodingKey::from_secret(&secret),
         key_type,
+        key_id,
         validation,
         token_url,
     )
