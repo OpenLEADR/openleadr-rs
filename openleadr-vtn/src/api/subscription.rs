@@ -1,4 +1,5 @@
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::collections::HashSet;
 
 use axum::{
     Json,
@@ -11,6 +12,7 @@ use axum::{
     response::Response,
 };
 use chrono::Utc;
+use futures::future::try_join_all;
 use openleadr_wire::{
     ClientId, Identifier, ObjectType,
     program::ProgramId,
@@ -21,12 +23,13 @@ use openleadr_wire::{
     },
 };
 use paho_mqtt::QoS;
-use reqwest::StatusCode;
+use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info, trace};
 use uuid::{ContextV7, Uuid};
 use validator::Validate;
+use openleadr_wire::subscription::NotificationMechanism;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
@@ -185,6 +188,40 @@ pub async fn get(
     Ok(Json(subscription))
 }
 
+// Spec suggests 10-30 timeout
+const CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn callback_http_client() -> Result<reqwest::Client, AppError> {
+    reqwest::Client::builder()
+        .timeout(CALLBACK_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(AppError::HttpClient)
+}
+
+async fn check_callback_url(url: &str, client: &Client) -> Result<(), AppError> {
+    let challenge = Uuid::new_v4().simple().to_string();
+    let response = client
+        .get(url)
+        .query(&[("echo", &challenge)])
+        .send()
+        .await
+        .map_err(|_|AppError::BadRequest("callback url unreachable"))?;
+
+    let status = response.status();
+    let full_response = response
+        .text()
+        .await
+        .map_err(|_| AppError::BadRequest("callback url response error"))?;
+
+    let challenge_met = full_response.trim() == challenge;
+    match status {
+        StatusCode::OK if challenge_met => Ok(()),
+        StatusCode::OK => Err(AppError::BadRequest("challenge not met")),
+        _ => Err(AppError::BadRequest("non-200 response from callback url"))
+    }
+}
+
 pub async fn add(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     State(app_state): State<AppState>,
@@ -193,15 +230,39 @@ pub async fn add(
 ) -> Result<(StatusCode, Json<Subscription>), AppError> {
     let client_id = user.client_id()?;
 
-    let subscription = if user.has_scope(Scope::WriteSubscriptionsVen)
-        || user.has_scope(Scope::WriteSubscriptionsBl)
-    {
+    let is_valid_scope = user.has_scope(Scope::WriteSubscriptionsVen)
+        || user.has_scope(Scope::WriteSubscriptionsBl);
+
+    if !is_valid_scope {
+        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
+    }
+    //TODO extract below into function?
+    let mut needs_echo_challenge: HashSet<&str> = HashSet::new();
+    for subscription in new_subscription.object_operations.iter() {
+        if subscription.mechanism == NotificationMechanism::Webhook {
+            if let Some(url) = &subscription.callback_url {
+                needs_echo_challenge.insert(url);
+            }
+        }
+    }
+
+    if !needs_echo_challenge.is_empty() {
+        let client = callback_http_client()?;
+        let mut futures = vec![];
+
+        for url in needs_echo_challenge.iter() {
+            futures.push(check_callback_url(&url, &client));
+        }
+
+        //TODO use join_all to collect all errors
+        try_join_all(futures)
+            .await?;
+    }
+
+    let subscription =
         subscription_source
             .create(new_subscription, &Some(client_id))
-            .await?
-    } else {
-        return Err(AppError::Forbidden("Missing 'write_vens' scope"));
-    };
+            .await?;
 
     app_state
         .notifier
