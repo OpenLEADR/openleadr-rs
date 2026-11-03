@@ -134,6 +134,7 @@ pub mod test {
             let store = PostgresStorage::new(db).unwrap();
             let mut vtn_config = VtnConfig::from_env();
             vtn_config.mqtt_topic_prefix = uuid::Uuid::new_v4().to_string() + "/";
+            vtn_config.mqtt_ingest_reports = true;
             let app_state = AppState::new(store, &vtn_config).await;
 
             let token = app_state
