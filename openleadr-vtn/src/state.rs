@@ -410,7 +410,9 @@ fn mqtt_upload_route() -> MethodRouter<AppState, Infallible> {
                             },
                         }))
                     } else {
-                        Err(AppError::Forbidden("Not allowed to write reports."))
+                        Err(AppError::Forbidden(
+                            "Only VEN clients with the 'WriteReports' or 'WriteReportsVen' scope are allowed to write reports.",
+                        ))
                     }
                 }
                 _ => Err(AppError::NotFound),

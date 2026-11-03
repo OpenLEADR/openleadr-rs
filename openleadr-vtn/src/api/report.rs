@@ -432,7 +432,7 @@ mod test {
 
     #[sqlx::test(fixtures("programs", "events", "vens", "users"))]
     async fn report_creation_via_mqtt(db: PgPool) {
-        let server = ApiTest::new(db, "ven-100-client-id", vec![Scope::WriteReportsVen]).await;
+        let server = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteReportsVen]).await;
 
         let vtn_config = server.vtn_config();
         let mut mqtt_client = paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::new()).unwrap();
@@ -458,7 +458,7 @@ mod test {
         let expect_msg = async |object_type: ObjectType, operation: Operation, topics: &[&str]| {
             let mut topics = topics.iter().copied().collect::<BTreeSet<&str>>();
             while !topics.is_empty() {
-                let msg = tokio::time::timeout(Duration::from_millis(5000), mqtt_rx.recv())
+                let msg = tokio::time::timeout(Duration::from_millis(500), mqtt_rx.recv())
                     .await
                     .unwrap()
                     .unwrap()
@@ -515,5 +515,18 @@ mod test {
             &["push/reports/create"],
         )
         .await;
+    }
+
+    #[sqlx::test(fixtures("programs", "events", "vens", "users"))]
+    async fn bl_mqtt_upload_route_is_forbidden(db: PgPool) {
+        let server = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteReportsBl]).await;
+        let (code, _) = server
+            .request::<Problem>(
+                http::Method::GET,
+                "/notifiers/mqtt/topics/upload/report",
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(code, StatusCode::FORBIDDEN);
     }
 }
