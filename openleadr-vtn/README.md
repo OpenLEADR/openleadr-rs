@@ -89,6 +89,8 @@ The OAuth configuration of the VTN is done via the following environment variabl
 - `OAUTH_KEY_TYPE`(allows values: `HMAC`, `RSA`, `EC`, `ED`. Defaults to `HMAC`)
 - `OAUTH_PEM` (path to a PEM encoded public key file. Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
 - `OAUTH_JWKS_LOCATION` (path to the OAUTH server well known JWKS endpoint.  Either `OAUTH_PEM` or `OAUTH_JWKS_LOCATION` is required for all `OAUTH_KEY_TYPE`s, except `HMAC`)
+- `OAUTH_JWKS_CACHE_TTL_SECONDS` (optional, whole seconds, at least 1. How long the keys fetched from `OAUTH_JWKS_LOCATION` are reused before they are refreshed. Expired keys are still used while they are refreshed in the background, but never longer than one hour after the last successful fetch. Defaults to `300`)
+- `OAUTH_JWKS_REFRESH_COOLDOWN_SECONDS` (optional, whole seconds, at least 1. Minimum time between two fetches of `OAUTH_JWKS_LOCATION`. A token with an unknown `kid` (for example after the OAuth server rotated its keys) triggers a refresh, at most once per this period. Defaults to `10`)
 - `OAUTH_VALID_AUDIENCES` (specifies the list of valid audiences for token validation, ensuring that the token is intended for the correct recipient. If not set there must not be an `aud` claim.)
 - `OAUTH_TOKEN_URL` (URL to the OAUTH server token endpoint. For example `https://localhost:3000/auth/token` when using the internal OAuth provider. Required)
 
