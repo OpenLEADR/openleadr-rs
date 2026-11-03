@@ -46,6 +46,9 @@ pub enum AppError {
     Sql(sqlx::Error),
     #[error("MQTT error: {0}")]
     Mqtt(paho_mqtt::Error),
+    //TODO: is this specific enough
+    #[error("HTTP client error: {0}")]
+    HttpClient(reqwest::Error),
     #[error("Storage connection pool closed")]
     StorageConnectionError,
     #[cfg(feature = "sqlx")]
@@ -198,6 +201,15 @@ impl AppError {
                     reference,
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Some("An mqtt error occurred".to_string()),
+                )
+            }
+            //again - too generic?
+            AppError::HttpClient(err) => {
+                error!(%reference, "HTTP client error: {}", err);
+                problem(
+                    reference,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Some("An HTTP client error occurred".to_string()),
                 )
             }
             AppError::StorageConnectionError => {
