@@ -747,6 +747,7 @@ impl<K: ClientKind> Client<K> {
         else {
             return Err(Error::NotSupported);
         };
+
         let mut last_error = Error::NotSupported;
         for url in mqtt_info.uris {
             let client = match paho_mqtt::AsyncClient::new(url) {
@@ -756,7 +757,8 @@ impl<K: ClientKind> Client<K> {
                     continue;
                 }
             };
-            match client
+
+            let connection = client
                 .connect(
                     ConnectOptionsBuilder::new()
                         .user_name(&username)
@@ -766,19 +768,17 @@ impl<K: ClientKind> Client<K> {
                                 .read()
                                 .await
                                 .as_ref()
-                                .map(|inner| std::dbg!(&inner.token).as_bytes())
+                                .map(|inner| inner.token.as_bytes())
                                 .unwrap_or_default(),
                         )
                         .finalize(),
                 )
-                .await
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    last_error = e.into();
-                    continue;
-                }
-            };
+                .await;
+
+            if let Err(e) = connection {
+                last_error = e.into();
+                continue;
+            }
 
             return Ok(MqttClient {
                 client_ref: self.client_ref.clone(),
