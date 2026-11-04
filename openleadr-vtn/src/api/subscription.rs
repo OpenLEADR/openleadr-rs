@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, State},
     routing::MethodRouter,
 };
-#[cfg(feature = "experimental-websockets")]
+#[cfg(feature = "websockets")]
 use axum::{
     extract::ws::{Message, WebSocketUpgrade},
     response::Response,
@@ -708,7 +708,7 @@ pub(crate) async fn notifier_get(
     User(_): User,
 ) -> Result<Json<NotifiersResponse>, AppError> {
     Ok(Json(NotifiersResponse {
-        websocket: cfg!(feature = "experimental-websockets"),
+        websocket: cfg!(feature = "websockets"),
         mqtt: notifier_state
             .mqtt_state
             .as_ref()
@@ -732,7 +732,7 @@ pub(crate) async fn notifier_get(
     }))
 }
 
-#[cfg(feature = "experimental-websockets")]
+#[cfg(feature = "websockets")]
 pub(crate) async fn notifier_websocket_get(
     State(notifier_state): State<Arc<NotifierState>>,
     User(user): User,
@@ -1358,7 +1358,7 @@ mod test {
         assert!(test_client_c_rx.try_recv().is_err());
     }
 
-    #[cfg(feature = "experimental-websockets")]
+    #[cfg(feature = "websockets")]
     #[sqlx::test(fixtures("vens", "programs", "events"))]
     async fn websocket_end_to_end(db: PgPool) {
         use futures::StreamExt;
