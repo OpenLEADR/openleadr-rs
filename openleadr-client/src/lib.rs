@@ -211,7 +211,6 @@ impl ClientKind for BusinessLogic {}
 pub struct VirtualEndNode;
 impl ClientKind for VirtualEndNode {}
 
-#[derive(Debug)]
 struct ClientRef<K> {
     client: Box<dyn HttpClient + Send + Sync>,
     vtn_base_url: Url,
@@ -220,6 +219,19 @@ struct ClientRef<K> {
     auth_data: Option<ClientCredentials>,
     auth_token: RwLock<Option<AuthToken>>,
     phantom: PhantomData<K>,
+}
+
+impl<K> Debug for ClientRef<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("client", &"<http_client>")
+            .field("vtn_base_url", &self.vtn_base_url)
+            .field("oauth_base_url", &self.oauth_base_url)
+            .field("default_page_size", &self.default_page_size)
+            .field("auth_data", &self.auth_data)
+            .field("auth_token", &self.auth_token)
+            .finish()
+    }
 }
 
 impl<K: ClientKind> ClientRef<K> {
