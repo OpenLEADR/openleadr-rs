@@ -8,6 +8,7 @@ services:
     environment:
       RUST_LOG: openleadr_vtn=trace,sqlx=info,debug
       OAUTH_TOKEN_URL: http://localhost:3000/auth/token
+      OAUTH_BASE64_SECRET: YWV1Zm50em9hbEhRU3JzM01sN3dBUkJmaU5laHJQQXA=
       DATABASE_URL: postgres://openadr:openadr@db:5432/openadr
       MQTT_URL: mqtt://mqtt:1883
       MQTT_USERNAME: ${MQTT_USERNAME}
@@ -41,7 +42,10 @@ services:
       RABBITMQ_DEFAULT_PASS: ${MQTT_PASSWORD}
     ports:
       - ${MQTT_PORT}:1883
-    command: "sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt; rabbitmq-server'"
+    command: "sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt rabbitmq_auth_backend_oauth2; rabbitmq-server'"
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - ./advanced.config:/etc/rabbitmq/advanced.config
 
 volumes:
   database-data:
