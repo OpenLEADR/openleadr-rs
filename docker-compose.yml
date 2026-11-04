@@ -13,8 +13,10 @@ services:
       MQTT_USERNAME: ${MQTT_USERNAME}
       MQTT_PASSWORD: ${MQTT_PASSWORD}
     depends_on:
-      - db
-      - mqtt
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
 
   db:
     image: ghcr.io/tweedegolf/postgres:18
@@ -42,6 +44,11 @@ services:
     ports:
       - ${MQTT_PORT}:1883
     command: "sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt; rabbitmq-server'"
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_port_listener", "1883" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   database-data:
