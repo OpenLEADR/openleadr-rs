@@ -154,7 +154,7 @@ pub mod test {
             }
         }
 
-        #[cfg(feature = "experimental-websockets")]
+        #[cfg(feature = "websockets")]
         pub(crate) async fn run(
             &self,
         ) -> (String, SocketAddr, JoinHandle<Result<(), std::io::Error>>) {

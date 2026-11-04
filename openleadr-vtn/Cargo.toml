@@ -57,12 +57,12 @@ serde_html_form = "0.4.0"
 openleadr-client = { path = "../openleadr-client" }
 
 [features]
-default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd", "experimental-websockets"]
+default = ["postgres", "compression-br", "compression-deflate", "compression-gzip", "compression-zstd", "websockets"]
 live-db-test = ["postgres", "internal-oauth"]
 postgres = ["sqlx/postgres", "openleadr-wire/sqlx", "dep:dotenvy", "dep:argon2"]
 internal-oauth = []
 mdns = ["dep:mdns-sd", "openleadr-client/mdns"]
-experimental-websockets = ["axum/ws"] # object privacy is not yet implemented
+websockets = ["axum/ws"]
 compression-br = ["tower-http/compression-br"]
 compression-deflate = ["tower-http/compression-deflate"]
 compression-gzip = ["tower-http/compression-gzip"]
