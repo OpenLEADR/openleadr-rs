@@ -387,7 +387,7 @@ impl AppState {
             )
             .route("/auth/server", get(auth_server_handler))
             .route("/notifiers", get(subscription::notifier_get));
-        #[cfg(feature = "experimental-websockets")]
+        #[cfg(feature = "websockets")]
         {
             router = router.route("/notifiers/ws", get(subscription::notifier_websocket_get));
         }
