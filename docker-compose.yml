@@ -12,6 +12,7 @@ services:
       MQTT_URL: mqtt://mqtt:1883
       MQTT_USERNAME: ${MQTT_USERNAME}
       MQTT_PASSWORD: ${MQTT_PASSWORD}
+      MQTT_INGEST_REPORTS: ${MQTT_INGEST_REPORTS}
     depends_on:
       db:
         condition: service_healthy
