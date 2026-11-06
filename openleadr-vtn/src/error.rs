@@ -46,7 +46,6 @@ pub enum AppError {
     Sql(sqlx::Error),
     #[error("MQTT error: {0}")]
     Mqtt(paho_mqtt::Error),
-    //TODO: is this specific enough
     #[error("HTTP client error: {0}")]
     HttpClient(reqwest::Error),
     #[error("Storage connection pool closed")]
