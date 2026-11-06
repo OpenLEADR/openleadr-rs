@@ -1,5 +1,9 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
     Json,
@@ -18,8 +22,9 @@ use openleadr_wire::{
     program::ProgramId,
     subscription::{
         AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, MqttPushNotification,
-        Notification, NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse,
-        Operation, SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
+        Notification, NotificationMechanism, NotifierOperationsTopics, NotifierTopicsResponse,
+        NotifiersResponse, Operation, SerializationType, Subscription, SubscriptionId,
+        SubscriptionRequest,
     },
 };
 use paho_mqtt::QoS;
@@ -29,7 +34,6 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info, trace};
 use uuid::{ContextV7, Uuid};
 use validator::Validate;
-use openleadr_wire::subscription::NotificationMechanism;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
@@ -188,15 +192,15 @@ pub async fn get(
     Ok(Json(subscription))
 }
 
-// Spec suggests 10-30 timeout
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn callback_http_client() -> Result<reqwest::Client, AppError> {
+/// Builder for clients to call webhook callback URLs.
+/// Spec requires HTTPS URLs, timeout of 10-30s and rejects redirects
+fn callback_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
+        .https_only(true)
         .timeout(CALLBACK_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(AppError::HttpClient)
 }
 
 async fn check_callback_url(url: &str, client: &Client) -> Result<(), AppError> {
@@ -206,7 +210,7 @@ async fn check_callback_url(url: &str, client: &Client) -> Result<(), AppError> 
         .query(&[("echo", &challenge)])
         .send()
         .await
-        .map_err(|_|AppError::BadRequest("callback url unreachable"))?;
+        .map_err(|_| AppError::BadRequest("callback url unreachable"))?;
 
     let status = response.status();
     let full_response = response
@@ -218,7 +222,7 @@ async fn check_callback_url(url: &str, client: &Client) -> Result<(), AppError> 
     match status {
         StatusCode::OK if challenge_met => Ok(()),
         StatusCode::OK => Err(AppError::BadRequest("challenge not met")),
-        _ => Err(AppError::BadRequest("non-200 response from callback url"))
+        _ => Err(AppError::BadRequest("non-200 response from callback url")),
     }
 }
 
@@ -230,8 +234,8 @@ pub async fn add(
 ) -> Result<(StatusCode, Json<Subscription>), AppError> {
     let client_id = user.client_id()?;
 
-    let is_valid_scope = user.has_scope(Scope::WriteSubscriptionsVen)
-        || user.has_scope(Scope::WriteSubscriptionsBl);
+    let is_valid_scope =
+        user.has_scope(Scope::WriteSubscriptionsVen) || user.has_scope(Scope::WriteSubscriptionsBl);
 
     if !is_valid_scope {
         return Err(AppError::Forbidden("Missing 'write_vens' scope"));
@@ -239,30 +243,30 @@ pub async fn add(
     //TODO extract below into function?
     let mut needs_echo_challenge: HashSet<&str> = HashSet::new();
     for subscription in new_subscription.object_operations.iter() {
-        if subscription.mechanism == NotificationMechanism::Webhook {
-            if let Some(url) = &subscription.callback_url {
-                needs_echo_challenge.insert(url);
-            }
+        if subscription.mechanism == NotificationMechanism::Webhook
+            && let Some(url) = &subscription.callback_url
+        {
+            needs_echo_challenge.insert(url);
         }
     }
 
     if !needs_echo_challenge.is_empty() {
-        let client = callback_http_client()?;
+        let client = callback_client_builder()
+            .build()
+            .map_err(AppError::HttpClient)?;
         let mut futures = vec![];
 
         for url in needs_echo_challenge.iter() {
-            futures.push(check_callback_url(&url, &client));
+            futures.push(check_callback_url(url, &client));
         }
 
         //TODO use join_all to collect all errors
-        try_join_all(futures)
-            .await?;
+        try_join_all(futures).await?;
     }
 
-    let subscription =
-        subscription_source
-            .create(new_subscription, &Some(client_id))
-            .await?;
+    let subscription = subscription_source
+        .create(new_subscription, &Some(client_id))
+        .await?;
 
     app_state
         .notifier
@@ -1042,6 +1046,7 @@ fn mqtt_route_by_ven_id(
 mod test {
     use std::{
         collections::{BTreeSet, HashMap},
+        net::{Ipv4Addr, SocketAddr},
         sync::Arc,
         time::Duration,
     };
@@ -1067,13 +1072,19 @@ mod test {
     use paho_mqtt::QoS;
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
-    use tokio::sync::{Mutex, mpsc::unbounded_channel};
+    use tokio::{
+        net::TcpListener,
+        sync::{Mutex, mpsc::unbounded_channel},
+    };
     use uuid::ContextV7;
 
     use crate::{
         api::{
             self,
-            subscription::{NotifierState, notify, privacy_filter_object},
+            subscription::{
+                NotifierState, callback_client_builder, check_callback_url, notify,
+                privacy_filter_object,
+            },
             test::ApiTest,
         },
         data_source::{Crud, EventCrud, VenCrud, VenObjectPrivacy},
@@ -2403,5 +2414,173 @@ mod test {
             .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["WEBHOOK"], serde_json::Value::Bool(true));
+    }
+    async fn start_callback_server(router: axum::Router) -> String {
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, router).into_future());
+        format!("http://{listen_addr}/callback")
+    }
+
+    #[tokio::test]
+    async fn callback_check_passes_when_echo_matches() {
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(result.is_ok())
+    }
+
+    #[tokio::test]
+    async fn callback_check_fails_when_echo_does_not_match() {
+        let router = axum::Router::new().route(
+            "/callback",
+            axum::routing::get(|| async move { (StatusCode::OK, "wrong".to_string()) }),
+        );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("challenge not met"))
+        ))
+    }
+    #[tokio::test]
+    async fn callback_check_fails_on_non_200_status() {
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::CREATED,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("non-200 response from callback url"))
+        ))
+    }
+
+    #[tokio::test]
+    async fn callback_check_fails_when_unreachable() {
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let url = format!("http://{listen_addr}/callback");
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("callback url unreachable"))
+        ))
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn webhook_subscription_not_created_when_callback_check_fails(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsVen, Scope::ReadAll],
+        )
+        .await;
+
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let url = format!("https://{listen_addr}/callback");
+
+        let body = serde_json::json!({
+            "clientName": "myClient",
+            "objectOperations": [{
+                "mechanism": "WEBHOOK",
+                "callbackUrl": url,
+                "operations": ["CREATE"],
+                "objects": ["EVENT"]
+            }]
+        });
+
+        let (status, problem) = server
+            .request::<Problem>(Method::POST, "/subscriptions", Body::from(body.to_string()))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(problem.detail.as_deref(), Some("callback url unreachable"));
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(subscriptions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn callback_client_refuses_plain_http() {
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+
+        // the same server passes the check when HTTPS is not enforced, so the only
+        // difference below is the HTTPS rule.
+        let http_client = callback_client_builder().https_only(false).build().unwrap();
+        assert!(check_callback_url(&url, &http_client).await.is_ok());
+
+        let https_client = callback_client_builder().build().unwrap();
+
+        let result = check_callback_url(&url, &https_client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("callback url unreachable"))
+        ))
     }
 }
