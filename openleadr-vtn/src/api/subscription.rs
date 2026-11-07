@@ -2583,4 +2583,47 @@ mod test {
             Err(AppError::BadRequest("callback url unreachable"))
         ))
     }
+
+    #[tokio::test]
+    async fn callback_check_does_not_follow_redirects() {
+        let router = axum::Router::new()
+            .route(
+                "/echo",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        axum::response::Redirect::temporary(&format!(
+                            "/echo?echo={value}",
+                            value = params.get("echo").cloned().unwrap_or_default()
+                        ))
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+
+        let client = callback_client_builder().https_only(false).build().unwrap();
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(
+            matches!(
+                result,
+                Err(AppError::BadRequest("non-200 response from callback url")),
+            ),
+            "got {result:?}"
+        )
+    }
 }
