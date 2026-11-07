@@ -240,28 +240,10 @@ pub async fn add(
     if !is_valid_scope {
         return Err(AppError::Forbidden("Missing 'write_vens' scope"));
     }
-    //TODO extract below into function?
-    let mut needs_echo_challenge: HashSet<&str> = HashSet::new();
-    for subscription in new_subscription.object_operations.iter() {
-        if subscription.mechanism == NotificationMechanism::Webhook
-            && let Some(url) = &subscription.callback_url
-        {
-            needs_echo_challenge.insert(url);
-        }
-    }
 
-    if !needs_echo_challenge.is_empty() {
-        let client = callback_client_builder()
-            .build()
-            .map_err(AppError::HttpClient)?;
-        let mut futures = vec![];
-
-        for url in needs_echo_challenge.iter() {
-            futures.push(check_callback_url(url, &client));
-        }
-
-        //TODO use join_all to collect all errors
-        try_join_all(futures).await?;
+    let webhook_callback_urls = webhook_callback_urls(&new_subscription);
+    if !webhook_callback_urls.is_empty() {
+        check_callback_urls(&webhook_callback_urls).await?;
     }
 
     let subscription = subscription_source
@@ -283,6 +265,33 @@ pub async fn add(
     );
 
     Ok((StatusCode::CREATED, Json(subscription)))
+}
+
+fn webhook_callback_urls(request: &SubscriptionRequest) -> HashSet<&str> {
+    let mut webhook_callback_urls: HashSet<&str> = HashSet::new();
+    for subscription in request.object_operations.iter() {
+        if subscription.mechanism == NotificationMechanism::Webhook
+            && let Some(url) = &subscription.callback_url
+        {
+            webhook_callback_urls.insert(url);
+        }
+    }
+    webhook_callback_urls
+}
+
+async fn check_callback_urls(webhook_callback_urls: &HashSet<&str>) -> Result<(), AppError> {
+    let client = callback_client_builder()
+        .build()
+        .map_err(AppError::HttpClient)?;
+    let mut futures = vec![];
+
+    for url in webhook_callback_urls.iter() {
+        futures.push(check_callback_url(url, &client));
+    }
+
+    //TODO use join_all to collect all errors
+    try_join_all(futures).await?;
+    Ok(())
 }
 
 pub async fn edit(
