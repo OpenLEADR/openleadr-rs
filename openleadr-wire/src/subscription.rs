@@ -455,10 +455,11 @@ mod tests {
 }"#;
 
         let actual =
-            serde_json::from_str::<SubscriptionRequest>(example_with_non_https_callback_url);
+            serde_json::from_str::<SubscriptionRequest>(example_with_non_https_callback_url)
+                .unwrap();
 
         assert_eq!(
-            actual.unwrap_err().to_string(),
+            actual.validate().unwrap_err().to_string(),
             "object_operations[1].__all__: callback_url must use HTTPS: http://myserver.com/non_https_program_callbacks"
         )
     }
