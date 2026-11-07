@@ -2238,7 +2238,133 @@ mod test {
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
-    // FIXME add edit and delete tests
+    const EDITED_SUBSCRIPTION: &str = r#"{
+        "clientName": "edited",
+        "objectOperations": [{
+            "mechanism": "WEBSOCKET",
+            "operations": ["UPDATE"],
+            "objects": ["PROGRAM"]
+        }]
+    }"#;
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn bl_can_edit_subscription(db: PgPool) {
+        // `subscription-1` belongs to `ven-1-client-id`; a BL can edit it regardless
+        let server = ApiTest::new(
+            db,
+            "bl-client-id",
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscription.client_id.as_str(), "ven-1-client-id");
+        assert_eq!(
+            subscription.content,
+            serde_json::from_str::<SubscriptionRequest>(EDITED_SUBSCRIPTION).unwrap()
+        );
+
+        let (status, retrieved) = server
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved, subscription);
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn ven_can_edit_own_subscription(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsVen, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            subscription.content,
+            serde_json::from_str::<SubscriptionRequest>(EDITED_SUBSCRIPTION).unwrap()
+        );
+
+        let (status, retrieved) = server
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved, subscription);
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn ven_cannot_edit_other_vens_subscription(db: PgPool) {
+        let server = ApiTest::new(
+            db.clone(),
+            "ven-2-client-id",
+            vec![Scope::WriteSubscriptionsVen],
+        )
+        .await;
+
+        // not found rather than forbidden, so other VENs' subscription IDs aren't revealed
+        let (status, _) = server
+            .request::<Problem>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let owner = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
+        let (status, retrieved) = owner
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved.content.client_name, "abc");
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn cannot_edit_subscription_without_correct_scope(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            Scope::all()
+                .into_iter()
+                .filter(|s| {
+                    !(*s == Scope::WriteSubscriptionsBl || *s == Scope::WriteSubscriptionsVen)
+                })
+                .collect(),
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Problem>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, retrieved) = server
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved.content.client_name, "abc");
+    }
+
+    // FIXME add delete tests
 
     #[sqlx::test(fixtures("vens", "users"))]
     async fn mqtt_business_logic(db: PgPool) {
