@@ -1,4 +1,9 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
     Json,
@@ -11,17 +16,19 @@ use axum::{
     response::Response,
 };
 use chrono::Utc;
+use futures::future::try_join_all;
 use openleadr_wire::{
     ClientId, Identifier, ObjectType,
     program::ProgramId,
     subscription::{
         AnyObject, MqttNotifierAuthentication, MqttNotifierBindingObject, MqttPushNotification,
-        Notification, NotifierOperationsTopics, NotifierTopicsResponse, NotifiersResponse,
-        Operation, SerializationType, Subscription, SubscriptionId, SubscriptionRequest,
+        Notification, NotificationMechanism, NotifierOperationsTopics, NotifierTopicsResponse,
+        NotifiersResponse, Operation, SerializationType, Subscription, SubscriptionId,
+        SubscriptionRequest,
     },
 };
 use paho_mqtt::QoS;
-use reqwest::StatusCode;
+use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info, trace};
@@ -185,6 +192,40 @@ pub async fn get(
     Ok(Json(subscription))
 }
 
+const CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Builder for clients to call webhook callback URLs.
+/// Spec requires HTTPS URLs, timeout of 10-30s and rejects redirects
+fn callback_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .https_only(true)
+        .timeout(CALLBACK_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+}
+
+async fn check_callback_url(url: &str, client: &Client) -> Result<(), AppError> {
+    let challenge = Uuid::new_v4().simple().to_string();
+    let response = client
+        .get(url)
+        .query(&[("echo", &challenge)])
+        .send()
+        .await
+        .map_err(|_| AppError::BadRequest("callback url unreachable"))?;
+
+    let status = response.status();
+    let full_response = response
+        .text()
+        .await
+        .map_err(|_| AppError::BadRequest("callback url response error"))?;
+
+    let challenge_met = full_response.trim() == challenge;
+    match status {
+        StatusCode::OK if challenge_met => Ok(()),
+        StatusCode::OK => Err(AppError::BadRequest("challenge not met")),
+        _ => Err(AppError::BadRequest("non-200 response from callback url")),
+    }
+}
+
 pub async fn add(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     State(app_state): State<AppState>,
@@ -193,15 +234,21 @@ pub async fn add(
 ) -> Result<(StatusCode, Json<Subscription>), AppError> {
     let client_id = user.client_id()?;
 
-    let subscription = if user.has_scope(Scope::WriteSubscriptionsVen)
-        || user.has_scope(Scope::WriteSubscriptionsBl)
-    {
-        subscription_source
-            .create(new_subscription, &Some(client_id))
-            .await?
-    } else {
+    let is_valid_scope =
+        user.has_scope(Scope::WriteSubscriptionsVen) || user.has_scope(Scope::WriteSubscriptionsBl);
+
+    if !is_valid_scope {
         return Err(AppError::Forbidden("Missing 'write_vens' scope"));
-    };
+    }
+
+    let webhook_callback_urls = webhook_callback_urls(&new_subscription);
+    if !webhook_callback_urls.is_empty() {
+        check_callback_urls(&webhook_callback_urls).await?;
+    }
+
+    let subscription = subscription_source
+        .create(new_subscription, &Some(client_id))
+        .await?;
 
     app_state
         .notifier
@@ -220,6 +267,33 @@ pub async fn add(
     Ok((StatusCode::CREATED, Json(subscription)))
 }
 
+fn webhook_callback_urls(request: &SubscriptionRequest) -> HashSet<&str> {
+    let mut webhook_callback_urls: HashSet<&str> = HashSet::new();
+    for subscription in request.object_operations.iter() {
+        if subscription.mechanism == NotificationMechanism::Webhook
+            && let Some(url) = &subscription.callback_url
+        {
+            webhook_callback_urls.insert(url);
+        }
+    }
+    webhook_callback_urls
+}
+
+async fn check_callback_urls(webhook_callback_urls: &HashSet<&str>) -> Result<(), AppError> {
+    let client = callback_client_builder()
+        .build()
+        .map_err(AppError::HttpClient)?;
+    let mut futures = vec![];
+
+    for url in webhook_callback_urls.iter() {
+        futures.push(check_callback_url(url, &client));
+    }
+
+    //TODO use join_all to collect all errors
+    try_join_all(futures).await?;
+    Ok(())
+}
+
 pub async fn edit(
     State(subscription_source): State<Arc<dyn SubscriptionCrud>>,
     State(app_state): State<AppState>,
@@ -227,14 +301,20 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<SubscriptionRequest>,
 ) -> AppResponse<Subscription> {
+    let is_valid_scope =
+        user.has_scope(Scope::WriteSubscriptionsVen) || user.has_scope(Scope::WriteSubscriptionsBl);
+
+    if !is_valid_scope {
+        return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
+    };
+    //TODO echo check
+
     let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
         subscription_source.update(&id, update, &None).await?
-    } else if user.has_scope(Scope::WriteSubscriptionsVen) {
+    } else {
         subscription_source
             .update(&id, update, &Some(user.client_id()?))
             .await?
-    } else {
-        return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
     };
 
     app_state
@@ -729,6 +809,8 @@ pub(crate) async fn notifier_get(
                     username: "{clientID}".to_owned(),
                 },
             }),
+        // The OpenADR spec currently requires this to always be true
+        webhook: true,
     }))
 }
 
@@ -979,6 +1061,7 @@ fn mqtt_route_by_ven_id(
 mod test {
     use std::{
         collections::{BTreeSet, HashMap},
+        net::{Ipv4Addr, SocketAddr},
         sync::Arc,
         time::Duration,
     };
@@ -1004,13 +1087,19 @@ mod test {
     use paho_mqtt::QoS;
     use reqwest::{Method, StatusCode};
     use sqlx::PgPool;
-    use tokio::sync::{Mutex, mpsc::unbounded_channel};
+    use tokio::{
+        net::TcpListener,
+        sync::{Mutex, mpsc::unbounded_channel},
+    };
     use uuid::ContextV7;
 
     use crate::{
         api::{
             self,
-            subscription::{NotifierState, notify, privacy_filter_object},
+            subscription::{
+                NotifierState, callback_client_builder, check_callback_url, notify,
+                privacy_filter_object,
+            },
             test::ApiTest,
         },
         data_source::{Crud, EventCrud, VenCrud, VenObjectPrivacy},
@@ -1382,7 +1471,7 @@ mod test {
             .request::<Subscription>(
                 Method::POST,
                 "/subscriptions",
-                Body::from(r#"{"clientName": "ven-1-name", "programID": "program-1", "objectOperations": [{"objects": ["REPORT"], "operations": ["CREATE"], "mechanism": "WEBHOOK"}]}"#),
+                Body::from(r#"{"clientName": "ven-1-name", "programID": "program-1", "objectOperations": [{"objects": ["REPORT"], "operations": ["CREATE"], "mechanism": "WEBSOCKET"}]}"#),
             )
             .await;
         assert_eq!(status, StatusCode::CREATED);
@@ -1926,6 +2015,108 @@ mod test {
     }
 
     #[sqlx::test(fixtures("vens", "users"))]
+    async fn bl_can_add_subscription(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
+        )
+        .await;
+
+        let new_subscription = r#"{
+            "clientName": "myClient",
+            "programID": "program-1",
+            "objectOperations": [{
+                "mechanism": "WEBSOCKET",
+                "operations": ["CREATE"],
+                "objects": ["EVENT"]
+            }]
+        }"#;
+        let (status, subscription) = server
+            .request::<Subscription>(Method::POST, "/subscriptions", Body::from(new_subscription))
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(subscription.client_id.as_str(), "ven-1-client-id");
+        assert_eq!(
+            subscription.content,
+            serde_json::from_str::<SubscriptionRequest>(new_subscription).unwrap()
+        );
+
+        let (status, retrieved) = server
+            .request::<Subscription>(
+                Method::GET,
+                &format!("/subscriptions/{}", subscription.id),
+                Body::empty(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved, subscription);
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn ven_can_add_subscription(db: PgPool) {
+        let server = ApiTest::new(db, "ven-1-client-id", vec![Scope::WriteSubscriptionsVen]).await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE"],
+                            "objects": ["EVENT"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(subscription.client_id.as_str(), "ven-1-client-id");
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn cannot_add_subscription_without_correct_scope(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            Scope::all()
+                .into_iter()
+                .filter(|s| {
+                    !(*s == Scope::WriteSubscriptionsBl || *s == Scope::WriteSubscriptionsVen)
+                })
+                .collect(),
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Problem>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE"],
+                            "objects": ["EVENT"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(subscriptions.is_empty());
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
     async fn get_many(db: PgPool) {
         let server = ApiTest::new(
             db,
@@ -2053,7 +2244,133 @@ mod test {
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
-    // FIXME add edit and delete tests
+    const EDITED_SUBSCRIPTION: &str = r#"{
+        "clientName": "edited",
+        "objectOperations": [{
+            "mechanism": "WEBSOCKET",
+            "operations": ["UPDATE"],
+            "objects": ["PROGRAM"]
+        }]
+    }"#;
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn bl_can_edit_subscription(db: PgPool) {
+        // `subscription-1` belongs to `ven-1-client-id`; a BL can edit it regardless
+        let server = ApiTest::new(
+            db,
+            "bl-client-id",
+            vec![Scope::WriteSubscriptionsBl, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(subscription.client_id.as_str(), "ven-1-client-id");
+        assert_eq!(
+            subscription.content,
+            serde_json::from_str::<SubscriptionRequest>(EDITED_SUBSCRIPTION).unwrap()
+        );
+
+        let (status, retrieved) = server
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved, subscription);
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn ven_can_edit_own_subscription(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsVen, Scope::ReadAll],
+        )
+        .await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            subscription.content,
+            serde_json::from_str::<SubscriptionRequest>(EDITED_SUBSCRIPTION).unwrap()
+        );
+
+        let (status, retrieved) = server
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved, subscription);
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn ven_cannot_edit_other_vens_subscription(db: PgPool) {
+        let server = ApiTest::new(
+            db.clone(),
+            "ven-2-client-id",
+            vec![Scope::WriteSubscriptionsVen],
+        )
+        .await;
+
+        // not found rather than forbidden, so other VENs' subscription IDs aren't revealed
+        let (status, _) = server
+            .request::<Problem>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let owner = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
+        let (status, retrieved) = owner
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved.content.client_name, "abc");
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn cannot_edit_subscription_without_correct_scope(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            Scope::all()
+                .into_iter()
+                .filter(|s| {
+                    !(*s == Scope::WriteSubscriptionsBl || *s == Scope::WriteSubscriptionsVen)
+                })
+                .collect(),
+        )
+        .await;
+
+        let (status, _) = server
+            .request::<Problem>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, retrieved) = server
+            .request::<Subscription>(Method::GET, "/subscriptions/subscription-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retrieved.content.client_name, "abc");
+    }
+
+    // FIXME add delete tests
 
     #[sqlx::test(fixtures("vens", "users"))]
     async fn mqtt_business_logic(db: PgPool) {
@@ -2227,5 +2544,227 @@ mod test {
                 &format!("push/vens/{}/resources/create", ven.id),
             ],
         );
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn get_notifiers_advertises_webhook(db: PgPool) {
+        let server = ApiTest::new(db, "ven-1-client-id", vec![Scope::ReadAll]).await;
+
+        let (status, body) = server
+            .request::<serde_json::Value>(Method::GET, "/notifiers", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["WEBHOOK"], serde_json::Value::Bool(true));
+    }
+    async fn start_callback_server(router: axum::Router) -> String {
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, router).into_future());
+        format!("http://{listen_addr}/callback")
+    }
+
+    #[tokio::test]
+    async fn callback_check_passes_when_echo_matches() {
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(result.is_ok())
+    }
+
+    #[tokio::test]
+    async fn callback_check_fails_when_echo_does_not_match() {
+        let router = axum::Router::new().route(
+            "/callback",
+            axum::routing::get(|| async move { (StatusCode::OK, "wrong".to_string()) }),
+        );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("challenge not met"))
+        ))
+    }
+    #[tokio::test]
+    async fn callback_check_fails_on_non_200_status() {
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::CREATED,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("non-200 response from callback url"))
+        ))
+    }
+
+    #[tokio::test]
+    async fn callback_check_fails_when_unreachable() {
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let url = format!("http://{listen_addr}/callback");
+        let client = callback_client_builder().https_only(false).build().unwrap();
+
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("callback url unreachable"))
+        ))
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn webhook_subscription_not_created_when_callback_check_fails(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsVen, Scope::ReadAll],
+        )
+        .await;
+
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let url = format!("https://{listen_addr}/callback");
+
+        let body = serde_json::json!({
+            "clientName": "myClient",
+            "objectOperations": [{
+                "mechanism": "WEBHOOK",
+                "callbackUrl": url,
+                "operations": ["CREATE"],
+                "objects": ["EVENT"]
+            }]
+        });
+
+        let (status, problem) = server
+            .request::<Problem>(Method::POST, "/subscriptions", Body::from(body.to_string()))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(problem.detail.as_deref(), Some("callback url unreachable"));
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(subscriptions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn callback_client_refuses_plain_http() {
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+
+        // the same server passes the check when HTTPS is not enforced, so the only
+        // difference below is the HTTPS rule.
+        let http_client = callback_client_builder().https_only(false).build().unwrap();
+        assert!(check_callback_url(&url, &http_client).await.is_ok());
+
+        let https_client = callback_client_builder().build().unwrap();
+
+        let result = check_callback_url(&url, &https_client).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest("callback url unreachable"))
+        ))
+    }
+
+    #[tokio::test]
+    async fn callback_check_does_not_follow_redirects() {
+        let router = axum::Router::new()
+            .route(
+                "/echo",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        axum::response::Redirect::temporary(&format!(
+                            "/echo?echo={value}",
+                            value = params.get("echo").cloned().unwrap_or_default()
+                        ))
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+
+        let client = callback_client_builder().https_only(false).build().unwrap();
+        let result = check_callback_url(&url, &client).await;
+
+        assert!(
+            matches!(
+                result,
+                Err(AppError::BadRequest("non-200 response from callback url")),
+            ),
+            "got {result:?}"
+        )
     }
 }

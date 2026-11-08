@@ -48,6 +48,8 @@ dotenvy = { workspace = true, optional = true }
 mdns-sd = { workspace = true, optional = true }
 paho-mqtt.workspace = true
 
+futures.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 futures.workspace = true
