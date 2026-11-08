@@ -301,14 +301,20 @@ pub async fn edit(
     User(user): User,
     ValidatedJson(update): ValidatedJson<SubscriptionRequest>,
 ) -> AppResponse<Subscription> {
+    let is_valid_scope =
+        user.has_scope(Scope::WriteSubscriptionsVen) || user.has_scope(Scope::WriteSubscriptionsBl);
+
+    if !is_valid_scope {
+        return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
+    };
+    //TODO echo check
+
     let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
         subscription_source.update(&id, update, &None).await?
-    } else if user.has_scope(Scope::WriteSubscriptionsVen) {
+    } else {
         subscription_source
             .update(&id, update, &Some(user.client_id()?))
             .await?
-    } else {
-        return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
     };
 
     app_state
