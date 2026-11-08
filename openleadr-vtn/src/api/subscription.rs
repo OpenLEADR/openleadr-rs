@@ -306,8 +306,12 @@ pub async fn edit(
 
     if !is_valid_scope {
         return Err(AppError::Forbidden("Missing 'write_subscriptions' scope"));
-    };
-    //TODO echo check
+    }
+
+    let webhook_callback_urls = webhook_callback_urls(&update);
+    if !webhook_callback_urls.is_empty() {
+        check_callback_urls(&webhook_callback_urls).await?;
+    }
 
     let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
         subscription_source.update(&id, update, &None).await?
@@ -2766,5 +2770,54 @@ mod test {
             ),
             "got {result:?}"
         )
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn cannot_edit_webhook_subscription_when_callback_check_fails(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsVen, Scope::ReadAll],
+        )
+        .await;
+
+        let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0))
+            .await
+            .unwrap();
+        let listen_addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let url = format!("https://{listen_addr}/callback");
+
+        let body = serde_json::json!({
+            "clientName": "abc",
+            "objectOperations": [{
+                "mechanism": "WEBHOOK",
+                "callbackUrl": url,
+                "operations": ["CREATE"],
+                "objects": ["EVENT"]
+            }]
+        });
+
+        let (status, problem) = server
+            .request::<Problem>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(body.to_string()),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST); //passes
+        assert_eq!(problem.detail.as_deref(), Some("callback url unreachable")); //passes
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        let sub = subscriptions
+            .iter()
+            .find(|s| s.id.as_str() == "subscription-1")
+            .expect("subscription should exist");
+        assert!(sub.content.object_operations.is_empty());
     }
 }
