@@ -2807,8 +2807,8 @@ mod test {
             )
             .await;
 
-        assert_eq!(status, StatusCode::BAD_REQUEST); //passes
-        assert_eq!(problem.detail.as_deref(), Some("callback url unreachable")); //passes
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(problem.detail.as_deref(), Some("callback url unreachable"));
 
         let (status, subscriptions) = server
             .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
