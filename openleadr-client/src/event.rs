@@ -1,8 +1,9 @@
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use crate::{
     ClientKind, ClientRef, ReportClient, VirtualEndNode,
     error::{Error, Result},
+    sealed::VenEventTopics,
 };
 use openleadr_wire::{
     Event, ObjectType, Report,
@@ -51,19 +52,18 @@ pub struct EventClient<K> {
 /// # })
 /// ```
 #[derive(Clone)]
-pub struct MqttEventClient<K> {
-    phantom: PhantomData<K>,
+pub struct MqttEventClient<K: ClientKind> {
     mqtt_client: paho_mqtt::AsyncClient,
     data: Event,
-    topic: String,
+    event_topics: K::EventTopics,
 }
 
-impl<K: Debug> Debug for MqttEventClient<K> {
+impl<K: Debug + ClientKind> Debug for MqttEventClient<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MqttEventClient")
-            .field("phantom", &self.phantom)
             .field("mqtt_client", &"<mqtt client>")
             .field("data", &self.data)
+            .field("event_topics", &self.event_topics)
             .finish()
     }
 }
@@ -177,15 +177,6 @@ impl<K: ClientKind> EventClient<K> {
 }
 
 impl<K: ClientKind> MqttEventClient<K> {
-    pub(super) fn from_event(topic: String, mqtt_client: AsyncClient, event: Event) -> Self {
-        Self {
-            phantom: PhantomData,
-            mqtt_client,
-            data: event,
-            topic,
-        }
-    }
-
     /// Get the id of the event
     pub fn id(&self) -> &openleadr_wire::event::EventId {
         &self.data.id
@@ -205,6 +196,16 @@ impl<K: ClientKind> MqttEventClient<K> {
     pub fn content(&self) -> &EventRequest {
         &self.data.content
     }
+}
+
+impl MqttEventClient<VirtualEndNode> {
+    pub(super) fn from_event(upload_topic: String, mqtt_client: AsyncClient, event: Event) -> Self {
+        Self {
+            mqtt_client,
+            data: event,
+            event_topics: VenEventTopics { upload_topic },
+        }
+    }
 
     /// Create a new report object
     pub fn new_report(&self, client_name: String) -> ReportRequest {
@@ -216,9 +217,7 @@ impl<K: ClientKind> MqttEventClient<K> {
             resources: vec![],
         }
     }
-}
 
-impl MqttEventClient<VirtualEndNode> {
     /// Create a new report on the VTN.
     /// The content should be created with [`EventClient::new_report`]
     /// to automatically insert the correct program ID and event ID
@@ -229,7 +228,7 @@ impl MqttEventClient<VirtualEndNode> {
 
         self.mqtt_client
             .publish(Message::new(
-                &self.topic,
+                &self.event_topics.upload_topic,
                 serde_json::to_vec(&MqttUploadRequest {
                     object_type: ObjectType::Report,
                     operation: UploadOperation::Post,

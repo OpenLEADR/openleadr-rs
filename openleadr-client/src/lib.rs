@@ -91,7 +91,7 @@ pub use resource::*;
 pub use timeline::*;
 pub use ven::*;
 
-use crate::error::Result;
+use crate::{error::Result, sealed::SealedClientKind};
 use openleadr_wire::{
     Program,
     program::{ProgramId, ProgramRequest},
@@ -199,9 +199,31 @@ impl Debug for AuthToken {
     }
 }
 
+mod sealed {
+    use std::fmt::Debug;
+
+    use crate::{BusinessLogic, VirtualEndNode};
+
+    #[derive(Debug, Clone)]
+    pub struct VenEventTopics {
+        pub(crate) upload_topic: String,
+    }
+
+    pub trait SealedClientKind {
+        type EventTopics: Debug + Clone;
+    }
+
+    impl SealedClientKind for BusinessLogic {
+        type EventTopics = ();
+    }
+    impl SealedClientKind for VirtualEndNode {
+        type EventTopics = VenEventTopics;
+    }
+}
+
 /// This trait is used to mark the kind of [`Client`] to use,
 /// either a [`BusinessLogic`], or a [`VirtualEndNode`]
-pub trait ClientKind: Copy {}
+pub trait ClientKind: Copy + SealedClientKind {}
 #[derive(Copy, Clone, Debug)]
 /// Used to mark the kind of [`Client`], see also [`ClientKind`]
 pub struct BusinessLogic;
@@ -801,7 +823,7 @@ impl<K: ClientKind> Client<K> {
     }
 }
 
-impl<K: ClientKind> MqttClient<K> {
+impl MqttClient<VirtualEndNode> {
     /// Internal operation that fetches the topic for uploading of new reports.
     async fn upload_topic(&self) -> Result<String> {
         let response: NotifierTopicsResponse = self
@@ -820,7 +842,7 @@ impl<K: ClientKind> MqttClient<K> {
         program_id: Option<&ProgramId>,
         filter: Filter<'_, impl AsRef<str>>,
         pagination: PaginationOptions,
-    ) -> Result<Vec<MqttEventClient<K>>> {
+    ) -> Result<Vec<MqttEventClient<VirtualEndNode>>> {
         let topic = self.upload_topic().await?;
 
         // convert query params
@@ -852,7 +874,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         program_id: Option<&ProgramId>,
         filter: Filter<'_, impl AsRef<str> + Clone>,
-    ) -> Result<Vec<MqttEventClient<K>>> {
+    ) -> Result<Vec<MqttEventClient<VirtualEndNode>>> {
         self.client_ref
             .iterate_pages(|skip, limit| {
                 self.get_events(
@@ -865,7 +887,7 @@ impl<K: ClientKind> MqttClient<K> {
     }
 
     /// Get an event by id
-    pub async fn get_event_by_id(&self, id: &EventId) -> Result<MqttEventClient<K>> {
+    pub async fn get_event_by_id(&self, id: &EventId) -> Result<MqttEventClient<VirtualEndNode>> {
         let topic = self.upload_topic().await?;
 
         let event = self
