@@ -1,7 +1,14 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::{Header, encode};
+use tokio::{
+    sync::{Mutex, OwnedMutexGuard, RwLock},
+    task::JoinHandle,
+};
 
 use crate::api::auth::ResponseOAuthError;
 use openleadr_wire::{
@@ -20,45 +27,255 @@ use axum_extra::{
 };
 #[cfg(feature = "internal-oauth")]
 use jsonwebtoken::EncodingKey;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{
+    Algorithm, DecodingKey, Validation,
+    jwk::{AlgorithmParameters, Jwk},
+};
 use tracing::{trace, warn};
 
 use derive_more::AsRef;
 use openleadr_wire::ClientId;
 use reqwest::Url;
-use serde::{
-    Deserialize, Deserializer, de,
-    de::{DeserializeOwned, Visitor},
-};
+use serde::{Deserialize, Deserializer, de, de::Visitor};
 use std::{fmt, str::FromStr};
+
+type JwkKeys = Vec<(Option<String>, DecodingKey)>;
+
+/// Time the keys are used before they are refreshed
+const DEFAULT_JWKS_CACHE_TTL: Duration = Duration::from_secs(300);
+/// Minimum time between two fetches of the JWKS, to prevent a flood of requests to the OAuth server
+const DEFAULT_JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(10);
+/// Keys that could not be refreshed for this long are no longer used, so revoked keys stop being
+/// accepted even if the OAuth server cannot be reached
+const JWKS_MAX_STALE: Duration = Duration::from_secs(3600);
+
+fn duration_from_env(name: &str, default: Duration) -> Duration {
+    match std::env::var(name) {
+        Err(_) => default,
+        Ok(value) => match value.trim().parse::<u64>() {
+            Ok(secs) if secs >= 1 => Duration::from_secs(secs),
+            _ => {
+                warn!(
+                    "Ignoring {name}={value:?}: it must be a whole number of seconds, at least 1. Using {default:?}"
+                );
+                default
+            }
+        },
+    }
+}
+
+struct CachedKeys {
+    keys: Arc<JwkKeys>,
+    fetched_at: Instant,
+}
+
+#[derive(Deserialize)]
+struct RawJwks {
+    keys: Vec<serde_json::Value>,
+}
+
+/// Cache of the keys published at `OAUTH_JWKS_LOCATION`, so they are not fetched for every request
+struct JwksCache {
+    http: reqwest::Client,
+    location: String,
+    key_type: OAuthKeyType,
+    algorithms: Vec<Algorithm>,
+    ttl: Duration,
+    refresh_cooldown: Duration,
+    max_stale: Duration,
+    cached: RwLock<Option<CachedKeys>>,
+    /// Held while fetching, so only one fetch runs at a time. Contains the start of the last fetch.
+    last_attempt: Arc<Mutex<Option<Instant>>>,
+}
+
+impl JwksCache {
+    fn from_env(location: String, key_type: OAuthKeyType, algorithms: Vec<Algorithm>) -> Self {
+        Self::new(
+            location,
+            key_type,
+            algorithms,
+            duration_from_env("OAUTH_JWKS_CACHE_TTL_SECONDS", DEFAULT_JWKS_CACHE_TTL),
+            duration_from_env(
+                "OAUTH_JWKS_REFRESH_COOLDOWN_SECONDS",
+                DEFAULT_JWKS_REFRESH_COOLDOWN,
+            ),
+        )
+    }
+
+    fn new(
+        location: String,
+        key_type: OAuthKeyType,
+        algorithms: Vec<Algorithm>,
+        ttl: Duration,
+        refresh_cooldown: Duration,
+    ) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(2))
+                .timeout(Duration::from_secs(5))
+                .build()
+                .expect("Could not build the HTTP client used to fetch OAUTH_JWKS_LOCATION"),
+            location,
+            key_type,
+            algorithms,
+            ttl,
+            refresh_cooldown,
+            max_stale: JWKS_MAX_STALE,
+            cached: RwLock::new(None),
+            last_attempt: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// The cached keys and when they were fetched, unless they are older than the max stale time
+    async fn cached_keys(&self) -> Option<(Arc<JwkKeys>, Instant)> {
+        self.cached
+            .read()
+            .await
+            .as_ref()
+            .filter(|c| c.fetched_at.elapsed() < self.max_stale)
+            .map(|c| (c.keys.clone(), c.fetched_at))
+    }
+
+    fn unavailable() -> OAuthError {
+        OAuthError::new(OAuthErrorType::NoAvailableKeys)
+            .with_description("OAuth server keys are currently unavailable".to_string())
+    }
+
+    async fn cached_keys_or_unavailable(&self) -> Result<Arc<JwkKeys>, OAuthError> {
+        self.cached_keys()
+            .await
+            .map(|(keys, _)| keys)
+            .ok_or_else(Self::unavailable)
+    }
+
+    fn in_cooldown(&self, last_attempt: &Option<Instant>) -> bool {
+        last_attempt.is_some_and(|t| t.elapsed() < self.refresh_cooldown)
+    }
+
+    /// Returns the keys to validate tokens with. Expired keys are returned right away and
+    /// refreshed in the background, `force` waits for a refresh (limited by the cooldown).
+    async fn keys(self: &Arc<Self>, force: bool) -> Result<Arc<JwkKeys>, OAuthError> {
+        match self.cached_keys().await {
+            Some((keys, fetched_at)) if !force => {
+                if fetched_at.elapsed() >= self.ttl
+                    && let Ok(last_attempt) = self.last_attempt.clone().try_lock_owned()
+                    && !self.in_cooldown(&last_attempt)
+                {
+                    // Not awaited, the keys are used when the fetch is done
+                    drop(self.spawn_fetch(last_attempt));
+                }
+                Ok(keys)
+            }
+            _ => {
+                let last_attempt = self.last_attempt.clone().lock_owned().await;
+                if self.in_cooldown(&last_attempt) {
+                    return self.cached_keys_or_unavailable().await;
+                }
+                self.spawn_fetch(last_attempt)
+                    .await
+                    .unwrap_or_else(|_| Err(Self::unavailable()))
+            }
+        }
+    }
+
+    /// Fetch the keys in a task, so the fetch is not cancelled when the request is
+    fn spawn_fetch(
+        self: &Arc<Self>,
+        mut last_attempt: OwnedMutexGuard<Option<Instant>>,
+    ) -> JoinHandle<Result<Arc<JwkKeys>, OAuthError>> {
+        *last_attempt = Some(Instant::now());
+        let this = self.clone();
+        tokio::spawn(async move {
+            // Releases the lock when the task ends, also on a panic
+            let _fetching = last_attempt;
+            this.fetch_and_store().await
+        })
+    }
+
+    /// Fetch the keys and replace the cached keys, or use the cached keys if that fails
+    async fn fetch_and_store(&self) -> Result<Arc<JwkKeys>, OAuthError> {
+        match self.fetch().await {
+            Ok(keys) if !keys.is_empty() => {
+                let keys = Arc::new(keys);
+                *self.cached.write().await = Some(CachedKeys {
+                    keys: keys.clone(),
+                    fetched_at: Instant::now(),
+                });
+                Ok(keys)
+            }
+            Ok(_) => {
+                warn!("OAUTH_JWKS_LOCATION returned no usable keys");
+                self.cached_keys_or_unavailable().await
+            }
+            Err(err) => {
+                warn!("Could not fetch keys from OAUTH_JWKS_LOCATION: {err}");
+                self.cached_keys_or_unavailable().await
+            }
+        }
+    }
+
+    /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
+    async fn fetch(&self) -> Result<JwkKeys, String> {
+        let RawJwks { keys } = self
+            .http
+            .get(&self.location)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+            .map_err(|err| format!("Could not reach OAUTH_JWKS_LOCATION: {err}"))?
+            .json()
+            .await
+            .map_err(|err| format!("Could not parse keys from OAUTH_JWKS_LOCATION: {err}"))?;
+
+        Ok(keys
+            .into_iter()
+            .filter_map(|key| self.parse_key(key))
+            .collect())
+    }
+
+    /// Parse a key, if it is of the expected key type and algorithm
+    fn parse_key(&self, key: serde_json::Value) -> Option<(Option<String>, DecodingKey)> {
+        // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
+        if let Some(alg) = key.get("alg")
+            && !serde_json::from_value::<Algorithm>(alg.clone())
+                .is_ok_and(|alg| self.algorithms.contains(&alg))
+        {
+            return None;
+        }
+
+        let jwk: Jwk = serde_json::from_value(key)
+            .inspect_err(|err| warn!("Ignoring invalid JWK: {err}"))
+            .ok()?;
+
+        if !matches!(
+            (&self.key_type, &jwk.algorithm),
+            (OAuthKeyType::Rsa, AlgorithmParameters::RSA(_))
+                | (OAuthKeyType::Ec, AlgorithmParameters::EllipticCurve(_))
+                | (OAuthKeyType::Ed, AlgorithmParameters::OctetKeyPair(_))
+        ) {
+            return None;
+        }
+
+        // Without a kid, a token naming a kid would never match and refresh the keys on every request
+        let Some(kid) = jwk.common.key_id.clone() else {
+            warn!("Ignoring JWK without kid");
+            return None;
+        };
+
+        DecodingKey::from_jwk(&jwk)
+            .inspect_err(|err| warn!("Ignoring unusable JWK kid={kid}: {err}"))
+            .ok()
+            .map(|decoding_key| (Some(kid), decoding_key))
+    }
+}
 
 pub struct JwtManager {
     #[cfg(feature = "internal-oauth")]
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
-    jwks_location: Option<String>,
-    key_type: OAuthKeyType,
+    jwks_cache: Option<Arc<JwksCache>>,
     validation: Validation,
     token_url: Url,
-}
-
-fn deserialize_vec_skipping_invalid<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: DeserializeOwned,
-{
-    // Deserialize as Vec<Value> first
-    let raw_vec: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
-
-    // Try to deserialize each element into T, skipping errors
-    let mut result = Vec::new();
-    for val in raw_vec {
-        match serde_json::from_value(val) {
-            Ok(item) => result.push(item),
-            Err(err) => warn!("Ignoring invalid JWK: {err:?}"),
-        }
-    }
-    Ok(result)
 }
 
 /// Deserializes the JWT `aud` claim which can be either a single string or an array of strings.
@@ -165,55 +382,6 @@ impl FromStr for Scope {
             _ => Err(format!("Invalid scope: {}", s)),
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct RsaKey {
-    kty: OAuthKeyType,
-    #[serde(default)]
-    alg: Option<Algorithm>,
-    n: String,
-    e: String,
-    kid: String,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct RsaKeys {
-    #[serde(deserialize_with = "deserialize_vec_skipping_invalid")]
-    keys: Vec<RsaKey>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct EcKey {
-    kty: OAuthKeyType,
-    #[serde(default)]
-    alg: Option<Algorithm>,
-    x: String,
-    y: String,
-    crv: String,
-    kid: String,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct EcKeys {
-    #[serde(deserialize_with = "deserialize_vec_skipping_invalid")]
-    keys: Vec<EcKey>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct EdKey {
-    kty: OAuthKeyType,
-    #[serde(default)]
-    alg: Option<Algorithm>,
-    x: String,
-    crv: String,
-    kid: String,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct EdKeys {
-    #[serde(deserialize_with = "deserialize_vec_skipping_invalid")]
-    keys: Vec<EdKey>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -349,12 +517,18 @@ impl JwtManager {
         validation: Validation,
         token_url: Url,
     ) -> Self {
+        // Keys are only fetched (and cached) when there is no static decoding key.
+        let jwks_cache = match (&decoding_key, jwks_location) {
+            (None, Some(location)) if key_type != OAuthKeyType::Hmac => Some(Arc::new(
+                JwksCache::from_env(location, key_type, validation.algorithms.clone()),
+            )),
+            _ => None,
+        };
         Self {
             #[cfg(feature = "internal-oauth")]
             encoding_key: None,
             decoding_key,
-            jwks_location,
-            key_type,
+            jwks_cache,
             validation,
             token_url,
         }
@@ -365,15 +539,13 @@ impl JwtManager {
     pub(crate) fn new_internal_auth(
         encoding_key: EncodingKey,
         decoding_key: DecodingKey,
-        key_type: OAuthKeyType,
         validation: Validation,
         token_url: Url,
     ) -> Self {
         Self {
             encoding_key: Some(encoding_key),
             decoding_key: Some(decoding_key),
-            jwks_location: None,
-            key_type,
+            jwks_cache: None,
             validation,
             token_url,
         }
@@ -432,8 +604,26 @@ impl JwtManager {
                 Ok(Self::check_time(token_data.claims)?)
             }
             None => {
-                // Fetch server keys with kid references
-                let keys = self.fetch_keys_with_kid().await;
+                let Some(cache) = &self.jwks_cache else {
+                    return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
+                        .with_description(
+                            "No key or OAUTH_JWKS_LOCATION configured to validate tokens with"
+                                .to_string(),
+                        )
+                        .into());
+                };
+                // Get the server keys with kid references, from the cache if possible
+                let mut keys = cache.keys(false).await?;
+
+                // A token naming a key we do not know about means the OAuth server may have
+                // rotated its keys: refresh once (rate limited) and look again.
+                if let Some(kid) = jsonwebtoken::decode_header(token).ok().and_then(|h| h.kid)
+                    && !keys
+                        .iter()
+                        .any(|(known, _)| known.as_deref() == Some(kid.as_str()))
+                {
+                    keys = cache.keys(true).await?;
+                }
 
                 if keys.is_empty() {
                     return Err(OAuthError::new(OAuthErrorType::NoAvailableKeys)
@@ -510,91 +700,6 @@ impl JwtManager {
         }
 
         Ok(claims)
-    }
-
-    /// Fetch OAUTH decoding keys from OAUTH_JWKS_LOCATION
-    pub async fn fetch_keys_with_kid(&self) -> Vec<(Option<String>, DecodingKey)> {
-        let mut keys = Vec::new();
-
-        match self.key_type {
-            OAuthKeyType::Hmac => {}
-            OAuthKeyType::Rsa => {
-                let jwks_location = self.jwks_location.as_ref().expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type RSA");
-                let rsa_params = reqwest::get(jwks_location)
-                    .await
-                    .expect("Could not reach OAUTH_JWKS_LOCATION");
-                let rsa_keys: RsaKeys = rsa_params
-                    .json()
-                    .await
-                    .expect("Could not parse RSA key from OAUTH_JWKS_LOCATION");
-
-                for key in rsa_keys.keys {
-                    let should_add = match &key.alg {
-                        Some(alg) => self.validation.algorithms.contains(alg),
-                        None => true, // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
-                    };
-
-                    if key.kty == OAuthKeyType::Rsa && should_add {
-                        keys.push((
-                            Some(key.kid.clone()),
-                            DecodingKey::from_rsa_components(&key.n, &key.e)
-                                .expect("Cannot read RSA key"),
-                        ));
-                    }
-                }
-            }
-            OAuthKeyType::Ec => {
-                let jwks_location = self.jwks_location.as_ref().expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
-                let ec_params = reqwest::get(jwks_location)
-                    .await
-                    .expect("Could not reach OAUTH_JWKS_LOCATION");
-                let ec_keys: EcKeys = ec_params
-                    .json()
-                    .await
-                    .expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
-
-                for key in ec_keys.keys {
-                    let should_add = match &key.alg {
-                        Some(alg) => self.validation.algorithms.contains(alg),
-                        None => true, // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
-                    };
-
-                    if key.kty == OAuthKeyType::Ec && should_add {
-                        keys.push((
-                            Some(key.kid.clone()),
-                            DecodingKey::from_ec_components(&key.x, &key.y)
-                                .expect("Cannot read EC key"),
-                        ));
-                    }
-                }
-            }
-            OAuthKeyType::Ed => {
-                let jwks_location = self.jwks_location.as_ref().expect("OAUTH_JWKS_LOCATION environment variable must be set for external OAuth provider with key type EC");
-                let ed_params = reqwest::get(jwks_location)
-                    .await
-                    .expect("Could not reach OAUTH_JWKS_LOCATION");
-                let ed_keys: EdKeys = ed_params
-                    .json()
-                    .await
-                    .expect("Could not parse EC key from OAUTH_JWKS_LOCATION");
-
-                for key in ed_keys.keys {
-                    let should_add = match &key.alg {
-                        Some(alg) => self.validation.algorithms.contains(alg),
-                        None => true, // allow if no alg specified inside the JWK. Optional in the JWK spec (not provided by Entra for example)
-                    };
-
-                    if key.kty == OAuthKeyType::Ed && should_add {
-                        keys.push((
-                            Some(key.kid.clone()),
-                            DecodingKey::from_ed_components(&key.x).expect("Cannot read Ed key"),
-                        ));
-                    }
-                }
-            }
-        }
-
-        keys
     }
 }
 
@@ -791,5 +896,409 @@ mod test {
                 roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
         );
+    }
+}
+
+#[cfg(test)]
+impl JwtManager {
+    /// Override the JWKS cache timings (tests only).
+    fn with_jwks_cache_settings(mut self, ttl: Duration, refresh_cooldown: Duration) -> Self {
+        let old = self
+            .jwks_cache
+            .take()
+            .expect("JWKS cache must be configured");
+        self.jwks_cache = Some(Arc::new(JwksCache::new(
+            old.location.clone(),
+            old.key_type,
+            old.algorithms.clone(),
+            ttl,
+            refresh_cooldown,
+        )));
+        self
+    }
+}
+
+#[cfg(test)]
+mod jwks_cache_test {
+    // Tests for fetching and caching keys from OAUTH_JWKS_LOCATION, using a local JWKS server.
+    // The RSA keys below are throw-away keys, generated for these tests only (not secrets).
+
+    use super::*;
+    use axum::{Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
+    use std::sync::{
+        Mutex as StdMutex,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    };
+
+    const KEY_A_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDzcASw2omXft8w
+YuVpYDY11Eh67San7dkkE9pcrSsx0LvlNNa2uSkbKobnLVNoKUlQrE7WAjXN8T39
+lyqYUI4/Glmffkv7bxylRDOawNIYhlo3ws6Ur55zm3dDG2qQ+UPjjrfsHDfc0fdR
+6fO6BvDOlmSpxf4lkq2IacBXRClS7ga3fQmSjp7byovFmsSyaEfvZ3PocsPivzNz
+Y56NzJmwXONC43XqkP72ECGnhh6PXssG1q8OCrNPe9foWr+rnKH+e48q+VYcrs8q
+DepLNpI+i41zqX3V8wCMsQh/fNUvO4ycR6wg8r0tWIJ9/9smiFUV4NXVYbC7D+fI
++oiO2fohAgMBAAECggEACnQ6KVebLseuoTrv/+JXNaDSA4BlZ3L//wwAtbfkidk9
+RmqqWVKyhJWDEVCpmyihur6JjKhv49ILL9WS6VNVRnm01VP0wp2LCQBYqHnFE/NK
+EsixeyJfDzcjDB1Ualkf/JjThmbQUdHs+WYu9qNHalG8TSug3j9yJxBmh4DYdvSH
+IX/Ys1nQaKcRQJUNhxwDanPx85gF9B3tVBmG0K+iNq9ZtT9M91J2KIKqKHWucHoN
+y6/g3CFhgGRoMBcB69Dfslf26TeQiv3YP94HThU31GtcNcCHVNqEyvxx5a9OGdU9
+ET/fNIVfy8Cz3XL3/xMmwpcj222WeKz1nihgj+i0yQKBgQD7i1spACVhHgHSmd2A
+9fa8xig6adY2koc0Nk558f9JuPSrt7BJid8lsA/uairuBwwI9tFXYnv+M9Q0dH5s
+CNZ3QNLSe0rIMnpJgjGHU1ttjDwAScZAgvYiuAV1WS2jD9bSjrdYi0v57dpC+3aN
++pbFrm0EoNMew5JXHiY0Dvc3OQKBgQD3v+bHjQgazcLpEj4Ij+zrWD3EOu1SUsmz
+H8K6ahLLHF2kG9+d+kF9funR1MySLT+kiPYRabO9U5rCmIjVlywiPSlG1yN+9Tus
+vRBSREASuwDHPmaI9UP2YOlNh403i4b7nVhvSshmqQr3X/xt/lMEjVAYyS6JB1AO
+wIwEs0EyKQKBgQDQ9KWIfKeQcmXfNZPMcgZCMHXweETLVpNb6xTrtfx0mGEfWFrn
+69DjtMq3KZh53H7B345tAdGwjAtme7MdOYY20DGRSXwIq+3rrGxKVxNnAAxDzQUU
+R/YBR065eZgwkZLJnGZv9l7pwg0CgXOtY5HlqwzCwHpAXwPsvI3NxvTT+QKBgQCy
+H7/+MxDjrJJ5XktJfqk5X/0wq6lbafhol+o6eu8+JwvQZNX20Cnr36ae3Z+jbXL3
+ih1Y0aWP9p8rT935qzHpAA5AR4fWzNx1yo0EiNuEW/0oQ14XFDgj2POEcXP/vopz
+N2KQybSh0uH2j4V/U74+ZJd06phRnvdZU+iXrIWwWQKBgHLoXYMnlK6mRJHhmR8P
+miBq5kxcTzYaSGrQ97XdOpEMuhdpehzSBR7fK7KnmojZXM0kW5cnvWuzZnUA7z0+
+EAjIVRHbWwpOfVYNaB709b11+T42U3tv4V1GRAqcevT+wRo8YNMsuzHxrlJ+3C/V
+rouecEEcdM9ESGV3NT/7NdG4
+-----END PRIVATE KEY-----
+"#; // gitleaks:allow
+    const KEY_A_N: &str = "83AEsNqJl37fMGLlaWA2NdRIeu0mp-3ZJBPaXK0rMdC75TTWtrkpGyqG5y1TaClJUKxO1gI1zfE9_ZcqmFCOPxpZn35L-28cpUQzmsDSGIZaN8LOlK-ec5t3QxtqkPlD44637Bw33NH3UenzugbwzpZkqcX-JZKtiGnAV0QpUu4Gt30Jko6e28qLxZrEsmhH72dz6HLD4r8zc2OejcyZsFzjQuN16pD-9hAhp4Yej17LBtavDgqzT3vX6Fq_q5yh_nuPKvlWHK7PKg3qSzaSPouNc6l91fMAjLEIf3zVLzuMnEesIPK9LViCff_bJohVFeDV1WGwuw_nyPqIjtn6IQ";
+    const KEY_B_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCZVTGl02OARs2a
+vwK+qBdM66g+PeRg/XPiE9XAbJIIoSeQaBwHEg5SoT6+KK9A4Z3zmInOFhtzz0ik
+vcQvHu6pmE0gvKLTo0NDvZlpFhCohBHzi3Mkk6iPifc0enzM2MtiKNkG+uaf3VcS
++OXI5UvH4mPBtnapozLk2BPMSj+66kABDIIUajceGgiW09hUapmMiUH8ag/NuAPK
+AYVR3pS4lJmoiBuCIs95T7zf/unv5oR3QzDlLSxlLl7KgE1Yuwflh4nxdsUlfrIt
+Is/bh5AC0FOe8MRRzAJjWjV5ZJUrbq5YzZi65ovreg8JqTER8aKP+7AyG7e/rc0x
+oQVotq2HAgMBAAECggEANWRFg/UeRiohaPuPNJ1qc6XxcS7zCdTnl7cJbNZBaZDY
+KoAeFlYyt5IfO28GS4Tkj9CzV5g6GfL5XCgaGsBeIZ7/aGFXH3PPtdRdCYsd5NgM
+Oi56OyfRf53ufw8RyvDIrVcE71nJmawkqF4UAYbagvExhGAJZNuHmskk57OJCogB
+qfylmq4kyj9jjNVzKKWtkjqVRF1gJjiv1Ktx2L+rK5dNVlbBexylLToBdJL3LzC7
+Iy/j72jbSm+qMZKRH6Tes2fcyRYsPW9r9vb0E44fhWAOb36guVP+U0aeIS0Ih5Bb
+DPycEAOIpc6ac2mqYCxeRRo77hzfRDY5rkXWdJ+uiQKBgQDXSBxSbmZOK/q6g3GR
+xbBMAVmyMFyOxkKxMhheLPO9wBHDHlLUPtPjlRX8ua9Lbr/6vSJHCEQo5jCVutMU
+CeKroEnZLjBGxFYpGE/gJk5u06CmT0bRK6nPdfSl3lJn9x4x/cLyeGO9eEXl9Ous
+fZw9wpK93GND7i0eLHZkmB2suQKBgQC2VYg9QJLpWdG/ATGlTyPzkLbq/og2Nx6m
+4w6Tb1II7VgJYNF9pjGCoQWvld0QVlUbFFOSk/qUKl515OCLP1SsnE8DtvmuM1kP
+WzTecA5zMBPDXutrzfJTEFdkyf0HQ5g2VyFdhWFaRGNm8UGrCVcLHtuqvk7ZAO6x
+rFqBBJSMPwKBgDV84iSM73g+rxYGMIJyZqILt9hw8Z47njheZPWJH6omfYNIFnZL
+gePKl+Lp06bfRm2q7khNwnmS78FT4Lva1OmlcpO2SSJcB7hAJSBhBB2/EOwhSEwS
+GCfGe9l2Sm0wVd0/2l7aEJXzuxIubxu1PcuOe10W08b991HG5EeMD9tpAoGAe/vl
+TGFghLTC33LcY2BRPgoll93EmbkZarny62ZDDjb2KkpfqWUdPYpo52CslbNe468K
+tR1SwvWcjeY4mfdSiJ0xTYFafo4D/WEzrh3cdY83oR4mT4QXR0xRYQPIvuvD0Q+m
+bIWKEWt3fESJNth/C9zL2mrWCtGLfd2JHToUGNkCgYBxmaWw0POs5dUoyd9JiviS
+iQ2J0+C0y+fP+q7c8oni4DkXSTDCfMUbrPssmHGolQpCxYK4cPdZ4akaaYK5X8x9
+YfKajyWaUpmoWvwPXWkQJkK5vQZ1GJ+S1hI5A2qfvCSz6xrkNIgSUwZ6VcPBGjvy
+7xNr5qWWXsJmPF6tBlvn5Q==
+-----END PRIVATE KEY-----
+"#; // gitleaks:allow
+    const KEY_B_N: &str = "mVUxpdNjgEbNmr8CvqgXTOuoPj3kYP1z4hPVwGySCKEnkGgcBxIOUqE-viivQOGd85iJzhYbc89IpL3ELx7uqZhNILyi06NDQ72ZaRYQqIQR84tzJJOoj4n3NHp8zNjLYijZBvrmn91XEvjlyOVLx-JjwbZ2qaMy5NgTzEo_uupAAQyCFGo3HhoIltPYVGqZjIlB_GoPzbgDygGFUd6UuJSZqIgbgiLPeU-83_7p7-aEd0Mw5S0sZS5eyoBNWLsH5YeJ8XbFJX6yLSLP24eQAtBTnvDEUcwCY1o1eWSVK26uWM2YuuaL63oPCakxEfGij_uwMhu3v63NMaEFaLathw";
+
+    #[derive(Clone)]
+    struct JwksServer {
+        hits: Arc<AtomicUsize>,
+        fail: Arc<AtomicBool>,
+        delay_ms: Arc<AtomicU64>,
+        body: Arc<StdMutex<String>>,
+    }
+
+    impl JwksServer {
+        fn hits(&self) -> usize {
+            self.hits.load(Ordering::SeqCst)
+        }
+
+        fn set_keys(&self, keys: &[(&str, &str)]) {
+            let keys: Vec<_> = keys
+                .iter()
+                .map(|(kid, n)| {
+                    format!(r#"{{"kty":"RSA","kid":"{kid}","alg":"RS256","use":"sig","n":"{n}","e":"AQAB"}}"#)
+                })
+                .collect();
+            *self.body.lock().unwrap() = format!(r#"{{"keys":[{}]}}"#, keys.join(","));
+        }
+
+        async fn wait_for_hits(&self, hits: usize) {
+            for _ in 0..100 {
+                if self.hits() >= hits {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("expected {hits} JWKS fetches, got {}", self.hits());
+        }
+    }
+
+    async fn jwks_handler(State(s): State<JwksServer>) -> axum::response::Response {
+        s.hits.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(s.delay_ms.load(Ordering::SeqCst))).await;
+        if s.fail.load(Ordering::SeqCst) {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+        (
+            [("content-type", "application/json")],
+            s.body.lock().unwrap().clone(),
+        )
+            .into_response()
+    }
+
+    async fn spawn_jwks_server() -> (String, JwksServer) {
+        let server = JwksServer {
+            hits: Arc::new(AtomicUsize::new(0)),
+            fail: Arc::new(AtomicBool::new(false)),
+            delay_ms: Arc::new(AtomicU64::new(0)),
+            body: Arc::new(StdMutex::new(String::new())),
+        };
+        server.set_keys(&[("key-a", KEY_A_N)]);
+        let app = Router::new()
+            .route("/jwks", get(jwks_handler))
+            .with_state(server.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}/jwks"), server)
+    }
+
+    fn validation() -> Validation {
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.validate_nbf = true;
+        validation.validate_aud = false;
+        validation
+    }
+
+    fn manager(url: String, ttl: Duration, cooldown: Duration) -> JwtManager {
+        JwtManager::new(
+            None,
+            Some(url),
+            OAuthKeyType::Rsa,
+            validation(),
+            "http://localhost/auth/token".parse().unwrap(),
+        )
+        .with_jwks_cache_settings(ttl, cooldown)
+    }
+
+    fn token(kid: &str, pem: &str) -> String {
+        let now = chrono::Utc::now().timestamp();
+        let claims = Claims {
+            sub: "client-1".to_string(),
+            exp: now + 3600,
+            iat: Some(now),
+            nbf: Some(now - 10),
+            aud: None,
+            scope: Scopes::default(),
+            roles: Scopes::default(),
+        };
+        let mut header = jsonwebtoken::Header::new(Algorithm::RS256);
+        header.kid = Some(kid.to_string());
+        jsonwebtoken::encode(
+            &header,
+            &claims,
+            &jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    const LONG: Duration = Duration::from_secs(3600);
+
+    #[tokio::test]
+    async fn keys_are_fetched_once_for_many_requests() {
+        let (url, server) = spawn_jwks_server().await;
+        let manager = manager(url, LONG, LONG);
+        let token = token("key-a", KEY_A_PEM);
+        for _ in 0..50 {
+            assert!(manager.decode_and_validate(&token).await.is_ok());
+        }
+        assert_eq!(server.hits(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_requests_share_one_fetch() {
+        let (url, server) = spawn_jwks_server().await;
+        let manager = Arc::new(manager(url, LONG, LONG));
+        let token = Arc::new(token("key-a", KEY_A_PEM));
+        let tasks: Vec<_> = (0..64)
+            .map(|_| {
+                let (manager, token) = (manager.clone(), token.clone());
+                tokio::spawn(async move { manager.decode_and_validate(&token).await.is_ok() })
+            })
+            .collect();
+        for task in tasks {
+            assert!(task.await.unwrap());
+        }
+        assert_eq!(server.hits(), 1);
+    }
+
+    #[tokio::test]
+    async fn expired_keys_are_used_while_refreshing_in_the_background() {
+        let (url, server) = spawn_jwks_server().await;
+        let manager = manager(url, Duration::from_millis(50), Duration::ZERO);
+        let token = token("key-a", KEY_A_PEM);
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+
+        // The keys expire and the OAuth server becomes slow: requests must not wait for it.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        server.delay_ms.store(800, Ordering::SeqCst);
+        let started = Instant::now();
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+        assert!(
+            started.elapsed() < Duration::from_millis(300),
+            "request waited for the slow OAuth server: {:?}",
+            started.elapsed()
+        );
+        // ... while the refresh does happen in the background.
+        server.wait_for_hits(2).await;
+    }
+
+    #[tokio::test]
+    async fn unknown_kid_refreshes_once_and_is_rate_limited() {
+        let (url, server) = spawn_jwks_server().await;
+        let cooldown = Duration::from_millis(500);
+        let manager = manager(url, LONG, cooldown);
+        assert!(
+            manager
+                .decode_and_validate(&token("key-a", KEY_A_PEM))
+                .await
+                .is_ok()
+        );
+        assert_eq!(server.hits(), 1);
+
+        // A token with an unknown kid right after a fetch is rate limited: no new fetch.
+        server.set_keys(&[("key-a", KEY_A_N), ("key-b", KEY_B_N)]);
+        assert!(
+            manager
+                .decode_and_validate(&token("key-b", KEY_B_PEM))
+                .await
+                .is_err()
+        );
+        assert_eq!(server.hits(), 1);
+
+        // Once the cooldown has passed, the OAuth server's rotated key (key-b) is picked up.
+        tokio::time::sleep(cooldown + Duration::from_millis(100)).await;
+        assert!(
+            manager
+                .decode_and_validate(&token("key-b", KEY_B_PEM))
+                .await
+                .is_ok()
+        );
+        assert_eq!(server.hits(), 2);
+
+        // Tokens with a kid nobody knows must not make us hammer the OAuth server either.
+        for _ in 0..20 {
+            let _ = manager
+                .decode_and_validate(&token("unknown", KEY_A_PEM))
+                .await;
+        }
+        assert_eq!(server.hits(), 2);
+    }
+
+    #[tokio::test]
+    async fn previous_keys_are_used_when_a_refresh_fails() {
+        let (url, server) = spawn_jwks_server().await;
+        let manager = manager(url, Duration::from_millis(50), Duration::ZERO);
+        let token = token("key-a", KEY_A_PEM);
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+
+        server.fail.store(true, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+        server.wait_for_hits(2).await; // the refresh was attempted, and failed
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn keys_that_could_not_be_refreshed_for_too_long_are_not_used() {
+        let (url, server) = spawn_jwks_server().await;
+        let mut manager = manager(url, Duration::from_millis(50), Duration::ZERO);
+        Arc::get_mut(manager.jwks_cache.as_mut().unwrap())
+            .unwrap()
+            .max_stale = Duration::from_millis(300);
+        let token = token("key-a", KEY_A_PEM);
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+
+        // The OAuth server goes down: the last known keys are used, but not forever.
+        server.fail.store(true, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(manager.decode_and_validate(&token).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn keys_removed_by_the_oauth_server_are_no_longer_accepted() {
+        let (url, server) = spawn_jwks_server().await;
+        let manager = manager(url, Duration::from_millis(50), Duration::ZERO);
+        let token_a = token("key-a", KEY_A_PEM);
+        assert!(manager.decode_and_validate(&token_a).await.is_ok());
+
+        // The OAuth server revokes key-a and only publishes key-b.
+        server.set_keys(&[("key-b", KEY_B_N)]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let _ = manager.decode_and_validate(&token_a).await; // triggers the background refresh
+        server.wait_for_hits(2).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(manager.decode_and_validate(&token_a).await.is_err());
+        assert!(
+            manager
+                .decode_and_validate(&token("key-b", KEY_B_PEM))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_request_does_not_cancel_the_fetch() {
+        let (url, server) = spawn_jwks_server().await;
+        server.delay_ms.store(300, Ordering::SeqCst);
+        let manager = Arc::new(manager(url, LONG, LONG));
+        let token = token("key-a", KEY_A_PEM);
+
+        // The client disconnects while the keys are being fetched
+        let request = {
+            let (manager, token) = (manager.clone(), token.clone());
+            tokio::spawn(async move { manager.decode_and_validate(&token).await })
+        };
+        server.wait_for_hits(1).await;
+        request.abort();
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+        assert_eq!(server.hits(), 1);
+    }
+
+    #[tokio::test]
+    async fn failing_oauth_server_without_cached_keys_is_an_error_not_a_panic() {
+        let (url, server) = spawn_jwks_server().await;
+        server.fail.store(true, Ordering::SeqCst);
+        let manager = manager(url, LONG, LONG);
+        assert!(
+            manager
+                .decode_and_validate(&token("key-a", KEY_A_PEM))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_key_set_is_not_cached() {
+        let (url, server) = spawn_jwks_server().await;
+        *server.body.lock().unwrap() = r#"{"keys":[]}"#.to_string();
+        let cooldown = Duration::from_millis(200);
+        let manager = manager(url, LONG, cooldown);
+        let token = token("key-a", KEY_A_PEM);
+        assert!(manager.decode_and_validate(&token).await.is_err());
+
+        // The OAuth server recovers; after the cooldown we use its keys.
+        server.set_keys(&[("key-a", KEY_A_N)]);
+        tokio::time::sleep(cooldown + Duration::from_millis(100)).await;
+        assert!(manager.decode_and_validate(&token).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_static_decoding_key_does_not_use_the_jwks_cache() {
+        let manager = JwtManager::new(
+            Some(DecodingKey::from_secret(b"secret")),
+            Some("http://localhost/jwks".to_string()),
+            OAuthKeyType::Rsa,
+            validation(),
+            "http://localhost/auth/token".parse().unwrap(),
+        );
+        assert!(manager.jwks_cache.is_none());
     }
 }

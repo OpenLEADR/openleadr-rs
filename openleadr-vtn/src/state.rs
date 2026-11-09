@@ -176,7 +176,6 @@ fn internal_oauth_from_env(key_type: Option<OAuthKeyType>) -> JwtManager {
     JwtManager::new_internal_auth(
         EncodingKey::from_secret(&secret),
         DecodingKey::from_secret(&secret),
-        key_type,
         validation,
         token_url,
     )
