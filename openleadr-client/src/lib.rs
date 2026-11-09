@@ -905,68 +905,58 @@ impl MqttClient<VirtualEndNode> {
     }
 }
 
-/// The objects whose create, update, and delete notifications an [`MqttClient`] can subscribe to.
-///
-/// Each variant selects one object type, optionally scoped to a parent
-/// [`Program`] or [`Ven`]. The VTN supplies the actual topic names.
+/// The objects whose create, update, and delete notifications an [`MqttClient`]
+/// can subscribe to.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MqttSubscriptionTarget {
     /// All [`Program`]s
     Programs,
-    /// A single [`Program`], identified by its
-    /// [`ProgramId`]
+    /// A single [`Program`], identified by its [`ProgramId`]
     Program(ProgramId),
     /// All [`Event`]s
     Events,
-    /// The [`Event`]s of the
-    /// [`Program`] identified by its
-    /// [`ProgramId`]
-    Event(ProgramId),
+    /// The [`Event`]s of the [`Program`] identified by its [`ProgramId`]
+    ProgramEvents(ProgramId),
     /// All [`Report`](openleadr_wire::report::Report)s
     Reports,
     /// All [`Ven`]s
     Vens,
-    /// All [`Subscription`](openleadr_wire::subscription::Subscription)s
-    Subscriptions,
     /// A single [`Ven`], identified by its [`VenId`]
     Ven(VenId),
     /// All [`Resource`](openleadr_wire::resource::Resource)s
     Resources,
+    /// All [`ResourceGroup`](openleadr_wire::resource_group::ResourceGroup)s
+    ResourceGroups,
     /// The [`Event`]s of the [`Ven`] identified by its [`VenId`]
     VenEvents(VenId),
     /// The [`Program`]s of the [`Ven`] identified by its [`VenId`]
     VenPrograms(VenId),
-    /// The [`Resource`](openleadr_wire::resource::Resource)s of the [`Ven`] identified by its [`VenId`]
+    /// The [`Resource`](openleadr_wire::resource::Resource)s of the [`Ven`]
+    /// identified by its [`VenId`]
     VenResources(VenId),
+    /// The [`ResourceGroup`](openleadr_wire::resource_group::ResourceGroup)s of
+    /// the [`Ven`] identified by its [`VenId`]
+    VenResourceGroups(VenId),
 }
 
 impl MqttSubscriptionTarget {
-    fn endpoint(self) -> String {
-        match self {
-            MqttSubscriptionTarget::Programs => "notifiers/mqtt/topics/programs".to_string(),
-            MqttSubscriptionTarget::Program(program_id) => {
-                format!("notifiers/mqtt/topics/programs/{program_id}")
-            }
-            MqttSubscriptionTarget::Events => "notifiers/mqtt/topics/events".to_string(),
-            MqttSubscriptionTarget::Event(program_id) => {
-                format!("notifiers/mqtt/topics/programs/{program_id}/events")
-            }
-            MqttSubscriptionTarget::Reports => "notifiers/mqtt/topics/reports".to_string(),
-            MqttSubscriptionTarget::Subscriptions => {
-                "notifiers/mqtt/topics/subscriptions".to_string()
-            }
-            MqttSubscriptionTarget::Vens => "notifiers/mqtt/topics/vens".to_string(),
-            MqttSubscriptionTarget::Ven(ven_id) => format!("notifiers/mqtt/topics/vens/{ven_id}"),
-            MqttSubscriptionTarget::Resources => "notifiers/mqtt/topics/resources".to_string(),
-            MqttSubscriptionTarget::VenEvents(ven_id) => {
-                format!("notifiers/mqtt/topics/vens/{ven_id}/events")
-            }
-            MqttSubscriptionTarget::VenPrograms(ven_id) => {
-                format!("notifiers/mqtt/topics/vens/{ven_id}/programs")
-            }
-            MqttSubscriptionTarget::VenResources(ven_id) => {
-                format!("notifiers/mqtt/topics/vens/{ven_id}/resources")
-            }
-        }
+    fn endpoint(&self) -> String {
+        let path = match self {
+            Self::Programs => "programs".to_string(),
+            Self::Program(program_id) => format!("programs/{program_id}"),
+            Self::Events => "events".to_string(),
+            Self::ProgramEvents(program_id) => format!("programs/{program_id}/events"),
+            Self::Reports => "reports".to_string(),
+            Self::Vens => "vens".to_string(),
+            Self::Ven(ven_id) => format!("vens/{ven_id}"),
+            Self::Resources => "resources".to_string(),
+            Self::ResourceGroups => "resource_groups".to_string(),
+            Self::VenEvents(ven_id) => format!("vens/{ven_id}/events"),
+            Self::VenPrograms(ven_id) => format!("vens/{ven_id}/programs"),
+            Self::VenResources(ven_id) => format!("vens/{ven_id}/resources"),
+            Self::VenResourceGroups(ven_id) => format!("vens/{ven_id}/resource_groups"),
+        };
+        format!("notifiers/mqtt/topics/{path}")
     }
 }
 
@@ -990,16 +980,16 @@ impl<K: ClientKind> MqttClient<K> {
         object_subscription: MqttSubscriptionTarget,
         operation: Option<Operation>,
     ) -> Result<SubscribeToken> {
-        let notifier_topics: NotifierTopicsResponse = self
+        let NotifierTopicsResponse { topics } = self
             .client_ref
             .get(&object_subscription.endpoint(), &[])
             .await?;
 
         let topic = match operation {
-            Some(Operation::Delete) => notifier_topics.topics.delete,
-            Some(Operation::Update) => notifier_topics.topics.update,
-            Some(Operation::Create) => notifier_topics.topics.create.ok_or(Error::NotSupported)?,
-            None => notifier_topics.topics.all.ok_or(Error::NotSupported)?,
+            Some(Operation::Delete) => topics.delete,
+            Some(Operation::Update) => topics.update,
+            Some(Operation::Create) => topics.create.ok_or(Error::NotSupported)?,
+            None => topics.all.ok_or(Error::NotSupported)?,
         };
 
         Ok(self.mqtt_client.subscribe(topic, QoS::ExactlyOnce))
