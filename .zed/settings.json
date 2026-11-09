@@ -3,7 +3,7 @@
     "rust-analyzer": {
       "initialization_options": {
         "cargo": {
-          "features": ["live-db-test"],
+          "features": ["openleadr-vtn/live-db-test"],
         },
       },
     },
