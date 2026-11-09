@@ -66,9 +66,11 @@ use async_trait::async_trait;
 use openleadr_wire::{
     Event, Ven,
     event::EventId,
-    subscription::{MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse},
+    subscription::{
+        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
+    },
 };
-use paho_mqtt::ConnectOptionsBuilder;
+use paho_mqtt::{ConnectOptionsBuilder, QoS, SubscribeToken};
 use std::{
     fmt::Debug,
     future::Future,
@@ -900,5 +902,106 @@ impl MqttClient<VirtualEndNode> {
             self.mqtt_client.clone(),
             event,
         ))
+    }
+}
+
+/// The objects whose create, update, and delete notifications an [`MqttClient`] can subscribe to.
+///
+/// Each variant selects one object type, optionally scoped to a parent
+/// [`Program`] or [`Ven`]. The VTN supplies the actual topic names.
+pub enum MqttSubscriptionTarget {
+    /// All [`Program`]s
+    Programs,
+    /// A single [`Program`], identified by its
+    /// [`ProgramId`]
+    Program(ProgramId),
+    /// All [`Event`]s
+    Events,
+    /// The [`Event`]s of the
+    /// [`Program`] identified by its
+    /// [`ProgramId`]
+    Event(ProgramId),
+    /// All [`Report`](openleadr_wire::report::Report)s
+    Reports,
+    /// All [`Ven`]s
+    Vens,
+    /// All [`Subscription`](openleadr_wire::subscription::Subscription)s
+    Subscriptions,
+    /// A single [`Ven`], identified by its [`VenId`]
+    Ven(VenId),
+    /// All [`Resource`](openleadr_wire::resource::Resource)s
+    Resources,
+    /// The [`Event`]s of the [`Ven`] identified by its [`VenId`]
+    VenEvents(VenId),
+    /// The [`Program`]s of the [`Ven`] identified by its [`VenId`]
+    VenPrograms(VenId),
+    /// The [`Resource`](openleadr_wire::resource::Resource)s of the [`Ven`] identified by its [`VenId`]
+    VenResources(VenId),
+}
+
+impl MqttSubscriptionTarget {
+    fn endpoint(self) -> String {
+        match self {
+            MqttSubscriptionTarget::Programs => "notifiers/mqtt/topics/programs".to_string(),
+            MqttSubscriptionTarget::Program(program_id) => {
+                format!("notifiers/mqtt/topics/programs/{program_id}")
+            }
+            MqttSubscriptionTarget::Events => "notifiers/mqtt/topics/events".to_string(),
+            MqttSubscriptionTarget::Event(program_id) => {
+                format!("notifiers/mqtt/topics/programs/{program_id}/events")
+            }
+            MqttSubscriptionTarget::Reports => "notifiers/mqtt/topics/reports".to_string(),
+            MqttSubscriptionTarget::Subscriptions => {
+                "notifiers/mqtt/topics/subscriptions".to_string()
+            }
+            MqttSubscriptionTarget::Vens => "notifiers/mqtt/topics/vens".to_string(),
+            MqttSubscriptionTarget::Ven(ven_id) => format!("notifiers/mqtt/topics/vens/{ven_id}"),
+            MqttSubscriptionTarget::Resources => "notifiers/mqtt/topics/resources".to_string(),
+            MqttSubscriptionTarget::VenEvents(ven_id) => {
+                format!("notifiers/mqtt/topics/vens/{ven_id}/events")
+            }
+            MqttSubscriptionTarget::VenPrograms(ven_id) => {
+                format!("notifiers/mqtt/topics/vens/{ven_id}/programs")
+            }
+            MqttSubscriptionTarget::VenResources(ven_id) => {
+                format!("notifiers/mqtt/topics/vens/{ven_id}/resources")
+            }
+        }
+    }
+}
+
+impl<K: ClientKind> MqttClient<K> {
+    /// Subscribes to MQTT notifications on the VTN.
+    ///
+    /// If `operation` is `None`, the subscription covers `ALL`
+    /// [`Operations`](openleadr_wire::subscription::Operation) (i.e. `CREATE`,
+    /// `UPDATE` and `DELETE`); otherwise it covers only the given `operation`.
+    ///
+    /// The returned token completes once the broker has acknowledged the
+    /// subscription.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotSupported`] if the VTN does not offer a topic for
+    /// the requested operation (for example, no `CREATE` topic is published for
+    /// some objects).
+    pub async fn subscribe(
+        &self,
+        object_subscription: MqttSubscriptionTarget,
+        operation: Option<Operation>,
+    ) -> Result<SubscribeToken> {
+        let notifier_topics: NotifierTopicsResponse = self
+            .client_ref
+            .get(&object_subscription.endpoint(), &[])
+            .await?;
+
+        let topic = match operation {
+            Some(Operation::Delete) => notifier_topics.topics.delete,
+            Some(Operation::Update) => notifier_topics.topics.update,
+            Some(Operation::Create) => notifier_topics.topics.create.ok_or(Error::NotSupported)?,
+            None => notifier_topics.topics.all.ok_or(Error::NotSupported)?,
+        };
+
+        Ok(self.mqtt_client.subscribe(topic, QoS::ExactlyOnce))
     }
 }
