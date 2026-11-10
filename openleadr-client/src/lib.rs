@@ -125,6 +125,8 @@ pub struct Client<K> {
     client_ref: Arc<ClientRef<K>>,
 }
 
+type Subscriptions = HashMap<(MqttSubscriptionTarget, Option<Operation>), String>;
+
 /// Client for managing an mqtt connection with a VTN.
 ///
 /// This can be used to publish reports via mqtt, and to receive notifications
@@ -134,7 +136,7 @@ pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
     messages: broadcast::Sender<Option<paho_mqtt::Message>>,
-    subscriptions: Arc<Mutex<HashMap<(MqttSubscriptionTarget, Option<Operation>), String>>>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
 }
 
 const MQTT_NOTIFICATION_BUFFER: usize = 128;
@@ -840,7 +842,7 @@ impl<K: ClientKind> Client<K> {
                 client_ref: self.client_ref.clone(),
                 mqtt_client: client,
                 messages,
-                subscriptions: Arc::new(Mutex::new(HashMap::new())),
+                subscriptions: Arc::default(),
             });
         }
         Err(last_error)
