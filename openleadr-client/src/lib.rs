@@ -73,13 +73,14 @@ use openleadr_wire::{
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
 use std::{
+    collections::HashMap,
     fmt::Debug,
     future::Future,
     marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{Mutex, RwLock, broadcast};
 
 use reqwest::{Method, RequestBuilder, Response};
 use url::Url;
@@ -133,6 +134,7 @@ pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
     messages: broadcast::Sender<Option<paho_mqtt::Message>>,
+    subscriptions: Arc<Mutex<HashMap<(MqttSubscriptionTarget, Option<Operation>), String>>>,
 }
 
 const MQTT_NOTIFICATION_BUFFER: usize = 128;
@@ -838,6 +840,7 @@ impl<K: ClientKind> Client<K> {
                 client_ref: self.client_ref.clone(),
                 mqtt_client: client,
                 messages,
+                subscriptions: Arc::new(Mutex::new(HashMap::new())),
             });
         }
         Err(last_error)
@@ -926,7 +929,7 @@ impl MqttClient<VirtualEndNode> {
 
 /// The objects whose create, update, and delete notifications an [`MqttClient`]
 /// can subscribe to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MqttSubscriptionTarget {
     /// All [`Program`]s
     Programs,
@@ -999,7 +1002,7 @@ impl<K: ClientKind> MqttClient<K> {
     /// - [`Error::MqttSubscriptionRejected`] if the broker refused the
     ///   subscription, typically because this client may not read the topic.
     pub async fn subscribe(
-        &self,
+        &mut self,
         target: MqttSubscriptionTarget,
         operation_filter: Option<Operation>,
     ) -> Result<()> {
@@ -1023,6 +1026,40 @@ impl<K: ClientKind> MqttClient<K> {
             return Err(Error::MqttSubscriptionRejected { topic });
         }
 
+        self.subscriptions
+            .lock()
+            .await
+            .insert((target, operation_filter), topic);
+
+        Ok(())
+    }
+
+    /// Removes the subscription previously made with [`subscribe`](Self::subscribe)
+    /// for the same `target` and `operation_filter`.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::MqttNotSubscribed`] if this client has no subscription for
+    ///   `target` and `operation_filter`
+    /// - [`Error::Mqtt`] if the broker failed to process the unsubscribe request.
+    ///   The subscription is kept, so the call can be retried.
+    pub async fn unsubscribe(
+        &self,
+        target: MqttSubscriptionTarget,
+        operation_filter: Option<Operation>,
+    ) -> Result<()> {
+        let key = (target, operation_filter);
+
+        let topic = self
+            .subscriptions
+            .lock()
+            .await
+            .get(&key)
+            .cloned()
+            .ok_or(Error::MqttNotSubscribed)?;
+
+        self.mqtt_client.unsubscribe(topic).await?;
+        self.subscriptions.lock().await.remove(&key);
         Ok(())
     }
 
