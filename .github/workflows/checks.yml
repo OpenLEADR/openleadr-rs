@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build and test
@@ -20,6 +24,7 @@ jobs:
             target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
             features: "--all-features"
+            coverage: true
           - rust: "msrv"
             target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
@@ -37,6 +42,7 @@ jobs:
             target: "x86_64-unknown-linux-gnu"
             os: ubuntu-latest
             features: "--no-default-features --features=postgres,live-db-test,vendored-ssl"
+            cache-suffix: "-minimal-features"
 
     steps:
       - name: Checkout sources
@@ -58,20 +64,18 @@ jobs:
           toolchain: "${{ env.TARGET_RUST_VERSION }}"
           targets: "${{ matrix.target }}"
 
-      - name: Install cargo-llvm-cov
+      # Prebuilt binaries instead of compiling the tools from source on every run
+      - name: Install nextest and cargo-llvm-cov
         uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
-          tool: cargo-llvm-cov
+          tool: "nextest${{ matrix.coverage && ',cargo-llvm-cov' || '' }}"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: "${{matrix.rust}}-${{matrix.target}}"
+          shared-key: "${{matrix.rust}}-${{matrix.target}}${{matrix.cache-suffix}}"
           cache-on-failure: true
           prefix-key: 'checks'
-
-      - name: Install Nextest
-        run: cargo install --locked cargo-nextest
 
       - name: Setup Postgres DB and MQTT server
         run: |
@@ -80,11 +84,17 @@ jobs:
           cargo sqlx migrate run --source openleadr-vtn/migrations && \
           psql -v ON_ERROR_STOP=1 postgresql://openadr:openadr@localhost:5432/openadr < fixtures/users.sql
 
-      - name: cargo build
-        run: cargo build ${{ matrix.features }}
+      # Coverage-instrumented builds are slower and cannot share artifacts with
+      # regular builds, so coverage is only collected in a single matrix job.
+      - name: Run tests with coverage
+        if: matrix.coverage
+        run: cargo llvm-cov nextest --max-fail=10 --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
+        env:
+          RUST_BACKTRACE: 1
 
       - name: Run tests
-        run: cargo llvm-cov nextest --max-fail=10 --target ${{matrix.target}} ${{ matrix.features }} --lcov --output-path lcov.info
+        if: ${{ !matrix.coverage }}
+        run: cargo nextest run --max-fail=10 --target ${{matrix.target}} ${{ matrix.features }}
         env:
           RUST_BACKTRACE: 1
 
@@ -92,6 +102,7 @@ jobs:
         run: docker compose down
 
       - name: Upload coverage to Codecov
+        if: matrix.coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: lcov.info
@@ -117,6 +128,11 @@ jobs:
         uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
           tool: cargo-udeps
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: "nightly-udeps"
 
       - name: cargo udeps
         run: cargo udeps --workspace --all-targets --all-features
@@ -174,7 +190,9 @@ jobs:
           targets: ${{matrix.target}}
 
       - name: Install bindgen
-        run: cargo install --force --locked bindgen-cli
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: bindgen-cli
 
       - name: Install cross-compilation tools
         uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1.42.0
