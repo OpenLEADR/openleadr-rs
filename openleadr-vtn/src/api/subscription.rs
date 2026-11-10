@@ -650,7 +650,9 @@ async fn notify_webhook(
     notification: Notification,
 ) {
     let mut request = client.post(&url).json(&notification);
-    request = request.bearer_auth(bearer_token.as_deref().unwrap_or_default());
+    if let Some(token) = &bearer_token {
+        request = request.bearer_auth(token);
+    }
     match request.send().await {
         Ok(response) if response.status() == StatusCode::OK => {}
         Ok(response) => {
@@ -2894,7 +2896,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn webhook_delivery_does_not_post_notification_without_bearer_token() {
+    async fn webhook_delivery_omits_authorization_without_bearer_token() {
         let (tx, mut rx) = unbounded_channel();
         let router = axum::Router::new().route(
             "/callback",
