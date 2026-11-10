@@ -31,7 +31,7 @@ use paho_mqtt::QoS;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use tokio::sync::{Mutex, mpsc};
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 use uuid::{ContextV7, Uuid};
 use validator::Validate;
 
@@ -643,6 +643,26 @@ async fn publish_mqtt_push_by_targets(
     }
 }
 
+async fn notify_webhook(
+    client: Client,
+    url: String,
+    bearer_token: Option<String>,
+    notification: Notification,
+) {
+    let mut request = client.post(&url).json(&notification);
+    if let Some(token) = &bearer_token {
+        request = request.bearer_auth(token);
+    }
+    match request.send().await {
+        Ok(response) if response.status() == StatusCode::OK => {}
+        Ok(response) => {
+            warn!(url, status=%response.status(), "webhook callback rejected the notification")
+        }
+        Err(error) => warn!(url, error=%error,  "error on request to webhook callback"),
+    }
+
+}
+
 async fn notify_mqtt(
     ven_source: &dyn VenCrud,
     privacy: &dyn VenObjectPrivacy,
@@ -1090,6 +1110,7 @@ mod test {
     };
     use paho_mqtt::QoS;
     use reqwest::{Method, StatusCode};
+    use reqwest::header::AUTHORIZATION;
     use sqlx::PgPool;
     use tokio::{
         net::TcpListener,
@@ -1102,7 +1123,7 @@ mod test {
             self,
             subscription::{
                 NotifierState, callback_client_builder, check_callback_url, notify,
-                privacy_filter_object,
+                privacy_filter_object, notify_webhook,
             },
             test::ApiTest,
         },
@@ -2820,4 +2841,57 @@ mod test {
             .expect("subscription should exist");
         assert!(sub.content.object_operations.is_empty());
     }
+
+    #[tokio::test]
+    async fn webhook_delivery_posts_notification_with_bearer_token() {
+
+
+        let (tx, mut rx) = unbounded_channel();
+        let router = axum::Router::new().route(
+            "/callback",
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap,
+                      axum::Json(notification): axum::Json<Notification>| {
+                    let tx = tx.clone();
+                    async move {
+                        let header = headers
+                            .get(AUTHORIZATION)
+                            .map(|value| value.to_str().unwrap().to_string());
+                        tx.send((header, notification)).unwrap();
+                        StatusCode::OK
+                    }
+                },
+            ),
+        );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+        let notification = Notification {
+            id: "notification-1".parse().unwrap(),
+            operation: Operation::Create,
+            object: AnyObject::Event(
+                Event {
+                    id: "test_event_1".parse().unwrap(),
+                    created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                    modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                    content: EventRequest {
+                        program_id: "program_1".parse().unwrap(),
+                        event_name: None,
+                        duration: None,
+                        priority: Priority::MIN,
+                        targets: vec!["test_target_1".parse().unwrap()],
+                        report_descriptors: None,
+                        payload_descriptors: None,
+                        interval_period: None,
+                        intervals: None,
+                    },
+                }),
+        };
+
+        notify_webhook(client, url, Some("secret-token".to_string()), notification.clone()).await;
+
+        let (header, body) = rx.try_recv().unwrap();
+        assert_eq!(header, Some("Bearer secret-token".to_string()));
+        assert_eq!(body, notification);
+    }
+
 }
