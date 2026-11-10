@@ -13,15 +13,21 @@ pub enum Error {
     OAuthTokenNotBearer,
     ObjectNotFound,
     DuplicateObject,
-    /// Error if you try
-    /// to create an event underneath a program
-    /// where the [`program_id`](openleadr_wire::event::EventRequest::program_id)
-    /// in the [`EventContent`](openleadr_wire::event::EventRequest)
-    /// does not match the program ID of the [`ProgramClient`](crate::ProgramClient),
-    /// for example.
+    /// Error if you try to create an event underneath a program where the
+    /// [`program_id`](openleadr_wire::event::EventRequest::program_id) in the
+    /// [`EventContent`](openleadr_wire::event::EventRequest) does not match the
+    /// program ID of the [`ProgramClient`](crate::ProgramClient), for example.
     InvalidParentObject,
     InvalidInterval,
     NotSupported,
+    /// The MQTT broker refused a subscription to this topic, typically because
+    /// the client is not allowed to read it.
+    MqttSubscriptionRejected {
+        topic: String,
+    },
+    /// An [`MqttNotifications`](crate::MqttNotifications) receiver fell behind,
+    /// and this many notifications were dropped.
+    MqttNotificationsLagged(u64),
 }
 
 impl Error {
@@ -110,6 +116,15 @@ impl std::fmt::Display for Error {
             Error::InvalidInterval => write!(f, "Invalid interval specified"),
             Error::OAuthTokenNotBearer => write!(f, "OAuth token received is not a Bearer token"),
             Error::NotSupported => write!(f, "Request not supported by VTN"),
+            Error::MqttSubscriptionRejected { topic } => {
+                write!(f, "MQTT broker rejected subscription to topic {topic}")
+            }
+            Error::MqttNotificationsLagged(skipped) => {
+                write!(
+                    f,
+                    "Missed {skipped} MQTT notifications because the receiver lagged"
+                )
+            }
         }
     }
 }

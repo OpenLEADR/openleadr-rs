@@ -67,10 +67,11 @@ use openleadr_wire::{
     Event, Ven,
     event::EventId,
     subscription::{
-        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
+        MqttNotifierAuthentication, Notification, NotifierTopicsResponse, NotifiersResponse,
+        Operation,
     },
 };
-use paho_mqtt::{ConnectOptionsBuilder, QoS, SubscribeToken};
+use paho_mqtt::{ConnectOptionsBuilder, QoS};
 use std::{
     fmt::Debug,
     future::Future,
@@ -78,7 +79,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast};
 
 use reqwest::{Method, RequestBuilder, Response};
 use url::Url;
@@ -125,12 +126,16 @@ pub struct Client<K> {
 
 /// Client for managing an mqtt connection with a VTN.
 ///
-/// This can be used to publish reports via mqtt.
+/// This can be used to publish reports via mqtt, and to receive notifications
+/// via [`MqttClient::subscribe`] and [`MqttClient::notifications`].
 #[derive(Clone)]
 pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
+    messages: broadcast::Sender<Option<paho_mqtt::Message>>,
 }
+
+const MQTT_NOTIFICATION_BUFFER: usize = 128;
 
 impl<K: Debug> Debug for MqttClient<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -786,13 +791,16 @@ impl<K: ClientKind> Client<K> {
 
         let mut last_error = Error::NotSupported;
         for url in mqtt_info.uris {
-            let client = match paho_mqtt::AsyncClient::new(url) {
+            let mut client = match paho_mqtt::AsyncClient::new(url) {
                 Ok(client) => client,
                 Err(e) => {
                     last_error = e.into();
                     continue;
                 }
             };
+
+            // Best practice to open the stream before connecting
+            let incoming = client.get_stream(None);
 
             let connection = client
                 .connect(
@@ -816,9 +824,20 @@ impl<K: ClientKind> Client<K> {
                 continue;
             }
 
+            let (messages, _) = broadcast::channel(MQTT_NOTIFICATION_BUFFER);
+            let forward = messages.clone();
+
+            tokio::spawn(async move {
+                while let Ok(message) = incoming.recv().await {
+                    // An error only means nobody is listening right now.
+                    let _ = forward.send(message);
+                }
+            });
+
             return Ok(MqttClient {
                 client_ref: self.client_ref.clone(),
                 mqtt_client: client,
+                messages,
             });
         }
         Err(last_error)
@@ -961,37 +980,99 @@ impl MqttSubscriptionTarget {
 }
 
 impl<K: ClientKind> MqttClient<K> {
-    /// Subscribes to MQTT notifications on the VTN.
+    /// Subscribes to MQTT notifications on the VTN, optionally filtered by
+    /// `operation_filter`.
     ///
-    /// If `operation` is `None`, the subscription covers `ALL`
-    /// [`Operations`](openleadr_wire::subscription::Operation) (i.e. `CREATE`,
-    /// `UPDATE` and `DELETE`); otherwise it covers only the given `operation`.
+    /// The notifications themselves are delivered to every receiver created
+    /// with [`notifications`](Self::notifications), mixed with those of all
+    /// other subscriptions of this client.
     ///
-    /// The returned token completes once the broker has acknowledged the
-    /// subscription.
+    /// The VTN may publish one change on several topics (e.g., a targeted event
+    /// on both the [`Events`](MqttSubscriptionTarget::Events) and the
+    /// [`VenEvents`](MqttSubscriptionTarget::VenEvents) topic), so overlapping
+    /// subscriptions can deliver duplicates. Use [`Notification::id`] to
+    /// deduplicate.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::NotSupported`] if the VTN does not offer a topic for
-    /// the requested operation (for example, no `CREATE` topic is published for
-    /// some objects).
+    /// - [`Error::NotSupported`] if the VTN does not offer the requested topic
+    /// - [`Error::MqttSubscriptionRejected`] if the broker refused the
+    ///   subscription, typically because this client may not read the topic.
     pub async fn subscribe(
         &self,
-        object_subscription: MqttSubscriptionTarget,
-        operation: Option<Operation>,
-    ) -> Result<SubscribeToken> {
-        let NotifierTopicsResponse { topics } = self
-            .client_ref
-            .get(&object_subscription.endpoint(), &[])
-            .await?;
+        target: MqttSubscriptionTarget,
+        operation_filter: Option<Operation>,
+    ) -> Result<()> {
+        let NotifierTopicsResponse { topics } =
+            self.client_ref.get(&target.endpoint(), &[]).await?;
 
-        let topic = match operation {
-            Some(Operation::Delete) => topics.delete,
-            Some(Operation::Update) => topics.update,
-            Some(Operation::Create) => topics.create.ok_or(Error::NotSupported)?,
+        let topic = match operation_filter {
             None => topics.all.ok_or(Error::NotSupported)?,
+            Some(Operation::Create) => topics.create.ok_or(Error::NotSupported)?,
+            Some(Operation::Update) => topics.update,
+            Some(Operation::Delete) => topics.delete,
         };
 
-        Ok(self.mqtt_client.subscribe(topic, QoS::ExactlyOnce))
+        let response = self
+            .mqtt_client
+            .subscribe(topic.clone(), QoS::AtMostOnce)
+            .await?;
+
+        // With MQTT v3, a refused subscription is not an error but a granted QoS of 0x80.
+        if response.subscribe_response().is_some_and(|qos| qos >= 0x80) {
+            return Err(Error::MqttSubscriptionRejected { topic });
+        }
+
+        Ok(())
+    }
+
+    /// Creates a receiver for the notifications of all subscriptions of this client.
+    ///
+    /// Each receiver gets every notification that arrives after it was created.
+    /// Clones of this [`MqttClient`] share subscriptions and notifications.
+    pub fn notifications(&self) -> MqttNotifications {
+        MqttNotifications {
+            receiver: self.messages.subscribe(),
+        }
+    }
+}
+
+/// Receives the notifications for all subscriptions of an [`MqttClient`].
+///
+/// Created by [`MqttClient::notifications`].
+#[derive(Debug)]
+pub struct MqttNotifications {
+    receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
+}
+
+impl MqttNotifications {
+    /// Waits for the next notification.
+    ///
+    /// Returns `None` once the [`MqttClient`] and everything created from it
+    /// has been dropped.
+    ///
+    /// # Errors
+    ///
+    /// Errors do not end the stream; calling `recv` again continues with the
+    /// next notification.
+    ///
+    /// - [`Error::Serde`] if a message is not a valid [`Notification`].
+    /// - [`Error::MqttNotificationsLagged`] if this receiver fell behind and
+    ///   notifications were dropped.
+    /// - [`Error::Mqtt`] with [`paho_mqtt::Error::Disconnected`] if the
+    ///   connection to the broker was lost. Subscriptions are not restored
+    ///   automatically; reconnect with [`Client::connect_mqtt`] and subscribe
+    ///   again.
+    pub async fn recv(&mut self) -> Option<Result<Notification>> {
+        match self.receiver.recv().await {
+            Ok(Some(message)) => {
+                Some(serde_json::from_slice(message.payload()).map_err(Into::into))
+            }
+            Ok(None) => Some(Err(Error::Mqtt(paho_mqtt::Error::Disconnected))),
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                Some(Err(Error::MqttNotificationsLagged(skipped)))
+            }
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
     }
 }
