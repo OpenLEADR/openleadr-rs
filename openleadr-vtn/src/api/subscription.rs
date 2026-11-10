@@ -650,9 +650,7 @@ async fn notify_webhook(
     notification: Notification,
 ) {
     let mut request = client.post(&url).json(&notification);
-    if let Some(token) = &bearer_token {
-        request = request.bearer_auth(token);
-    }
+    request = request.bearer_auth(bearer_token.as_deref().unwrap_or_default());
     match request.send().await {
         Ok(response) if response.status() == StatusCode::OK => {}
         Ok(response) => {
@@ -2892,6 +2890,55 @@ mod test {
 
         let (header, body) = rx.try_recv().unwrap();
         assert_eq!(header, Some("Bearer secret-token".to_string()));
+        assert_eq!(body, notification);
+    }
+
+    #[tokio::test]
+    async fn webhook_delivery_does_not_post_notification_without_bearer_token() {
+        let (tx, mut rx) = unbounded_channel();
+        let router = axum::Router::new().route(
+            "/callback",
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap,
+                      axum::Json(notification): axum::Json<Notification>| {
+                    let tx = tx.clone();
+                    async move {
+                        let header = headers
+                            .get(AUTHORIZATION)
+                            .map(|value| value.to_str().unwrap().to_string());
+                        tx.send((header, notification)).unwrap();
+                        StatusCode::OK
+                    }
+                },
+            ),
+        );
+        let url = start_callback_server(router).await;
+        let client = callback_client_builder().https_only(false).build().unwrap();
+        let notification = Notification {
+            id: "notification-1".parse().unwrap(),
+            operation: Operation::Create,
+            object: AnyObject::Event(Event {
+                id: "test_event_1".parse().unwrap(),
+                created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                content: EventRequest {
+                    program_id: "program_1".parse().unwrap(),
+                    event_name: None,
+                    duration: None,
+                    priority: Priority::MIN,
+                    targets: vec!["test_target_1".parse().unwrap()],
+                    report_descriptors: None,
+                    payload_descriptors: None,
+                    interval_period: None,
+                    intervals: None,
+                },
+            }),
+        };
+
+        notify_webhook(client, url, None, notification.clone()).await;
+
+        let (header, body) = rx.try_recv().unwrap();
+        assert!(header.is_none());
         assert_eq!(body, notification);
     }
 }
