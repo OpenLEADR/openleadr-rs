@@ -5,6 +5,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_docs:
     runs-on: ubuntu-latest
@@ -16,4 +20,7 @@ jobs:
         with:
           components: rust-docs
           toolchain: 'stable'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: "docs"
       - run: cargo doc --no-deps --all-features --workspace
