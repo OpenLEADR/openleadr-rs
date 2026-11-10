@@ -660,7 +660,6 @@ async fn notify_webhook(
         }
         Err(error) => warn!(url, error=%error,  "error on request to webhook callback"),
     }
-
 }
 
 async fn notify_mqtt(
@@ -1109,8 +1108,7 @@ mod test {
         ven::{BlVenRequest, VenId, VenRequest},
     };
     use paho_mqtt::QoS;
-    use reqwest::{Method, StatusCode};
-    use reqwest::header::AUTHORIZATION;
+    use reqwest::{Method, StatusCode, header::AUTHORIZATION};
     use sqlx::PgPool;
     use tokio::{
         net::TcpListener,
@@ -1122,8 +1120,8 @@ mod test {
         api::{
             self,
             subscription::{
-                NotifierState, callback_client_builder, check_callback_url, notify,
-                privacy_filter_object, notify_webhook,
+                NotifierState, callback_client_builder, check_callback_url, notify, notify_webhook,
+                privacy_filter_object,
             },
             test::ApiTest,
         },
@@ -2844,8 +2842,6 @@ mod test {
 
     #[tokio::test]
     async fn webhook_delivery_posts_notification_with_bearer_token() {
-
-
         let (tx, mut rx) = unbounded_channel();
         let router = axum::Router::new().route(
             "/callback",
@@ -2868,30 +2864,34 @@ mod test {
         let notification = Notification {
             id: "notification-1".parse().unwrap(),
             operation: Operation::Create,
-            object: AnyObject::Event(
-                Event {
-                    id: "test_event_1".parse().unwrap(),
-                    created_date_time: DateTime::from_timestamp_nanos(15_000_000),
-                    modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
-                    content: EventRequest {
-                        program_id: "program_1".parse().unwrap(),
-                        event_name: None,
-                        duration: None,
-                        priority: Priority::MIN,
-                        targets: vec!["test_target_1".parse().unwrap()],
-                        report_descriptors: None,
-                        payload_descriptors: None,
-                        interval_period: None,
-                        intervals: None,
-                    },
-                }),
+            object: AnyObject::Event(Event {
+                id: "test_event_1".parse().unwrap(),
+                created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+                content: EventRequest {
+                    program_id: "program_1".parse().unwrap(),
+                    event_name: None,
+                    duration: None,
+                    priority: Priority::MIN,
+                    targets: vec!["test_target_1".parse().unwrap()],
+                    report_descriptors: None,
+                    payload_descriptors: None,
+                    interval_period: None,
+                    intervals: None,
+                },
+            }),
         };
 
-        notify_webhook(client, url, Some("secret-token".to_string()), notification.clone()).await;
+        notify_webhook(
+            client,
+            url,
+            Some("secret-token".to_string()),
+            notification.clone(),
+        )
+        .await;
 
         let (header, body) = rx.try_recv().unwrap();
         assert_eq!(header, Some("Bearer secret-token".to_string()));
         assert_eq!(body, notification);
     }
-
 }
