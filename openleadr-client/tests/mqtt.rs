@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::common::AuthRole;
-use openleadr_client::{BusinessLogic, MqttNotifications, MqttSubscriptionTarget, VirtualEndNode};
+use openleadr_client::{BusinessLogic, MqttNotifications, VirtualEndNode};
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     subscription::{AnyObject, Notification, Operation},
@@ -34,15 +34,9 @@ async fn next_notification_for_program(
 async fn mqtt_subscriptions(db: PgPool) {
     let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
     let mut mqtt_client = ven.connect_mqtt().await.unwrap();
+    mqtt_client.subscribe_events(None).await.unwrap();
     mqtt_client
-        .subscribe(MqttSubscriptionTarget::Events, None)
-        .await
-        .unwrap();
-    mqtt_client
-        .subscribe(
-            MqttSubscriptionTarget::VenPrograms("ven-id".parse().unwrap()),
-            Some(Operation::Create),
-        )
+        .subscribe_ven_programs("ven-id".parse().unwrap(), Some(Operation::Create))
         .await
         .unwrap();
 }
@@ -54,10 +48,7 @@ async fn mqtt_receive_notification(db: PgPool) {
 
     let mut mqtt_client = ven.connect_mqtt().await.unwrap();
     let mut notifications = mqtt_client.notifications();
-    mqtt_client
-        .subscribe(MqttSubscriptionTarget::Programs, None)
-        .await
-        .unwrap();
+    mqtt_client.subscribe_programs(None).await.unwrap();
 
     let program = bl
         .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
@@ -79,10 +70,7 @@ async fn mqtt_unsubscribe(db: PgPool) {
 
     let mut mqtt_client = ven.connect_mqtt().await.unwrap();
     let mut notifications = mqtt_client.notifications();
-    mqtt_client
-        .subscribe(MqttSubscriptionTarget::Programs, None)
-        .await
-        .unwrap();
+    let subscription = mqtt_client.subscribe_programs(None).await.unwrap();
 
     let program = bl
         .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
@@ -96,10 +84,7 @@ async fn mqtt_unsubscribe(db: PgPool) {
 
     assert_eq!(notification.operation, Operation::Create);
 
-    mqtt_client
-        .unsubscribe(MqttSubscriptionTarget::Programs, None)
-        .await
-        .unwrap();
+    mqtt_client.unsubscribe(&subscription).await.unwrap();
 
     let unsubscribed_program = bl
         .create_program(ProgramRequest::new("mqtt-test-unsubscribe".to_string()))
