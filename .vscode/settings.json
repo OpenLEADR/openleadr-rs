@@ -1,6 +1,6 @@
 {
     "editor.formatOnSave": true,
     "rust-analyzer.cargo.features": [
-        "live-db-test"
+        "openleadr-vtn/live-db-test"
     ],
 }

@@ -79,7 +79,7 @@ pub struct SubscriptionObjectOperation {
     pub bearer_token: Option<String>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Operation {
     Create,
