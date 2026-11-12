@@ -263,6 +263,20 @@ impl Claims {
         }
     }
 
+    /// Read-only claims for filtering webhook notifications, built from the scopes saved from the
+    /// subscriber's own token when they created or last edited the subscription
+    pub(crate) fn for_webhook_subscriber(client_id: &ClientId, scopes: Vec<Scope>) -> Self {
+        Self {
+            sub: client_id.to_string(),
+            exp: 0,
+            iat: None,
+            nbf: None,
+            aud: None,
+            scope: vec![].into(),
+            roles: Scopes(scopes),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn from_scopes(scopes: Vec<Scope>) -> Self {
         Self {
@@ -274,6 +288,15 @@ impl Claims {
             scope: vec![].into(),
             roles: scopes.into(),
         }
+    }
+
+    pub(crate) fn granted_scopes(&self) -> Vec<Scope> {
+        self.scope
+            .0
+            .iter()
+            .chain(self.roles.0.iter())
+            .copied()
+            .collect()
     }
 }
 
@@ -637,7 +660,7 @@ mod test {
         jwt::{Claims, Scope},
     };
     use axum::{body::Body, http::Method};
-    use openleadr_wire::problem::Problem;
+    use openleadr_wire::{ClientId, problem::Problem};
     use sqlx::PgPool;
 
     impl Scope {
@@ -791,5 +814,17 @@ mod test {
                 roles: crate::jwt::Scopes(Vec::with_capacity(0)),
             }
         );
+    }
+
+    #[test]
+    fn webhook_subscriber_claims_carry_client_id_and_saved_scopes() {
+        let client_id = ClientId::new("client-123").unwrap();
+        let scopes: Vec<Scope> = vec![Scope::ReadTargets];
+
+        let claims = Claims::for_webhook_subscriber(&client_id, scopes);
+
+        assert!(claims.has_scope(Scope::ReadTargets));
+        assert!(!claims.has_scope(Scope::ReadAll));
+        assert_eq!(claims.client_id().unwrap(), client_id);
     }
 }

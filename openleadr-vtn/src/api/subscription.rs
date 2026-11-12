@@ -37,7 +37,7 @@ use validator::Validate;
 
 use crate::{
     api::{AppResponse, ValidatedJson, ValidatedQuery},
-    data_source::{EventCrud, SubscriptionCrud, VenCrud, VenObjectPrivacy},
+    data_source::{EventCrud, NewSubscription, SubscriptionCrud, VenCrud, VenObjectPrivacy},
     error::AppError,
     jwt::{Claims, Scope, User},
     state::AppState,
@@ -245,9 +245,14 @@ pub async fn add(
     if !webhook_callback_urls.is_empty() {
         check_callback_urls(&webhook_callback_urls).await?;
     }
-
     let subscription = subscription_source
-        .create(new_subscription, &Some(client_id))
+        .create(
+            NewSubscription {
+                request: new_subscription,
+                subscriber_scopes: Some(user.granted_scopes()),
+            },
+            &Some(client_id),
+        )
         .await?;
 
     app_state
@@ -314,10 +319,36 @@ pub async fn edit(
     }
 
     let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
-        subscription_source.update(&id, update, &None).await?
-    } else {
+        // A BL can edit anyone's subscription. Only save its scopes if it owns this one,
+        // otherwise its ReadAll would leak into the owner's webhook.
+        let existing = subscription_source.retrieve(&id, &None).await?;
+        let is_owner = existing.client_id == user.client_id()?;
+        let subscriber_scopes = if is_owner {
+            Some(user.granted_scopes())
+        } else {
+            None
+        };
         subscription_source
-            .update(&id, update, &Some(user.client_id()?))
+            .update(
+                &id,
+                NewSubscription {
+                    request: update,
+                    subscriber_scopes,
+                },
+                &None,
+            )
+            .await?
+    } else {
+        // Storage only updates a VEN's own subscription, so the editor is the owner
+        subscription_source
+            .update(
+                &id,
+                NewSubscription {
+                    request: update,
+                    subscriber_scopes: Some(user.granted_scopes()),
+                },
+                &Some(user.client_id()?),
+            )
             .await?
     };
 
