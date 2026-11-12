@@ -697,10 +697,10 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 mod test {
     use openleadr_wire::{
         ClientId,
-        subscription::{Subscription, SubscriptionId, SubscriptionRequest},
+        subscription::{Subscription, SubscriptionId},
     };
 
-    use crate::data_source::Crud;
+    use crate::data_source::{Crud, NewSubscription};
 
     use super::*;
 
@@ -754,7 +754,7 @@ mod test {
     impl Crud for MockSubscriptionSource {
         type Type = Subscription;
         type Id = SubscriptionId;
-        type NewType = SubscriptionRequest;
+        type NewType = NewSubscription;
         type Error = AppError;
         type Filter = subscription::QueryParams;
         type PermissionFilter = Option<ClientId>;
