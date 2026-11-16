@@ -1,6 +1,7 @@
 #[cfg(feature = "postgres")]
 mod postgres;
 
+use std::collections::HashMap;
 use crate::{error::AppError, jwt::Scope};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -152,6 +153,7 @@ pub struct NewSubscription {
     /// `None` on create saves no scopes, so nothing is delivered.
     pub subscriber_scopes: Option<Vec<Scope>>,
 }
+#[async_trait]
 pub trait SubscriptionCrud:
     Crud<
         Type = Subscription,
@@ -162,6 +164,7 @@ pub trait SubscriptionCrud:
         PermissionFilter = Option<ClientId>,
     >
 {
+    async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError>;
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
