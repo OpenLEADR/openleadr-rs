@@ -78,10 +78,10 @@ use std::{
     fmt::Debug,
     future::Future,
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, RwLock, broadcast};
+use tokio::sync::{RwLock, broadcast};
 
 use reqwest::{Method, RequestBuilder, Response};
 use url::Url;
@@ -130,8 +130,6 @@ pub struct Client<K> {
     client_ref: Arc<ClientRef<K>>,
 }
 
-type Subscriptions = HashMap<MqttSubscription, String>;
-
 /// Client for managing an mqtt connection with a VTN.
 ///
 /// This can be used to publish reports via mqtt, and to receive notifications
@@ -166,7 +164,7 @@ pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
     messages: broadcast::Sender<Option<paho_mqtt::Message>>,
-    subscriptions: Arc<Mutex<Subscriptions>>,
+    subscriptions: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 const MQTT_NOTIFICATION_BUFFER: usize = 128;
@@ -961,28 +959,28 @@ impl MqttClient<VirtualEndNode> {
 impl<K: ClientKind> MqttClient<K> {
     /// Subscribes to notifications about all [`Program`]s.
     pub async fn subscribe_programs(
-        &mut self,
+        &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(MqttSubscriptionTarget::Programs, operation_filter)
             .await
     }
 
     /// Subscribes to notifications about all [`Event`]s.
     pub async fn subscribe_events(
-        &mut self,
+        &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(MqttSubscriptionTarget::Events, operation_filter)
             .await
     }
 
     /// Subscribes to notifications about the [`Ven`] identified by `ven_id`.
     pub async fn subscribe_ven(
-        &mut self,
+        &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(MqttSubscriptionTarget::Ven(ven_id), operation_filter)
             .await
     }
@@ -990,10 +988,10 @@ impl<K: ClientKind> MqttClient<K> {
     /// Subscribes to notifications about the [`Event`]s of the [`Ven`]
     /// identified by `ven_id`.
     pub async fn subscribe_ven_events(
-        &mut self,
+        &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(MqttSubscriptionTarget::VenEvents(ven_id), operation_filter)
             .await
     }
@@ -1001,10 +999,10 @@ impl<K: ClientKind> MqttClient<K> {
     /// Subscribes to notifications about the [`Program`]s of the [`Ven`]
     /// identified by `ven_id`.
     pub async fn subscribe_ven_programs(
-        &mut self,
+        &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(
             MqttSubscriptionTarget::VenPrograms(ven_id),
             operation_filter,
@@ -1016,10 +1014,10 @@ impl<K: ClientKind> MqttClient<K> {
     /// [`Resource`](openleadr_wire::resource::Resource)s of the [`Ven`]
     /// identified by `ven_id`.
     pub async fn subscribe_ven_resources(
-        &mut self,
+        &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(
             MqttSubscriptionTarget::VenResources(ven_id),
             operation_filter,
@@ -1031,10 +1029,10 @@ impl<K: ClientKind> MqttClient<K> {
     /// [`ResourceGroup`](openleadr_wire::resource_group::ResourceGroup)s of the
     /// [`Ven`] identified by `ven_id`.
     pub async fn subscribe_ven_resource_groups(
-        &mut self,
+        &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         self.subscribe(
             MqttSubscriptionTarget::VenResourceGroups(ven_id),
             operation_filter,
@@ -1043,10 +1041,10 @@ impl<K: ClientKind> MqttClient<K> {
     }
 
     async fn subscribe(
-        &mut self,
+        &self,
         target: MqttSubscriptionTarget,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<K>> {
         let NotifierTopicsResponse { topics } =
             self.client_ref.get(&target.endpoint(), &[]).await?;
 
@@ -1067,37 +1065,16 @@ impl<K: ClientKind> MqttClient<K> {
             return Err(Error::MqttSubscriptionRejected { topic });
         }
 
-        let subscription = MqttSubscription::new(target, operation_filter);
-
-        self.subscriptions
-            .lock()
-            .await
-            .insert(subscription.clone(), topic);
-
-        Ok(subscription)
-    }
-
-    /// Removes a subscription previously made with one of the `subscribe_*`
-    /// methods.
-    ///
-    /// # Errors
-    ///
-    /// - [`Error::MqttNotSubscribed`] if this client has no such subscription,
-    ///   e.g., because it was already removed
-    /// - [`Error::Mqtt`] if the broker failed to process the unsubscribe request.
-    ///   The subscription is kept, so the call can be retried.
-    pub async fn unsubscribe(&self, subscription: &MqttSubscription) -> Result<()> {
-        let topic = self
+        *self
             .subscriptions
             .lock()
-            .await
-            .get(subscription)
-            .cloned()
-            .ok_or(Error::MqttNotSubscribed)?;
+            .unwrap()
+            .entry(topic.clone())
+            .or_default() += 1;
+        let subscription =
+            MqttSubscription::new(topic, target, operation_filter, Arc::new(self.clone()));
 
-        self.mqtt_client.unsubscribe(topic).await?;
-        self.subscriptions.lock().await.remove(subscription);
-        Ok(())
+        Ok(subscription)
     }
 
     /// Creates a receiver for the notifications of all subscriptions of this client.
@@ -1116,10 +1093,10 @@ impl MqttClient<BusinessLogic> {
     /// Subscribes to notifications about the [`Program`] identified by
     /// `program_id`.
     pub async fn subscribe_program(
-        &mut self,
+        &self,
         program_id: ProgramId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<BusinessLogic>> {
         self.subscribe(
             MqttSubscriptionTarget::Program(program_id),
             operation_filter,
@@ -1130,10 +1107,10 @@ impl MqttClient<BusinessLogic> {
     /// Subscribes to notifications about the [`Event`]s of the [`Program`]
     /// identified by `program_id`.
     pub async fn subscribe_program_events(
-        &mut self,
+        &self,
         program_id: ProgramId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<BusinessLogic>> {
         self.subscribe(
             MqttSubscriptionTarget::ProgramEvents(program_id),
             operation_filter,
@@ -1144,18 +1121,18 @@ impl MqttClient<BusinessLogic> {
     /// Subscribes to notifications about all
     /// [`Report`](openleadr_wire::report::Report)s.
     pub async fn subscribe_reports(
-        &mut self,
+        &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<BusinessLogic>> {
         self.subscribe(MqttSubscriptionTarget::Reports, operation_filter)
             .await
     }
 
     /// Subscribes to notifications about all [`Ven`]s.
     pub async fn subscribe_vens(
-        &mut self,
+        &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<BusinessLogic>> {
         self.subscribe(MqttSubscriptionTarget::Vens, operation_filter)
             .await
     }
@@ -1163,9 +1140,9 @@ impl MqttClient<BusinessLogic> {
     /// Subscribes to notifications about all
     /// [`Resource`](openleadr_wire::resource::Resource)s.
     pub async fn subscribe_resources(
-        &mut self,
+        &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<BusinessLogic>> {
         self.subscribe(MqttSubscriptionTarget::Resources, operation_filter)
             .await
     }
@@ -1173,9 +1150,9 @@ impl MqttClient<BusinessLogic> {
     /// Subscribes to notifications about all
     /// [`ResourceGroup`](openleadr_wire::resource_group::ResourceGroup)s.
     pub async fn subscribe_resource_groups(
-        &mut self,
+        &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<BusinessLogic>> {
         self.subscribe(MqttSubscriptionTarget::ResourceGroups, operation_filter)
             .await
     }

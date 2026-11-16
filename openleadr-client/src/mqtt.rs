@@ -1,11 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use openleadr_wire::{program::ProgramId, subscription::Operation, ven::VenId};
-use tokio::sync::Mutex;
 
-struct MqttSubscriptionTable {
-    subscriptions: Arc<Mutex<HashMap<MqttSubscription, usize>>>,
-}
+use crate::{ClientKind, MqttClient};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MqttSubscriptionTarget {
@@ -27,17 +24,66 @@ pub enum MqttSubscriptionTarget {
 /// A subscription made with one of the `subscribe_*` methods of [`MqttClient`].
 ///
 /// Pass it to [`MqttClient::unsubscribe`] to remove the subscription again.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MqttSubscription {
+#[derive(Debug)]
+pub struct MqttSubscription<K: ClientKind> {
+    topic: String,
     target: MqttSubscriptionTarget,
     operation_filter: Option<Operation>,
+    state: Arc<MqttClient<K>>,
 }
 
-impl MqttSubscription {
-    pub fn new(target: MqttSubscriptionTarget, operation_filter: Option<Operation>) -> Self {
+impl<K: ClientKind> MqttSubscription<K> {
+    pub fn new(
+        topic: String,
+        target: MqttSubscriptionTarget,
+        operation_filter: Option<Operation>,
+        state: Arc<MqttClient<K>>,
+    ) -> Self {
         Self {
+            topic,
             target,
             operation_filter,
+            state,
+        }
+    }
+
+    pub fn topic(&self) -> &str {
+        &self.topic
+    }
+}
+
+impl<K: ClientKind> Drop for MqttSubscription<K> {
+    fn drop(&mut self) {
+        // The mutex can only be poisoned from an earlier panic. It is ok for us
+        // to propagate that to all the threads.
+        let mut subscriptions = self.state.subscriptions.lock().unwrap();
+        // The topic will always be present because of the refcounting.
+        let refcount = subscriptions.get_mut(&self.topic).unwrap();
+        // An underflowing refcount should never happen. If it does, something
+        // is seriously wrong and aborting is the best solution.
+        *refcount = refcount.checked_sub(1).unwrap();
+        if *refcount == 0 {
+            subscriptions.remove(&self.topic);
+            self.state.mqtt_client.unsubscribe(&self.topic);
+        }
+    }
+}
+
+impl<K: ClientKind> Clone for MqttSubscription<K> {
+    fn clone(&self) -> Self {
+        // The mutex can only be poisoned from an earlier panic. It is ok for us
+        // to propagate that to all the threads.
+        let mut subscriptions = self.state.subscriptions.lock().unwrap();
+        // The topic will always be present because of the refcounting.
+        let refcount = subscriptions.get_mut(&self.topic).unwrap();
+        // An overflowing reference count is an error condition from which we
+        // cannot reasonably recover. A panic here is the best solution.
+        *refcount = refcount.checked_add(1).unwrap();
+        Self {
+            target: self.target.clone(),
+            topic: self.topic.clone(),
+            operation_filter: self.operation_filter,
+            state: self.state.clone(),
         }
     }
 }
