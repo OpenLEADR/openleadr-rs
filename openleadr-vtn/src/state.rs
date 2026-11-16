@@ -37,6 +37,7 @@ use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::PartialEq,
+    collections::HashMap,
     env,
     env::VarError,
     io::{BufReader, Read},
@@ -499,13 +500,14 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 
 #[cfg(test)]
 mod test {
+    use async_trait::async_trait;
     use openleadr_wire::{
         ClientId,
         subscription::{Subscription, SubscriptionId},
     };
 
     use crate::data_source::{Crud, NewSubscription};
-
+    use crate::jwt::Scope;
     use super::*;
 
     struct MockDataSource {}
@@ -605,7 +607,12 @@ mod test {
         }
     }
 
-    impl SubscriptionCrud for MockSubscriptionSource {}
+    #[async_trait]
+    impl SubscriptionCrud for MockSubscriptionSource {
+        async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError> {
+            unimplemented!()
+        }
+    }
 
     // It is critical for the safety assumption of set_env_var and remove_env_var that the tests in
     // this module do not run in parallel.

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::{
     api::subscription::QueryParams,
     data_source::{Crud, NewSubscription, SubscriptionCrud},
@@ -11,8 +12,22 @@ use openleadr_wire::{
 };
 use sqlx::PgPool;
 use tracing::{error, trace, warn};
+use crate::jwt::Scope;
 
-impl SubscriptionCrud for PgSubscriptionStorage {}
+#[async_trait]
+impl SubscriptionCrud for PgSubscriptionStorage {
+    async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, subscriber_scopes AS "subscriber_scopes: Vec<Scope>" FROM subscription
+            "#
+        ).fetch_all(&self.db).await?;
+
+        rows.into_iter().map(
+            |row| Ok((row.id.parse()?, row.subscriber_scopes))) //how on earth is this making a HashMap?
+            .collect()
+    }
+}
 
 pub(crate) struct PgSubscriptionStorage {
     db: PgPool,
