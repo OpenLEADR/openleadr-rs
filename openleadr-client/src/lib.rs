@@ -56,6 +56,7 @@ mod error;
 mod event;
 #[cfg(feature = "mdns")]
 mod mdns;
+mod mqtt;
 mod program;
 mod report;
 mod resource;
@@ -95,7 +96,11 @@ pub use resource::*;
 pub use timeline::*;
 pub use ven::*;
 
-use crate::{error::Result, sealed::SealedClientKind};
+use crate::{
+    error::Result,
+    mqtt::{MqttSubscription, MqttSubscriptionTarget},
+    sealed::SealedClientKind,
+};
 use openleadr_wire::{
     Program,
     program::{ProgramId, ProgramRequest},
@@ -953,54 +958,6 @@ impl MqttClient<VirtualEndNode> {
         ))
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum MqttSubscriptionTarget {
-    Programs,
-    Program(ProgramId),
-    Events,
-    ProgramEvents(ProgramId),
-    Reports,
-    Vens,
-    Ven(VenId),
-    Resources,
-    ResourceGroups,
-    VenEvents(VenId),
-    VenPrograms(VenId),
-    VenResources(VenId),
-    VenResourceGroups(VenId),
-}
-
-/// A subscription made with one of the `subscribe_*` methods of [`MqttClient`].
-///
-/// Pass it to [`MqttClient::unsubscribe`] to remove the subscription again.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MqttSubscription {
-    target: MqttSubscriptionTarget,
-    operation_filter: Option<Operation>,
-}
-
-impl MqttSubscriptionTarget {
-    fn endpoint(&self) -> String {
-        let path = match self {
-            Self::Programs => "programs".to_string(),
-            Self::Program(program_id) => format!("programs/{program_id}"),
-            Self::Events => "events".to_string(),
-            Self::ProgramEvents(program_id) => format!("programs/{program_id}/events"),
-            Self::Reports => "reports".to_string(),
-            Self::Vens => "vens".to_string(),
-            Self::Ven(ven_id) => format!("vens/{ven_id}"),
-            Self::Resources => "resources".to_string(),
-            Self::ResourceGroups => "resource_groups".to_string(),
-            Self::VenEvents(ven_id) => format!("vens/{ven_id}/events"),
-            Self::VenPrograms(ven_id) => format!("vens/{ven_id}/programs"),
-            Self::VenResources(ven_id) => format!("vens/{ven_id}/resources"),
-            Self::VenResourceGroups(ven_id) => format!("vens/{ven_id}/resource_groups"),
-        };
-        format!("notifiers/mqtt/topics/{path}")
-    }
-}
-
 impl<K: ClientKind> MqttClient<K> {
     /// Subscribes to notifications about all [`Program`]s.
     pub async fn subscribe_programs(
@@ -1110,10 +1067,7 @@ impl<K: ClientKind> MqttClient<K> {
             return Err(Error::MqttSubscriptionRejected { topic });
         }
 
-        let subscription = MqttSubscription {
-            target,
-            operation_filter,
-        };
+        let subscription = MqttSubscription::new(target, operation_filter);
 
         self.subscriptions
             .lock()
