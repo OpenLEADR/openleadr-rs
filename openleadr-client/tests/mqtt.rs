@@ -102,3 +102,44 @@ async fn mqtt_unsubscribe(db: PgPool) {
         "should not receive a notification of this after unsubscribing"
     )
 }
+
+#[ignore = "WIP: Subscription should remain until last subscriber unsubscribes"]
+#[sqlx::test(fixtures("users"))]
+async fn mqtt_subscription_conflict(db: PgPool) {
+    let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
+    let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
+
+    let mut mqtt_client = ven.connect_mqtt().await.unwrap();
+    let mut notifications = mqtt_client.notifications();
+    let subscription1 = mqtt_client.subscribe_programs(None).await.unwrap();
+    let _subscription2 = mqtt_client.subscribe_programs(None).await.unwrap();
+
+    let program = bl
+        .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
+        .await
+        .unwrap();
+
+    let notification =
+        next_notification_for_program(&mut notifications, program.id(), Duration::from_secs(5))
+            .await
+            .expect("no notification received in time");
+
+    assert_eq!(notification.operation, Operation::Create);
+
+    mqtt_client.unsubscribe(&subscription1).await.unwrap();
+
+    let unsubscribed_program = bl
+        .create_program(ProgramRequest::new("mqtt-test-unsubscribe".to_string()))
+        .await
+        .unwrap();
+
+    let notification = next_notification_for_program(
+        &mut notifications,
+        unsubscribed_program.id(),
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("no notification received in time");
+
+    assert_eq!(notification.operation, Operation::Create);
+}
