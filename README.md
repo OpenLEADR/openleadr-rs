@@ -50,6 +50,33 @@ requires the presence of a C toolchain, CMAKE, and the OpenSSL library in a
 form suitable for source compilation. Consult your Linux distribution's
 documentation for information on how to install these.
 
+> [!WARNING]
+> <details><summary>Beware of symbolic links on Windows</summary>
+>
+> This project uses symbolic links to synchronize the database migration files between the packages in this workspace. Because the support for this is limited on windows, you may encounter the following error when building the project:
+> ```
+> error reading migration directory /app/openleadr-vtn/migrations: Not a directory (os error 20)
+>```
+> To fix the error, remove `openleadr-vtn/migrations` and `openleadr-client/migrations` (which should both be files). Then copy the `migrations` directory in the root of the project to both the `openleadr-vtn/` and `openleadr-client/` directories.
+>
+> The resulting structure should be:
+> ```
+> .
+> ├── migrations
+> │   ├── 20240826084440_initial_scheme.sql
+> │   └── ...
+> ├── openleadr-vtn
+> ├   └── migrations
+> │       ├── 20240826084440_initial_scheme.sql
+> │       └── ...
+> ├── openleadr-client
+> ├   └── migrations
+> │       ├── 20240826084440_initial_scheme.sql
+> │       └── ...
+> └── ...
+> ```
+> </details>
+
 ### Docker compose
 
 For a quick start,
