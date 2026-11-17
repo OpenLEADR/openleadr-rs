@@ -3,11 +3,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use openleadr_wire::{
-    program::ProgramId,
-    subscription::{Notification, Operation},
-    ven::VenId,
-};
+use openleadr_wire::{program::ProgramId, subscription::Notification, ven::VenId};
 use paho_mqtt::TopicFilter;
 use tokio::sync::broadcast;
 
@@ -35,19 +31,12 @@ impl TopicEntry {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct MqttSubscriptionRegistry {
-    pub(crate) mqtt_client: paho_mqtt::AsyncClient,
     subscriptions: Mutex<HashMap<String, TopicEntry>>,
 }
 
 impl MqttSubscriptionRegistry {
-    pub(crate) fn new(mqtt_client: paho_mqtt::AsyncClient) -> Self {
-        Self {
-            mqtt_client,
-            subscriptions: Mutex::default(),
-        }
-    }
-
     pub(crate) fn subscriptions(&self) -> MutexGuard<'_, HashMap<String, TopicEntry>> {
         // The mutex can only be poisoned from an earlier panic. It is ok for
         // us to propagate that to all the threads.
@@ -55,22 +44,25 @@ impl MqttSubscriptionRegistry {
     }
 
     pub(crate) fn dispatch(&self, message: Option<paho_mqtt::Message>) {
-        for entry in self.subscriptions().values() {
+        for (topic, entry) in self.subscriptions().iter() {
             if message
                 .as_ref()
                 // None indicates a dropped connection, which is sent to all
                 // subscribers
-                .is_none_or(|message| entry.filter.is_match(message.topic()))
+                .is_some_and(|message| !entry.filter.is_match(message.topic()))
             {
-                // Sending only fails without receivers, i.e., when nobody is
-                // interested in the message.
-                let _ = entry.sender.send(message.clone());
+                continue;
+            }
+
+            if entry.sender.send(message.clone()).is_err() {
+                // Sending should never fail
+                tracing::error!("MQTT subscription to '{topic}' without receivers");
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub enum MqttSubscriptionTarget {
     Programs,
     Program(ProgramId),
@@ -95,26 +87,23 @@ pub enum MqttSubscriptionTarget {
 /// subscription to the same topic (e.g., a clone) is still alive.
 pub struct MqttSubscription {
     topic: String,
-    target: MqttSubscriptionTarget,
-    operation_filter: Option<Operation>,
     receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
     registry: Arc<MqttSubscriptionRegistry>,
+    mqtt_client: paho_mqtt::AsyncClient,
 }
 
 impl MqttSubscription {
     pub(crate) fn new(
-        topic: String,
-        target: MqttSubscriptionTarget,
-        operation_filter: Option<Operation>,
+        topic: &str,
         receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
         registry: Arc<MqttSubscriptionRegistry>,
+        mqtt_client: paho_mqtt::AsyncClient,
     ) -> Self {
         Self {
-            topic,
-            target,
-            operation_filter,
+            topic: topic.to_string(),
             receiver,
             registry,
+            mqtt_client,
         }
     }
 
@@ -176,7 +165,7 @@ impl Drop for MqttSubscription {
 
         if entry.refcount == 0 {
             subscriptions.remove(&self.topic);
-            drop(self.registry.mqtt_client.unsubscribe(&self.topic));
+            self.mqtt_client.unsubscribe(&self.topic);
         }
     }
 }
@@ -193,11 +182,10 @@ impl Clone for MqttSubscription {
         entry.refcount = entry.refcount.checked_add(1).unwrap();
 
         Self::new(
-            self.topic.clone(),
-            self.target.clone(),
-            self.operation_filter,
+            &self.topic,
             entry.receiver(),
             self.registry.clone(),
+            self.mqtt_client.clone(),
         )
     }
 }

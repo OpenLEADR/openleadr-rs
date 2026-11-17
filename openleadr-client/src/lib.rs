@@ -844,20 +844,15 @@ impl<K: ClientKind> Client<K> {
                 continue;
             }
 
-            let registry = Arc::new(MqttSubscriptionRegistry::new(client.clone()));
-            // Weak, because the registry owns a handle to the paho client,
-            // which keeps `incoming` open. A strong reference would be a cycle
-            // and thus keep both alive forever.
-            let dispatch_to = Arc::downgrade(&registry);
+            let registry = Arc::new(MqttSubscriptionRegistry::default());
+            let dispatch_to = registry.clone();
 
+            // `incoming` closes once the last handle to the paho client is
+            // dropped, i.e., the `MqttClient`, its subscriptions, and the
+            // clients created from it. That ends this task.
             tokio::spawn(async move {
                 while let Ok(message) = incoming.recv().await {
-                    // Gone once the `MqttClient` and all its subscriptions
-                    // have been dropped.
-                    let Some(registry) = dispatch_to.upgrade() else {
-                        break;
-                    };
-                    registry.dispatch(message);
+                    dispatch_to.dispatch(message);
                 }
             });
 
@@ -1056,20 +1051,16 @@ impl<K: ClientKind> MqttClient<K> {
                 .entry(topic.clone())
                 .or_insert_with(|| TopicEntry::new(&topic));
 
-            let token = self
-                .registry
-                .mqtt_client
-                .subscribe(topic.clone(), QoS::AtMostOnce);
+            let token = self.mqtt_client.subscribe(topic.clone(), QoS::AtMostOnce);
             entry.refcount += 1;
             (token, entry.receiver())
         };
 
         let subscription = MqttSubscription::new(
-            topic.clone(),
-            target,
-            operation_filter,
+            &topic,
             receiver,
             self.registry.clone(),
+            self.mqtt_client.clone(),
         );
 
         let response = token.await?;
