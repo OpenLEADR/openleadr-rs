@@ -68,8 +68,7 @@ use openleadr_wire::{
     Event, Ven,
     event::EventId,
     subscription::{
-        MqttNotifierAuthentication, Notification, NotifierTopicsResponse, NotifiersResponse,
-        Operation,
+        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
     },
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
@@ -80,7 +79,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::RwLock;
 
 use reqwest::{Method, RequestBuilder, Response};
 use url::Url;
@@ -89,6 +88,7 @@ pub use error::*;
 pub use event::*;
 #[cfg(feature = "mdns")]
 pub use mdns::*;
+pub use mqtt::MqttSubscription;
 pub use program::*;
 pub use report::*;
 pub use resource::*;
@@ -97,7 +97,7 @@ pub use ven::*;
 
 use crate::{
     error::Result,
-    mqtt::{MqttSubscription, MqttSubscriptionRegistry, MqttSubscriptionTarget},
+    mqtt::{MqttSubscriptionRegistry, MqttSubscriptionTarget, TopicEntry},
     sealed::SealedClientKind,
 };
 use openleadr_wire::{
@@ -132,8 +132,7 @@ pub struct Client<K> {
 /// Client for managing an mqtt connection with a VTN.
 ///
 /// This can be used to publish reports via mqtt, and to receive notifications
-/// via its `subscribe_*` methods (e.g., [`MqttClient::subscribe_programs`])
-/// and [`MqttClient::notifications`].
+/// via its `subscribe_*` methods (e.g., [`MqttClient::subscribe_programs`]).
 ///
 /// # Subscriptions
 ///
@@ -142,15 +141,8 @@ pub struct Client<K> {
 /// depends on the [`ClientKind`]: the topics that the VTN only offers to the
 /// business logic can only be subscribed to by an `MqttClient<BusinessLogic>`.
 ///
-/// The notifications themselves are delivered to every receiver created with
-/// [`notifications`](MqttClient::notifications), mixed with those of all other
-/// subscriptions of this client.
-///
-/// The VTN may publish one change on several topics (e.g., a targeted event on
-/// both the [`subscribe_events`](MqttClient::subscribe_events) and the
-/// [`subscribe_ven_events`](MqttClient::subscribe_ven_events) topic), so
-/// overlapping subscriptions can deliver duplicates. Use [`Notification::id`]
-/// to deduplicate.
+/// Each method returns an [`MqttSubscription`] that receives the notifications
+/// of that subscription only. Dropping it unsubscribes again.
 ///
 /// ## Errors
 ///
@@ -162,11 +154,8 @@ pub struct Client<K> {
 pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
-    messages: broadcast::Sender<Option<paho_mqtt::Message>>,
     registry: Arc<MqttSubscriptionRegistry>,
 }
-
-const MQTT_NOTIFICATION_BUFFER: usize = 128;
 
 impl<K: Debug> Debug for MqttClient<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -855,21 +844,27 @@ impl<K: ClientKind> Client<K> {
                 continue;
             }
 
-            let (messages, _) = broadcast::channel(MQTT_NOTIFICATION_BUFFER);
-            let forward = messages.clone();
+            let registry = Arc::new(MqttSubscriptionRegistry::new(client.clone()));
+            // Weak, because the registry owns a handle to the paho client,
+            // which keeps `incoming` open. A strong reference would be a cycle
+            // and thus keep both alive forever.
+            let dispatch_to = Arc::downgrade(&registry);
 
             tokio::spawn(async move {
                 while let Ok(message) = incoming.recv().await {
-                    // An error only means nobody is listening right now.
-                    let _ = forward.send(message);
+                    // Gone once the `MqttClient` and all its subscriptions
+                    // have been dropped.
+                    let Some(registry) = dispatch_to.upgrade() else {
+                        break;
+                    };
+                    registry.dispatch(message);
                 }
             });
 
             return Ok(MqttClient {
                 client_ref: self.client_ref.clone(),
-                registry: Arc::new(MqttSubscriptionRegistry::new(client.clone())),
                 mqtt_client: client,
-                messages,
+                registry,
             });
         }
         Err(last_error)
@@ -1055,21 +1050,25 @@ impl<K: ClientKind> MqttClient<K> {
             Some(Operation::Delete) => topics.delete,
         };
 
-        // TODO: Subscribe on every request, or only on first?
-        let token = {
+        let (token, receiver) = {
             let mut subscriptions = self.registry.subscriptions();
+            let entry = subscriptions
+                .entry(topic.clone())
+                .or_insert_with(|| TopicEntry::new(&topic));
+
             let token = self
                 .registry
                 .mqtt_client
                 .subscribe(topic.clone(), QoS::AtMostOnce);
-            *subscriptions.entry(topic.clone()).or_default() += 1;
-            token
+            entry.refcount += 1;
+            (token, entry.receiver())
         };
 
         let subscription = MqttSubscription::new(
             topic.clone(),
             target,
             operation_filter,
+            receiver,
             self.registry.clone(),
         );
 
@@ -1081,16 +1080,6 @@ impl<K: ClientKind> MqttClient<K> {
         }
 
         Ok(subscription)
-    }
-
-    /// Creates a receiver for the notifications of all subscriptions of this client.
-    ///
-    /// Each receiver gets every notification that arrives after it was created.
-    /// Clones of this [`MqttClient`] share subscriptions and notifications.
-    pub fn notifications(&self) -> MqttNotifications {
-        MqttNotifications {
-            receiver: self.messages.subscribe(),
-        }
     }
 }
 
@@ -1161,45 +1150,5 @@ impl MqttClient<BusinessLogic> {
     ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::ResourceGroups, operation_filter)
             .await
-    }
-}
-
-/// Receives the notifications for all subscriptions of an [`MqttClient`].
-///
-/// Created by [`MqttClient::notifications`].
-#[derive(Debug)]
-pub struct MqttNotifications {
-    receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
-}
-
-impl MqttNotifications {
-    /// Waits for the next notification.
-    ///
-    /// Returns `None` once the [`MqttClient`] and everything created from it
-    /// has been dropped.
-    ///
-    /// # Errors
-    ///
-    /// Errors do not end the stream; calling `recv` again continues with the
-    /// next notification.
-    ///
-    /// - [`Error::Serde`] if a message is not a valid [`Notification`].
-    /// - [`Error::MqttNotificationsLagged`] if this receiver fell behind and
-    ///   notifications were dropped.
-    /// - [`Error::Mqtt`] with [`paho_mqtt::Error::Disconnected`] if the
-    ///   connection to the broker was lost. Subscriptions are not restored
-    ///   automatically; reconnect with [`Client::connect_mqtt`] and subscribe
-    ///   again.
-    pub async fn recv(&mut self) -> Option<Result<Notification>> {
-        match self.receiver.recv().await {
-            Ok(Some(message)) => {
-                Some(serde_json::from_slice(message.payload()).map_err(Into::into))
-            }
-            Ok(None) => Some(Err(Error::Mqtt(paho_mqtt::Error::Disconnected))),
-            Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                Some(Err(Error::MqttNotificationsLagged(skipped)))
-            }
-            Err(broadcast::error::RecvError::Closed) => None,
-        }
     }
 }
