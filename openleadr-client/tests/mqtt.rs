@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::common::AuthRole;
-use openleadr_client::{BusinessLogic, MqttNotifications, VirtualEndNode};
+use openleadr_client::{BusinessLogic, MqttSubscription, VirtualEndNode};
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     subscription::{AnyObject, Notification, Operation},
@@ -11,15 +11,14 @@ use sqlx::PgPool;
 mod common;
 
 async fn next_notification_for_program(
-    notifications: &mut MqttNotifications,
+    subscription: &mut MqttSubscription,
     program_id: &ProgramId,
     timeout: Duration,
 ) -> Option<Notification> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        let received = match tokio::time::timeout_at(deadline, notifications.recv()).await {
-            Ok(Some(received)) => received.expect("failed to parse notification"),
-            Ok(None) => panic!("notification stream closed"),
+        let received = match tokio::time::timeout_at(deadline, subscription.recv()).await {
+            Ok(received) => received.expect("failed to receive notification"),
             Err(_) => return None,
         };
         let is_for_program =
@@ -47,8 +46,7 @@ async fn mqtt_receive_notification(db: PgPool) {
     let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
 
     let mqtt_client = ven.connect_mqtt().await.unwrap();
-    let mut notifications = mqtt_client.notifications();
-    let _subscription = mqtt_client.subscribe_programs(None).await.unwrap();
+    let mut subscription = mqtt_client.subscribe_programs(None).await.unwrap();
 
     let program = bl
         .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
@@ -56,7 +54,7 @@ async fn mqtt_receive_notification(db: PgPool) {
         .unwrap();
 
     let notification =
-        next_notification_for_program(&mut notifications, program.id(), Duration::from_secs(5))
+        next_notification_for_program(&mut subscription, program.id(), Duration::from_secs(5))
             .await
             .expect("no notification received in time");
 
@@ -64,84 +62,69 @@ async fn mqtt_receive_notification(db: PgPool) {
 }
 
 #[sqlx::test(fixtures("users"))]
-async fn mqtt_unsubscribe(db: PgPool) {
+async fn mqtt_subscription_survives_dropped_clone(db: PgPool) {
     let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
     let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
 
     let mqtt_client = ven.connect_mqtt().await.unwrap();
-    let mut notifications = mqtt_client.notifications();
+    let mut subscription = mqtt_client.subscribe_programs(None).await.unwrap();
     {
-        // Once `_subscription` goes out of scope, its `Drop` implementation
-        // will handle the unsubscribing
-        let _subscription = mqtt_client.subscribe_programs(None).await.unwrap();
+        let mut clone = subscription.clone();
 
         let program = bl
             .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
             .await
             .unwrap();
 
-        let notification =
-            next_notification_for_program(&mut notifications, program.id(), Duration::from_secs(5))
+        // Both receive every notification.
+        for subscription in [&mut subscription, &mut clone] {
+            next_notification_for_program(subscription, program.id(), Duration::from_secs(5))
                 .await
                 .expect("no notification received in time");
-
-        assert_eq!(notification.operation, Operation::Create);
+        }
     }
 
-    let unsubscribed_program = bl
-        .create_program(ProgramRequest::new("mqtt-test-unsubscribe".to_string()))
+    // Dropping the clone must not unsubscribe the original.
+    let program = bl
+        .create_program(ProgramRequest::new("mqtt-test-after-drop".to_string()))
         .await
         .unwrap();
 
-    assert!(
-        next_notification_for_program(
-            &mut notifications,
-            unsubscribed_program.id(),
-            Duration::from_secs(1),
-        )
+    next_notification_for_program(&mut subscription, program.id(), Duration::from_secs(5))
         .await
-        .is_none(),
-        "should not receive a notification of this after unsubscribing"
-    )
+        .expect("no notification received in time");
 }
 
 #[sqlx::test(fixtures("users"))]
-async fn mqtt_subscription_conflict(db: PgPool) {
+async fn mqtt_subscriptions_receive_only_their_topic(db: PgPool) {
     let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
     let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
 
     let mqtt_client = ven.connect_mqtt().await.unwrap();
-    let mut notifications = mqtt_client.notifications();
-
-    let _subscription1 = mqtt_client.subscribe_programs(None).await.unwrap();
-    {
-        let _subscription2 = mqtt_client.subscribe_programs(None).await.unwrap();
-
-        let program = bl
-            .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
-            .await
-            .unwrap();
-
-        let notification =
-            next_notification_for_program(&mut notifications, program.id(), Duration::from_secs(5))
-                .await
-                .expect("no notification received in time");
-
-        assert_eq!(notification.operation, Operation::Create);
-    }
-
-    let subscribed_program = bl
-        .create_program(ProgramRequest::new("mqtt-test-unsubscribe".to_string()))
+    let mut creates = mqtt_client
+        .subscribe_programs(Some(Operation::Create))
+        .await
+        .unwrap();
+    let mut deletes = mqtt_client
+        .subscribe_programs(Some(Operation::Delete))
         .await
         .unwrap();
 
-    let notification = next_notification_for_program(
-        &mut notifications,
-        subscribed_program.id(),
-        Duration::from_secs(1),
-    )
-    .await
-    .expect("no notification received in time");
+    let program = bl
+        .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
+        .await
+        .unwrap();
 
+    let notification =
+        next_notification_for_program(&mut creates, program.id(), Duration::from_secs(5))
+            .await
+            .expect("no notification received in time");
     assert_eq!(notification.operation, Operation::Create);
+
+    assert!(
+        next_notification_for_program(&mut deletes, program.id(), Duration::from_secs(1))
+            .await
+            .is_none(),
+        "the delete subscription should not receive the create notification"
+    );
 }

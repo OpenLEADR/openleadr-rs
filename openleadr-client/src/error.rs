@@ -25,11 +25,8 @@ pub enum Error {
     MqttSubscriptionRejected {
         topic: String,
     },
-    /// There is no active MQTT subscription for the given target and operation
-    /// filter, so there is nothing to unsubscribe from.
-    MqttNotSubscribed,
-    /// An [`MqttNotifications`](crate::MqttNotifications) receiver fell behind,
-    /// and this many notifications were dropped.
+    /// An [`MqttSubscription`](crate::MqttSubscription) fell behind, and this
+    /// many notifications were dropped.
     MqttNotificationsLagged(u64),
 }
 
@@ -126,7 +123,6 @@ impl std::fmt::Display for Error {
                 f,
                 "Missed {skipped} MQTT notifications because the receiver lagged"
             ),
-            Error::MqttNotSubscribed => write!(f, "Not subscribed to topic"),
         }
     }
 }
