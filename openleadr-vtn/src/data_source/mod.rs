@@ -1,7 +1,6 @@
 #[cfg(feature = "postgres")]
 mod postgres;
 
-use std::collections::HashMap;
 use crate::{error::AppError, jwt::Scope};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -20,7 +19,7 @@ use openleadr_wire::{
 pub use postgres::PostgresStorage;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[async_trait]
 pub trait VenObjectPrivacy: Send + Sync + 'static {
