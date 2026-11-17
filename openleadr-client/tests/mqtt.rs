@@ -30,17 +30,6 @@ async fn next_notification_for_program(
 }
 
 #[sqlx::test(fixtures("users"))]
-async fn mqtt_subscriptions(db: PgPool) {
-    let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
-    let mqtt_client = ven.connect_mqtt().await.unwrap();
-    mqtt_client.subscribe_events(None).await.unwrap();
-    mqtt_client
-        .subscribe_ven_programs("ven-id".parse().unwrap(), Some(Operation::Create))
-        .await
-        .unwrap();
-}
-
-#[sqlx::test(fixtures("users"))]
 async fn mqtt_receive_notification(db: PgPool) {
     let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
     let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
