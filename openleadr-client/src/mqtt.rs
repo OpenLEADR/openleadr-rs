@@ -210,3 +210,120 @@ impl MqttSubscriptionTarget {
         format!("notifiers/mqtt/topics/{path}")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use paho_mqtt::{CreateOptionsBuilder, PersistenceType, QoS};
+
+    use super::*;
+    use crate::{Client, MqttClient, VirtualEndNode};
+
+    /// An `MqttClient` whose paho client never connects. Subscribe and
+    /// unsubscribe requests fail immediately, which leaves the refcounting
+    /// unaffected.
+    fn mqtt_client() -> MqttClient<VirtualEndNode> {
+        let client = Client::with_url("https://vtn.example.com".parse().unwrap(), None);
+        let mqtt_client = CreateOptionsBuilder::new()
+            .server_uri("mqtt://localhost:1")
+            .persistence(PersistenceType::None)
+            .create_client()
+            .unwrap();
+
+        MqttClient {
+            client_ref: client.client_ref,
+            mqtt_client,
+            registry: Arc::default(),
+        }
+    }
+
+    fn subscribe(client: &MqttClient<VirtualEndNode>, topic: &str) -> MqttSubscription {
+        client.subscribe_topic(topic).1
+    }
+
+    /// `None` if the topic has no entry, i.e., is not subscribed to.
+    fn refcount(client: &MqttClient<VirtualEndNode>, topic: &str) -> Option<usize> {
+        client
+            .registry
+            .subscriptions()
+            .get(topic)
+            .map(|entry| entry.refcount)
+    }
+
+    #[test]
+    fn subscriptions_to_one_topic_share_an_entry() {
+        let client = mqtt_client();
+
+        let first = subscribe(&client, "programs/+");
+        assert_eq!(refcount(&client, "programs/+"), Some(1));
+
+        let second = subscribe(&client, "programs/+");
+        assert_eq!(refcount(&client, "programs/+"), Some(2));
+        assert_eq!(client.registry.subscriptions().len(), 1);
+
+        drop(first);
+        assert_eq!(refcount(&client, "programs/+"), Some(1));
+
+        drop(second);
+        assert_eq!(refcount(&client, "programs/+"), None);
+    }
+
+    #[test]
+    fn clone_takes_a_reference() {
+        let client = mqtt_client();
+
+        let original = subscribe(&client, "programs/+");
+        let clone = original.clone();
+        assert_eq!(refcount(&client, "programs/+"), Some(2));
+
+        drop(original);
+        assert_eq!(refcount(&client, "programs/+"), Some(1));
+
+        drop(clone);
+        assert_eq!(refcount(&client, "programs/+"), None);
+    }
+
+    #[test]
+    fn topics_are_counted_independently() {
+        let client = mqtt_client();
+
+        let creates = subscribe(&client, "programs/create");
+        let deletes = subscribe(&client, "programs/delete");
+        assert_eq!(refcount(&client, "programs/create"), Some(1));
+        assert_eq!(refcount(&client, "programs/delete"), Some(1));
+
+        drop(creates);
+        assert_eq!(refcount(&client, "programs/create"), None);
+        assert_eq!(refcount(&client, "programs/delete"), Some(1));
+
+        drop(deletes);
+        assert!(client.registry.subscriptions().is_empty());
+    }
+
+    #[test]
+    fn resubscribing_after_last_drop_starts_a_new_entry() {
+        let client = mqtt_client();
+
+        drop(subscribe(&client, "programs/+"));
+        assert_eq!(refcount(&client, "programs/+"), None);
+
+        let _subscription = subscribe(&client, "programs/+");
+        assert_eq!(refcount(&client, "programs/+"), Some(1));
+    }
+
+    #[test]
+    fn subscription_keeps_receiving_after_clone_is_dropped() {
+        let client = mqtt_client();
+
+        let mut original = subscribe(&client, "programs/+");
+        drop(original.clone());
+
+        client.registry.dispatch(Some(paho_mqtt::Message::new(
+            "programs/create",
+            "{}",
+            QoS::AtMostOnce,
+        )));
+
+        let message = original.receiver.try_recv().unwrap().unwrap();
+        assert_eq!(message.topic(), "programs/create");
+    }
+}

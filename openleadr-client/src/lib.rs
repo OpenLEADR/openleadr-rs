@@ -1045,23 +1045,7 @@ impl<K: ClientKind> MqttClient<K> {
             Some(Operation::Delete) => topics.delete,
         };
 
-        let (token, receiver) = {
-            let mut subscriptions = self.registry.subscriptions();
-            let entry = subscriptions
-                .entry(topic.clone())
-                .or_insert_with(|| TopicEntry::new(&topic));
-
-            let token = self.mqtt_client.subscribe(topic.clone(), QoS::AtMostOnce);
-            entry.refcount += 1;
-            (token, entry.receiver())
-        };
-
-        let subscription = MqttSubscription::new(
-            &topic,
-            receiver,
-            self.registry.clone(),
-            self.mqtt_client.clone(),
-        );
+        let (token, subscription) = self.subscribe_topic(&topic);
 
         let response = token.await?;
 
@@ -1071,6 +1055,26 @@ impl<K: ClientKind> MqttClient<K> {
         }
 
         Ok(subscription)
+    }
+
+    /// Sends a subscribe request for `topic` to the broker, and takes a
+    /// reference to the topic in the form of the returned subscription.
+    fn subscribe_topic(&self, topic: &str) -> (paho_mqtt::Token, MqttSubscription) {
+        let mut subscriptions = self.registry.subscriptions();
+        let entry = subscriptions
+            .entry(topic.to_string())
+            .or_insert_with(|| TopicEntry::new(topic));
+
+        let token = self.mqtt_client.subscribe(topic, QoS::AtMostOnce);
+        entry.refcount += 1;
+
+        let subscription = MqttSubscription::new(
+            topic,
+            entry.receiver(),
+            self.registry.clone(),
+            self.mqtt_client.clone(),
+        );
+        (token, subscription)
     }
 }
 
