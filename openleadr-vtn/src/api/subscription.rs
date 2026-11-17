@@ -666,6 +666,7 @@ pub(crate) async fn notifier_get(
     User(_): User,
 ) -> Result<Json<NotifiersResponse>, AppError> {
     Ok(Json(NotifiersResponse {
+        webhook: false,
         websocket: cfg!(feature = "websockets"),
         mqtt: notifier_state
             .mqtt_state
