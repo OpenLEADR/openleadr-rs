@@ -48,7 +48,7 @@ async fn mqtt_receive_notification(db: PgPool) {
 
     let mqtt_client = ven.connect_mqtt().await.unwrap();
     let mut notifications = mqtt_client.notifications();
-    mqtt_client.subscribe_programs(None).await.unwrap();
+    let _subscription = mqtt_client.subscribe_programs(None).await.unwrap();
 
     let program = bl
         .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
@@ -105,7 +105,6 @@ async fn mqtt_unsubscribe(db: PgPool) {
     )
 }
 
-#[ignore = "WIP: Subscription should remain until last subscriber unsubscribes"]
 #[sqlx::test(fixtures("users"))]
 async fn mqtt_subscription_conflict(db: PgPool) {
     let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
@@ -113,9 +112,10 @@ async fn mqtt_subscription_conflict(db: PgPool) {
 
     let mqtt_client = ven.connect_mqtt().await.unwrap();
     let mut notifications = mqtt_client.notifications();
-    mqtt_client.subscribe_programs(None).await.unwrap();
+
+    let _subscription1 = mqtt_client.subscribe_programs(None).await.unwrap();
     {
-        mqtt_client.subscribe_programs(None).await.unwrap();
+        let _subscription2 = mqtt_client.subscribe_programs(None).await.unwrap();
 
         let program = bl
             .create_program(ProgramRequest::new("mqtt-test-program".to_string()))
