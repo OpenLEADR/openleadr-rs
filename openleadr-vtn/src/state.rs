@@ -702,9 +702,11 @@ mod test {
         subscription::{Subscription, SubscriptionId},
     };
 
-    use crate::data_source::{Crud, NewSubscription};
-    use crate::jwt::Scope;
     use super::*;
+    use crate::{
+        data_source::{Crud, NewSubscription},
+        jwt::Scope,
+    };
 
     struct MockDataSource {}
     impl DataSource for MockDataSource {

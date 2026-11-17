@@ -1114,7 +1114,7 @@ mod test {
             },
             test::ApiTest,
         },
-        data_source::{Crud, EventCrud, VenCrud, VenObjectPrivacy},
+        data_source::{Crud, DataSource, EventCrud, PostgresStorage, VenCrud, VenObjectPrivacy},
         error::AppError,
         jwt::{Claims, Scope},
     };
@@ -2931,5 +2931,64 @@ mod test {
         let (header, body) = rx.try_recv().unwrap();
         assert!(header.is_none());
         assert_eq!(body, notification);
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn creating_subscription_saves_requester_scopes(db: PgPool) {
+        let scopes = vec![Scope::WriteSubscriptionsVen, Scope::ReadTargets];
+        let server = ApiTest::new(db.clone(), "ven-1-client-id", scopes.clone()).await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE"],
+                            "objects": ["EVENT"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+
+        let saved = PostgresStorage::new(db)
+            .unwrap()
+            .subscriptions()
+            .subscriber_scopes()
+            .await
+            .unwrap();
+
+        assert_eq!(saved[&subscription.id], scopes)
+    }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn owner_edit_replaces_saved_scopes(db: PgPool) {
+        let scopes = vec![Scope::WriteSubscriptionsVen, Scope::ReadVenObjects];
+        let server = ApiTest::new(db.clone(), "ven-1-client-id", scopes.clone()).await;
+
+        let (status, subscription) = server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+
+        let saved = PostgresStorage::new(db)
+            .unwrap()
+            .subscriptions()
+            .subscriber_scopes()
+            .await
+            .unwrap();
+
+        assert_eq!(saved[&subscription.id], scopes)
     }
 }
