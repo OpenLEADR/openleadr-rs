@@ -1,8 +1,29 @@
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use openleadr_wire::{program::ProgramId, subscription::Operation, ven::VenId};
 
-use crate::{ClientKind, MqttClient};
+pub(crate) struct MqttSubscriptionRegistry {
+    pub(crate) mqtt_client: paho_mqtt::AsyncClient,
+    subscriptions: Mutex<HashMap<String, usize>>,
+}
+
+impl MqttSubscriptionRegistry {
+    pub(crate) fn new(mqtt_client: paho_mqtt::AsyncClient) -> Self {
+        Self {
+            mqtt_client,
+            subscriptions: Mutex::default(),
+        }
+    }
+
+    pub(crate) fn subscriptions(&self) -> MutexGuard<'_, HashMap<String, usize>> {
+        // The mutex can only be poisoned from an earlier panic. It is ok for
+        // us to propagate that to all the threads.
+        self.subscriptions.lock().unwrap()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MqttSubscriptionTarget {
@@ -21,29 +42,27 @@ pub enum MqttSubscriptionTarget {
     VenResourceGroups(VenId),
 }
 
-/// A subscription made with one of the `subscribe_*` methods of [`MqttClient`].
-///
-/// Pass it to [`MqttClient::unsubscribe`] to remove the subscription again.
-#[derive(Debug)]
-pub struct MqttSubscription<K: ClientKind> {
+/// A subscription made with one of the `subscribe_*` methods of
+/// [`MqttClient`](crate::MqttClient).
+pub struct MqttSubscription {
     topic: String,
     target: MqttSubscriptionTarget,
     operation_filter: Option<Operation>,
-    state: Arc<MqttClient<K>>,
+    registry: Arc<MqttSubscriptionRegistry>,
 }
 
-impl<K: ClientKind> MqttSubscription<K> {
-    pub fn new(
+impl MqttSubscription {
+    pub(crate) fn new(
         topic: String,
         target: MqttSubscriptionTarget,
         operation_filter: Option<Operation>,
-        state: Arc<MqttClient<K>>,
+        registry: Arc<MqttSubscriptionRegistry>,
     ) -> Self {
         Self {
             topic,
             target,
             operation_filter,
-            state,
+            registry,
         }
     }
 
@@ -52,39 +71,40 @@ impl<K: ClientKind> MqttSubscription<K> {
     }
 }
 
-impl<K: ClientKind> Drop for MqttSubscription<K> {
+impl Drop for MqttSubscription {
     fn drop(&mut self) {
-        // The mutex can only be poisoned from an earlier panic. It is ok for us
-        // to propagate that to all the threads.
-        let mut subscriptions = self.state.subscriptions.lock().unwrap();
-        // The topic will always be present because of the refcounting.
-        let refcount = subscriptions.get_mut(&self.topic).unwrap();
+        let mut subscriptions = self.registry.subscriptions();
+
+        // The subcription should always be present because of the refcounting.
+        let entry = subscriptions.get_mut(&self.topic).unwrap();
         // An underflowing refcount should never happen. If it does, something
         // is seriously wrong and aborting is the best solution.
-        *refcount = refcount.checked_sub(1).unwrap();
-        if *refcount == 0 {
+        *entry = entry.checked_sub(1).unwrap();
+
+        if *entry == 0 {
             subscriptions.remove(&self.topic);
-            self.state.mqtt_client.unsubscribe(&self.topic);
+            drop(self.registry.mqtt_client.unsubscribe(&self.topic));
         }
     }
 }
 
-impl<K: ClientKind> Clone for MqttSubscription<K> {
+impl Clone for MqttSubscription {
     fn clone(&self) -> Self {
-        // The mutex can only be poisoned from an earlier panic. It is ok for us
-        // to propagate that to all the threads.
-        let mut subscriptions = self.state.subscriptions.lock().unwrap();
-        // The topic will always be present because of the refcounting.
-        let refcount = subscriptions.get_mut(&self.topic).unwrap();
+        let mut subscriptions = self.registry.subscriptions();
+
+        // The subcription should always be present because of the refcounting.
+        let entry = subscriptions.get_mut(&self.topic).unwrap();
+
         // An overflowing reference count is an error condition from which we
         // cannot reasonably recover. A panic here is the best solution.
-        *refcount = refcount.checked_add(1).unwrap();
-        Self {
-            target: self.target.clone(),
-            topic: self.topic.clone(),
-            operation_filter: self.operation_filter,
-            state: self.state.clone(),
-        }
+        *entry = entry.checked_add(1).unwrap();
+
+        Self::new(
+            self.topic.clone(),
+            self.target.clone(),
+            self.operation_filter,
+            self.registry.clone(),
+        )
     }
 }
 

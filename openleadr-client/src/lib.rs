@@ -74,11 +74,10 @@ use openleadr_wire::{
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
 use std::{
-    collections::HashMap,
     fmt::Debug,
     future::Future,
     marker::PhantomData,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::{RwLock, broadcast};
@@ -98,7 +97,7 @@ pub use ven::*;
 
 use crate::{
     error::Result,
-    mqtt::{MqttSubscription, MqttSubscriptionTarget},
+    mqtt::{MqttSubscription, MqttSubscriptionRegistry, MqttSubscriptionTarget},
     sealed::SealedClientKind,
 };
 use openleadr_wire::{
@@ -164,7 +163,7 @@ pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
     messages: broadcast::Sender<Option<paho_mqtt::Message>>,
-    subscriptions: Arc<Mutex<HashMap<String, usize>>>,
+    registry: Arc<MqttSubscriptionRegistry>,
 }
 
 const MQTT_NOTIFICATION_BUFFER: usize = 128;
@@ -868,9 +867,9 @@ impl<K: ClientKind> Client<K> {
 
             return Ok(MqttClient {
                 client_ref: self.client_ref.clone(),
+                registry: Arc::new(MqttSubscriptionRegistry::new(client.clone())),
                 mqtt_client: client,
                 messages,
-                subscriptions: Arc::default(),
             });
         }
         Err(last_error)
@@ -956,12 +955,13 @@ impl MqttClient<VirtualEndNode> {
         ))
     }
 }
+
 impl<K: ClientKind> MqttClient<K> {
     /// Subscribes to notifications about all [`Program`]s.
     pub async fn subscribe_programs(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::Programs, operation_filter)
             .await
     }
@@ -970,7 +970,7 @@ impl<K: ClientKind> MqttClient<K> {
     pub async fn subscribe_events(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::Events, operation_filter)
             .await
     }
@@ -980,7 +980,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::Ven(ven_id), operation_filter)
             .await
     }
@@ -991,7 +991,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::VenEvents(ven_id), operation_filter)
             .await
     }
@@ -1002,7 +1002,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(
             MqttSubscriptionTarget::VenPrograms(ven_id),
             operation_filter,
@@ -1017,7 +1017,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(
             MqttSubscriptionTarget::VenResources(ven_id),
             operation_filter,
@@ -1032,7 +1032,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(
             MqttSubscriptionTarget::VenResourceGroups(ven_id),
             operation_filter,
@@ -1044,7 +1044,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         target: MqttSubscriptionTarget,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<K>> {
+    ) -> Result<MqttSubscription> {
         let NotifierTopicsResponse { topics } =
             self.client_ref.get(&target.endpoint(), &[]).await?;
 
@@ -1055,24 +1055,30 @@ impl<K: ClientKind> MqttClient<K> {
             Some(Operation::Delete) => topics.delete,
         };
 
-        let response = self
-            .mqtt_client
-            .subscribe(topic.clone(), QoS::AtMostOnce)
-            .await?;
+        // TODO: Subscribe on every request, or only on first?
+        let token = {
+            let mut subscriptions = self.registry.subscriptions();
+            let token = self
+                .registry
+                .mqtt_client
+                .subscribe(topic.clone(), QoS::AtMostOnce);
+            *subscriptions.entry(topic.clone()).or_default() += 1;
+            token
+        };
+
+        let subscription = MqttSubscription::new(
+            topic.clone(),
+            target,
+            operation_filter,
+            self.registry.clone(),
+        );
+
+        let response = token.await?;
 
         // With MQTT v3, a refused subscription is not an error but a granted QoS of 0x80.
         if response.subscribe_response().is_some_and(|qos| qos >= 0x80) {
             return Err(Error::MqttSubscriptionRejected { topic });
         }
-
-        *self
-            .subscriptions
-            .lock()
-            .unwrap()
-            .entry(topic.clone())
-            .or_default() += 1;
-        let subscription =
-            MqttSubscription::new(topic, target, operation_filter, Arc::new(self.clone()));
 
         Ok(subscription)
     }
@@ -1096,7 +1102,7 @@ impl MqttClient<BusinessLogic> {
         &self,
         program_id: ProgramId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<BusinessLogic>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(
             MqttSubscriptionTarget::Program(program_id),
             operation_filter,
@@ -1110,7 +1116,7 @@ impl MqttClient<BusinessLogic> {
         &self,
         program_id: ProgramId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<BusinessLogic>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(
             MqttSubscriptionTarget::ProgramEvents(program_id),
             operation_filter,
@@ -1123,7 +1129,7 @@ impl MqttClient<BusinessLogic> {
     pub async fn subscribe_reports(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<BusinessLogic>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::Reports, operation_filter)
             .await
     }
@@ -1132,7 +1138,7 @@ impl MqttClient<BusinessLogic> {
     pub async fn subscribe_vens(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<BusinessLogic>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::Vens, operation_filter)
             .await
     }
@@ -1142,7 +1148,7 @@ impl MqttClient<BusinessLogic> {
     pub async fn subscribe_resources(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<BusinessLogic>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::Resources, operation_filter)
             .await
     }
@@ -1152,7 +1158,7 @@ impl MqttClient<BusinessLogic> {
     pub async fn subscribe_resource_groups(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription<BusinessLogic>> {
+    ) -> Result<MqttSubscription> {
         self.subscribe(MqttSubscriptionTarget::ResourceGroups, operation_filter)
             .await
     }
