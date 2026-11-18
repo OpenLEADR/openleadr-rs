@@ -3033,4 +3033,87 @@ mod test {
 
         assert_eq!(saved[&subscription.id], scopes)
     }
+
+    #[sqlx::test(fixtures("vens", "users", "subscriptions"))]
+    async fn bl_editing_others_subscription_keeps_saved_scopes(db: PgPool) {
+        let ven_scopes = vec![Scope::WriteSubscriptionsVen, Scope::ReadVenObjects];
+        let ven_server = ApiTest::new(db.clone(), "ven-1-client-id", ven_scopes.clone()).await;
+
+        let (status, subscription) = ven_server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let bl_scopes = vec![Scope::WriteSubscriptionsBl, Scope::ReadAll];
+        let bl_server = ApiTest::new(db.clone(), "bl-client-id", bl_scopes.clone()).await;
+
+        let (status, subscription) = bl_server
+            .request::<Subscription>(
+                Method::PUT,
+                "/subscriptions/subscription-1",
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let saved = PostgresStorage::new(db)
+            .unwrap()
+            .subscriptions()
+            .subscriber_scopes()
+            .await
+            .unwrap();
+
+        assert_eq!(saved[&subscription.id], ven_scopes)
+    }
+
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn bl_editing_own_subscription_replaces_saved_scopes(db: PgPool) {
+        let creating_scopes = vec![Scope::WriteSubscriptionsBl];
+        let creating_server =
+            ApiTest::new(db.clone(), "bl-client-id", creating_scopes.clone()).await;
+
+        let (status, subscription) = creating_server
+            .request::<Subscription>(
+                Method::POST,
+                "/subscriptions",
+                Body::from(
+                    r#"{
+                        "clientName": "myClient",
+                        "objectOperations": [{
+                            "mechanism": "WEBSOCKET",
+                            "operations": ["CREATE"],
+                            "objects": ["EVENT"]
+                        }]
+                    }"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        // same client, different scopes, so "replaced" and "kept" can be told apart
+        let editing_scopes = vec![Scope::WriteSubscriptionsBl, Scope::ReadAll];
+        let editing_server = ApiTest::new(db.clone(), "bl-client-id", editing_scopes.clone()).await;
+
+        let (status, _) = editing_server
+            .request::<Subscription>(
+                Method::PUT,
+                &format!("/subscriptions/{}", subscription.id),
+                Body::from(EDITED_SUBSCRIPTION),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let saved = PostgresStorage::new(db)
+            .unwrap()
+            .subscriptions()
+            .subscriber_scopes()
+            .await
+            .unwrap();
+
+        assert_eq!(saved[&subscription.id], editing_scopes)
+    }
 }
