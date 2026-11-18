@@ -65,8 +65,10 @@ mod ven;
 
 use async_trait::async_trait;
 use openleadr_wire::{
-    Event, ObjectType, Ven,
+    Event, ObjectType, Report, Ven,
     event::EventId,
+    resource::Resource,
+    resource_group::ResourceGroup,
     subscription::{
         MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
     },
@@ -259,6 +261,62 @@ impl ClientKind for BusinessLogic {}
 /// Used to mark the kind of [`Client`], see also [`ClientKind`]
 pub struct VirtualEndNode;
 impl ClientKind for VirtualEndNode {}
+
+pub trait OadrObject {
+    const OBJECT_TYPE: ObjectType;
+    type Client;
+
+    fn client() -> Self::Client;
+}
+
+impl OadrObject for Program {
+    const OBJECT_TYPE: ObjectType = ObjectType::Program;
+    type Client = ();
+
+    fn client() -> Self::Client {
+        ()
+    }
+}
+impl OadrObject for Report {
+    const OBJECT_TYPE: ObjectType = ObjectType::Report;
+    type Client = ();
+
+    fn client() -> Self::Client {
+        ()
+    }
+}
+impl OadrObject for Event {
+    const OBJECT_TYPE: ObjectType = ObjectType::Event;
+    type Client = ();
+
+    fn client() -> Self::Client {
+        ()
+    }
+}
+impl OadrObject for Ven {
+    const OBJECT_TYPE: ObjectType = ObjectType::Ven;
+    type Client = ();
+
+    fn client() -> Self::Client {
+        ()
+    }
+}
+impl OadrObject for Resource {
+    const OBJECT_TYPE: ObjectType = ObjectType::Resource;
+    type Client = ();
+
+    fn client() -> Self::Client {
+        ()
+    }
+}
+impl OadrObject for ResourceGroup {
+    const OBJECT_TYPE: ObjectType = ObjectType::ResourceGroup;
+    type Client = ();
+
+    fn client() -> Self::Client {
+        ()
+    }
+}
 
 struct ClientRef<K> {
     client: Box<dyn HttpClient + Send + Sync>,
@@ -951,7 +1009,7 @@ impl<K: ClientKind> MqttClient<K> {
     pub async fn subscribe_programs(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Program>> {
         self.subscribe(MqttSubscriptionTarget::Programs, operation_filter)
             .await
     }
@@ -960,7 +1018,7 @@ impl<K: ClientKind> MqttClient<K> {
     pub async fn subscribe_events(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Event>> {
         self.subscribe(MqttSubscriptionTarget::Events, operation_filter)
             .await
     }
@@ -970,7 +1028,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Ven>> {
         self.subscribe(MqttSubscriptionTarget::Ven(ven_id), operation_filter)
             .await
     }
@@ -981,7 +1039,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Event>> {
         self.subscribe(MqttSubscriptionTarget::VenEvents(ven_id), operation_filter)
             .await
     }
@@ -992,7 +1050,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Program>> {
         self.subscribe(
             MqttSubscriptionTarget::VenPrograms(ven_id),
             operation_filter,
@@ -1007,7 +1065,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Resource>> {
         self.subscribe(
             MqttSubscriptionTarget::VenResources(ven_id),
             operation_filter,
@@ -1022,7 +1080,7 @@ impl<K: ClientKind> MqttClient<K> {
         &self,
         ven_id: VenId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<ResourceGroup>> {
         self.subscribe(
             MqttSubscriptionTarget::VenResourceGroups(ven_id),
             operation_filter,
@@ -1030,11 +1088,11 @@ impl<K: ClientKind> MqttClient<K> {
         .await
     }
 
-    async fn subscribe(
+    async fn subscribe<O: OadrObject>(
         &self,
         target: MqttSubscriptionTarget,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<O>> {
         let NotifierTopicsResponse { topics } =
             self.client_ref.get(&target.endpoint(), &[]).await?;
 
@@ -1045,7 +1103,7 @@ impl<K: ClientKind> MqttClient<K> {
             Some(Operation::Delete) => topics.delete,
         };
 
-        let (token, subscription) = self.subscribe_topic(&topic, target);
+        let (token, subscription) = self.subscribe_topic(&topic);
 
         let response = token.await?;
 
@@ -1059,11 +1117,10 @@ impl<K: ClientKind> MqttClient<K> {
 
     /// Sends a subscribe request for `topic` to the broker, and takes a
     /// reference to the topic in the form of the returned subscription.
-    fn subscribe_topic(
+    fn subscribe_topic<O: OadrObject>(
         &self,
         topic: &str,
-        target: impl Into<ObjectType>,
-    ) -> (paho_mqtt::Token, MqttSubscription) {
+    ) -> (paho_mqtt::Token, MqttSubscription<O>) {
         let mut subscriptions = self.registry.subscriptions();
         let entry = subscriptions
             .entry(topic.to_string())
@@ -1077,7 +1134,6 @@ impl<K: ClientKind> MqttClient<K> {
             entry.receiver(),
             self.registry.clone(),
             self.mqtt_client.clone(),
-            target.into(),
         );
         (token, subscription)
     }
@@ -1091,7 +1147,7 @@ impl MqttClient<BusinessLogic> {
         &self,
         program_id: ProgramId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Program>> {
         self.subscribe(
             MqttSubscriptionTarget::Program(program_id),
             operation_filter,
@@ -1105,7 +1161,7 @@ impl MqttClient<BusinessLogic> {
         &self,
         program_id: ProgramId,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Event>> {
         self.subscribe(
             MqttSubscriptionTarget::ProgramEvents(program_id),
             operation_filter,
@@ -1113,12 +1169,11 @@ impl MqttClient<BusinessLogic> {
         .await
     }
 
-    /// Subscribes to notifications about all
-    /// [`Report`](openleadr_wire::report::Report)s.
+    /// Subscribes to notifications about all [`Report`]s.
     pub async fn subscribe_reports(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Report>> {
         self.subscribe(MqttSubscriptionTarget::Reports, operation_filter)
             .await
     }
@@ -1127,27 +1182,25 @@ impl MqttClient<BusinessLogic> {
     pub async fn subscribe_vens(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Ven>> {
         self.subscribe(MqttSubscriptionTarget::Vens, operation_filter)
             .await
     }
 
-    /// Subscribes to notifications about all
-    /// [`Resource`](openleadr_wire::resource::Resource)s.
+    /// Subscribes to notifications about all [`Resource`]s.
     pub async fn subscribe_resources(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<Resource>> {
         self.subscribe(MqttSubscriptionTarget::Resources, operation_filter)
             .await
     }
 
-    /// Subscribes to notifications about all
-    /// [`ResourceGroup`](openleadr_wire::resource_group::ResourceGroup)s.
+    /// Subscribes to notifications about all [`ResourceGroup`]s.
     pub async fn subscribe_resource_groups(
         &self,
         operation_filter: Option<Operation>,
-    ) -> Result<MqttSubscription> {
+    ) -> Result<MqttSubscription<ResourceGroup>> {
         self.subscribe(MqttSubscriptionTarget::ResourceGroups, operation_filter)
             .await
     }
