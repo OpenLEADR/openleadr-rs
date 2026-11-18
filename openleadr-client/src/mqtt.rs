@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use openleadr_wire::{program::ProgramId, subscription::Notification, ven::VenId};
+use openleadr_wire::{ObjectType, program::ProgramId, subscription::Notification, ven::VenId};
 use paho_mqtt::TopicFilter;
 use tokio::sync::broadcast;
 
@@ -79,6 +79,26 @@ pub enum MqttSubscriptionTarget {
     VenResourceGroups(VenId),
 }
 
+impl From<MqttSubscriptionTarget> for ObjectType {
+    fn from(val: MqttSubscriptionTarget) -> Self {
+        match val {
+            MqttSubscriptionTarget::Programs => ObjectType::Program,
+            MqttSubscriptionTarget::Program(_) => ObjectType::Program,
+            MqttSubscriptionTarget::Events => ObjectType::Event,
+            MqttSubscriptionTarget::ProgramEvents(_) => ObjectType::Event,
+            MqttSubscriptionTarget::Reports => ObjectType::Report,
+            MqttSubscriptionTarget::Vens => ObjectType::Ven,
+            MqttSubscriptionTarget::Ven(_) => ObjectType::Ven,
+            MqttSubscriptionTarget::Resources => ObjectType::Resource,
+            MqttSubscriptionTarget::ResourceGroups => ObjectType::ResourceGroup,
+            MqttSubscriptionTarget::VenEvents(_) => ObjectType::Event,
+            MqttSubscriptionTarget::VenPrograms(_) => ObjectType::Program,
+            MqttSubscriptionTarget::VenResources(_) => ObjectType::Resource,
+            MqttSubscriptionTarget::VenResourceGroups(_) => ObjectType::ResourceGroup,
+        }
+    }
+}
+
 /// A subscription made with one of the `subscribe_*` methods of
 /// [`MqttClient`](crate::MqttClient). Receive its notifications with
 /// [`recv`](Self::recv).
@@ -90,6 +110,7 @@ pub struct MqttSubscription {
     receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
     registry: Arc<MqttSubscriptionRegistry>,
     mqtt_client: paho_mqtt::AsyncClient,
+    object: ObjectType,
 }
 
 impl MqttSubscription {
@@ -98,12 +119,14 @@ impl MqttSubscription {
         receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
         registry: Arc<MqttSubscriptionRegistry>,
         mqtt_client: paho_mqtt::AsyncClient,
+        object: ObjectType,
     ) -> Self {
         Self {
             topic: topic.to_string(),
             receiver,
             registry,
             mqtt_client,
+            object,
         }
     }
 
@@ -168,7 +191,19 @@ impl MqttSubscription {
     /// ```
     pub async fn recv(&mut self) -> Result<Notification> {
         match self.receiver.recv().await {
-            Ok(Some(message)) => serde_json::from_slice(message.payload()).map_err(Into::into),
+            Ok(Some(message)) => {
+                let notification: Notification =
+                    serde_json::from_slice(message.payload()).map_err(Error::Serde)?;
+
+                if notification.object.kind() != self.object {
+                    return Err(Error::MqttIncorrectObjectType {
+                        expected: self.object,
+                        actual: notification.object.kind(),
+                    });
+                }
+
+                Ok(notification)
+            }
             Ok(None) => Err(Error::Mqtt(paho_mqtt::Error::Disconnected)),
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
                 Err(Error::MqttNotificationsLagged(skipped))
@@ -216,6 +251,7 @@ impl Clone for MqttSubscription {
             entry.receiver(),
             self.registry.clone(),
             self.mqtt_client.clone(),
+            self.object,
         )
     }
 }
@@ -267,7 +303,13 @@ mod tests {
     }
 
     fn subscribe(client: &MqttClient<VirtualEndNode>, topic: &str) -> MqttSubscription {
-        client.subscribe_topic(topic).1
+        client
+            .subscribe_topic(
+                topic,
+                // Doesn't matter; isn't used
+                ObjectType::Event,
+            )
+            .1
     }
 
     /// `None` if the topic has no entry, i.e., is not subscribed to.

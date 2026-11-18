@@ -65,7 +65,7 @@ mod ven;
 
 use async_trait::async_trait;
 use openleadr_wire::{
-    Event, Ven,
+    Event, ObjectType, Ven,
     event::EventId,
     subscription::{
         MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
@@ -1045,7 +1045,7 @@ impl<K: ClientKind> MqttClient<K> {
             Some(Operation::Delete) => topics.delete,
         };
 
-        let (token, subscription) = self.subscribe_topic(&topic);
+        let (token, subscription) = self.subscribe_topic(&topic, target);
 
         let response = token.await?;
 
@@ -1059,7 +1059,11 @@ impl<K: ClientKind> MqttClient<K> {
 
     /// Sends a subscribe request for `topic` to the broker, and takes a
     /// reference to the topic in the form of the returned subscription.
-    fn subscribe_topic(&self, topic: &str) -> (paho_mqtt::Token, MqttSubscription) {
+    fn subscribe_topic(
+        &self,
+        topic: &str,
+        target: impl Into<ObjectType>,
+    ) -> (paho_mqtt::Token, MqttSubscription) {
         let mut subscriptions = self.registry.subscriptions();
         let entry = subscriptions
             .entry(topic.to_string())
@@ -1073,6 +1077,7 @@ impl<K: ClientKind> MqttClient<K> {
             entry.receiver(),
             self.registry.clone(),
             self.mqtt_client.clone(),
+            target.into(),
         );
         (token, subscription)
     }
