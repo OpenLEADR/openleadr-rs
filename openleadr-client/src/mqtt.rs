@@ -114,8 +114,8 @@ impl MqttSubscription {
 
     /// Waits for the next notification of this subscription.
     ///
-    /// Every subscription, including every clone, receives every notification
-    /// that arrives after it was created.
+    /// Every subscription, including every clone, receives every notification for its topic that
+    /// arrives after it was created.
     ///
     /// The VTN may publish one change on several topics (e.g., a targeted event
     /// on both the [`subscribe_events`](crate::MqttClient::subscribe_events)
@@ -136,6 +136,36 @@ impl MqttSubscription {
     ///   connection to the broker was lost. No notifications arrive after this;
     ///   reconnect with [`Client::connect_mqtt`](crate::Client::connect_mqtt)
     ///   and subscribe again.
+    ///
+    /// # Examples
+    ///
+    /// `recv` is cancel safe, so it can be used in e.g. [`tokio::select!`]:
+    ///
+    /// ```no_run
+    /// # use openleadr_client::{BusinessLogic, Client, ClientCredentials};
+    /// # use openleadr_wire::subscription::Operation;
+    /// # async fn example() -> Result<(), openleadr_client::Error> {
+    /// let credentials =
+    ///     ClientCredentials::new("client_id".to_string(), "client_secret".to_string());
+    /// let client = Client::<BusinessLogic>::with_url(
+    ///     "https://your-vtn.com".parse().unwrap(),
+    ///     Some(credentials),
+    /// );
+    /// let mqtt_client = client.connect_mqtt().await?;
+    /// let mut vens = mqtt_client.subscribe_vens(Some(Operation::Create)).await?;
+    /// let mut reports = mqtt_client.subscribe_reports(None).await?;
+    /// loop {
+    ///     tokio::select! {
+    ///         ven = vens.recv() => {
+    ///             // handle the VEN notification
+    ///         }
+    ///         report = reports.recv() => {
+    ///             // handle the report notification
+    ///         }
+    ///     }
+    /// }
+    /// # }
+    /// ```
     pub async fn recv(&mut self) -> Result<Notification> {
         match self.receiver.recv().await {
             Ok(Some(message)) => serde_json::from_slice(message.payload()).map_err(Into::into),
