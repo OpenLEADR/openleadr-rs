@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::common::AuthRole;
-use openleadr_client::{BusinessLogic, MqttSubscription, VirtualEndNode};
+use openleadr_client::{BusinessLogic, MqttSubscription, OadrObject, VirtualEndNode};
 use openleadr_wire::{
     program::{ProgramId, ProgramRequest},
     subscription::{AnyObject, Notification, Operation},
@@ -10,8 +10,8 @@ use sqlx::PgPool;
 
 mod common;
 
-async fn next_notification_for_program(
-    subscription: &mut MqttSubscription,
+async fn next_notification_for_program<O: OadrObject>(
+    subscription: &mut MqttSubscription<O>,
     program_id: &ProgramId,
     timeout: Duration,
 ) -> Option<Notification> {

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    marker::PhantomData,
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -7,7 +8,7 @@ use openleadr_wire::{ObjectType, program::ProgramId, subscription::Notification,
 use paho_mqtt::TopicFilter;
 use tokio::sync::broadcast;
 
-use crate::{Error, error::Result};
+use crate::{Error, OadrObject, error::Result};
 
 const MQTT_NOTIFICATION_BUFFER: usize = 128;
 
@@ -79,9 +80,9 @@ pub enum MqttSubscriptionTarget {
     VenResourceGroups(VenId),
 }
 
-impl From<MqttSubscriptionTarget> for ObjectType {
-    fn from(val: MqttSubscriptionTarget) -> Self {
-        match val {
+impl Into<ObjectType> for MqttSubscriptionTarget {
+    fn into(self) -> ObjectType {
+        match self {
             MqttSubscriptionTarget::Programs => ObjectType::Program,
             MqttSubscriptionTarget::Program(_) => ObjectType::Program,
             MqttSubscriptionTarget::Events => ObjectType::Event,
@@ -105,28 +106,27 @@ impl From<MqttSubscriptionTarget> for ObjectType {
 ///
 /// Dropping the subscription unsubscribes from the topic, unless another
 /// subscription to the same topic (e.g., a clone) is still alive.
-pub struct MqttSubscription {
+pub struct MqttSubscription<O: OadrObject> {
     topic: String,
     receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
     registry: Arc<MqttSubscriptionRegistry>,
     mqtt_client: paho_mqtt::AsyncClient,
-    object: ObjectType,
+    phantom: PhantomData<O>,
 }
 
-impl MqttSubscription {
+impl<O: OadrObject> MqttSubscription<O> {
     pub(crate) fn new(
         topic: &str,
         receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
         registry: Arc<MqttSubscriptionRegistry>,
         mqtt_client: paho_mqtt::AsyncClient,
-        object: ObjectType,
     ) -> Self {
         Self {
             topic: topic.to_string(),
             receiver,
             registry,
             mqtt_client,
-            object,
+            phantom: PhantomData,
         }
     }
 
@@ -189,20 +189,20 @@ impl MqttSubscription {
     /// }
     /// # }
     /// ```
-    pub async fn recv(&mut self) -> Result<Notification> {
+    pub async fn recv(&mut self) -> Result<O::Client> {
         match self.receiver.recv().await {
             Ok(Some(message)) => {
                 let notification: Notification =
                     serde_json::from_slice(message.payload()).map_err(Error::Serde)?;
 
-                if notification.object.kind() != self.object {
+                if O::OBJECT_TYPE != notification.object.kind() {
                     return Err(Error::MqttIncorrectObjectType {
-                        expected: self.object,
+                        expected: O::OBJECT_TYPE,
                         actual: notification.object.kind(),
                     });
                 }
 
-                Ok(notification)
+                Ok(O::client())
             }
             Ok(None) => Err(Error::Mqtt(paho_mqtt::Error::Disconnected)),
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
@@ -217,7 +217,7 @@ impl MqttSubscription {
     }
 }
 
-impl Drop for MqttSubscription {
+impl<O: OadrObject> Drop for MqttSubscription<O> {
     fn drop(&mut self) {
         let mut subscriptions = self.registry.subscriptions();
 
@@ -235,7 +235,7 @@ impl Drop for MqttSubscription {
     }
 }
 
-impl Clone for MqttSubscription {
+impl<O: OadrObject> Clone for MqttSubscription<O> {
     fn clone(&self) -> Self {
         let mut subscriptions = self.registry.subscriptions();
 
@@ -251,7 +251,6 @@ impl Clone for MqttSubscription {
             entry.receiver(),
             self.registry.clone(),
             self.mqtt_client.clone(),
-            self.object,
         )
     }
 }
@@ -279,6 +278,7 @@ impl MqttSubscriptionTarget {
 
 #[cfg(test)]
 mod tests {
+    use openleadr_wire::Program;
     use paho_mqtt::{CreateOptionsBuilder, PersistenceType, QoS};
 
     use super::*;
@@ -302,14 +302,11 @@ mod tests {
         }
     }
 
-    fn subscribe(client: &MqttClient<VirtualEndNode>, topic: &str) -> MqttSubscription {
-        client
-            .subscribe_topic(
-                topic,
-                // Doesn't matter; isn't used
-                ObjectType::Event,
-            )
-            .1
+    fn subscribe<O: OadrObject>(
+        client: &MqttClient<VirtualEndNode>,
+        topic: &str,
+    ) -> MqttSubscription<O> {
+        client.subscribe_topic(topic).1
     }
 
     /// `None` if the topic has no entry, i.e., is not subscribed to.
@@ -325,10 +322,10 @@ mod tests {
     fn subscriptions_to_one_topic_share_an_entry() {
         let client = mqtt_client();
 
-        let first = subscribe(&client, "programs/+");
+        let first = subscribe::<Program>(&client, "programs/+");
         assert_eq!(refcount(&client, "programs/+"), Some(1));
 
-        let second = subscribe(&client, "programs/+");
+        let second = subscribe::<Program>(&client, "programs/+");
         assert_eq!(refcount(&client, "programs/+"), Some(2));
         assert_eq!(client.registry.subscriptions().len(), 1);
 
@@ -343,7 +340,7 @@ mod tests {
     fn clone_takes_a_reference() {
         let client = mqtt_client();
 
-        let original = subscribe(&client, "programs/+");
+        let original = subscribe::<Program>(&client, "programs/+");
         let clone = original.clone();
         assert_eq!(refcount(&client, "programs/+"), Some(2));
 
@@ -358,8 +355,8 @@ mod tests {
     fn topics_are_counted_independently() {
         let client = mqtt_client();
 
-        let creates = subscribe(&client, "programs/create");
-        let deletes = subscribe(&client, "programs/delete");
+        let creates = subscribe::<Program>(&client, "programs/create");
+        let deletes = subscribe::<Program>(&client, "programs/delete");
         assert_eq!(refcount(&client, "programs/create"), Some(1));
         assert_eq!(refcount(&client, "programs/delete"), Some(1));
 
@@ -375,10 +372,10 @@ mod tests {
     fn resubscribing_after_last_drop_starts_a_new_entry() {
         let client = mqtt_client();
 
-        drop(subscribe(&client, "programs/+"));
+        drop(subscribe::<Program>(&client, "programs/+"));
         assert_eq!(refcount(&client, "programs/+"), None);
 
-        let _subscription = subscribe(&client, "programs/+");
+        let _subscription = subscribe::<Program>(&client, "programs/+");
         assert_eq!(refcount(&client, "programs/+"), Some(1));
     }
 
@@ -386,7 +383,7 @@ mod tests {
     fn subscription_keeps_receiving_after_clone_is_dropped() {
         let client = mqtt_client();
 
-        let mut original = subscribe(&client, "programs/+");
+        let mut original = subscribe::<Program>(&client, "programs/+");
         drop(original.clone());
 
         client.registry.dispatch(Some(paho_mqtt::Message::new(
