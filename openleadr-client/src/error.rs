@@ -1,3 +1,4 @@
+use openleadr_wire::ObjectType;
 use reqwest::StatusCode;
 
 /// Errors that can occur using the [`Client`](crate::Client)
@@ -28,6 +29,12 @@ pub enum Error {
     /// An [`MqttSubscription`](crate::MqttSubscription) fell behind, and this
     /// many notifications were dropped.
     MqttNotificationsLagged(u64),
+    /// An [`MqttSubscription`](crate::MqttSubscription) on a topic returned the wrong
+    /// [`ObjectType`]
+    MqttIncorrectObjectType {
+        expected: ObjectType,
+        actual: ObjectType,
+    },
 }
 
 impl Error {
@@ -123,6 +130,14 @@ impl std::fmt::Display for Error {
                 f,
                 "Missed {skipped} MQTT notifications because the receiver lagged"
             ),
+            Error::MqttIncorrectObjectType { actual, expected } => {
+                write!(
+                    f,
+                    "Received an MQTT notification with {} on a subscription for {}",
+                    actual.as_str(),
+                    expected.as_str()
+                )
+            }
         }
     }
 }
