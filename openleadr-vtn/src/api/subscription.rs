@@ -46,8 +46,9 @@ use crate::{
 pub(crate) struct NotifierState {
     uuidv7_context: Arc<Mutex<ContextV7>>,
     websockets: Mutex<HashMap<ClientId, (mpsc::UnboundedSender<Notification>, Claims)>>,
-    subscriptions: Mutex<HashMap<SubscriptionId, Subscription>>,
+    subscriptions: Mutex<HashMap<SubscriptionId, (Subscription, Vec<Scope>)>>,
     mqtt_state: Option<MqttState>,
+    webhook_client: Client,
 }
 
 impl NotifierState {
@@ -68,16 +69,26 @@ impl NotifierState {
             )
             .await?;
 
+        let mut subscriber_scopes = storage.subscriber_scopes().await?;
+
         Ok(Self {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(
                 subscriptions
                     .into_iter()
-                    .map(|subscription| (subscription.id.clone(), subscription))
+                    .map(|subscription| {
+                        let scopes = subscriber_scopes
+                            .remove(&subscription.id)
+                            .unwrap_or_default(); //sub with no saved scopes doesn't deliver
+                        (subscription.id.clone(), (subscription, scopes))
+                    })
                     .collect(),
             ),
             mqtt_state,
+            webhook_client: callback_client_builder()
+                .build()
+                .map_err(AppError::HttpClient)?
         })
     }
 }
@@ -218,7 +229,7 @@ pub async fn add(
         .subscriptions
         .lock()
         .await
-        .insert(subscription.id.clone(), subscription.clone());
+        .insert(subscription.id.clone(), (subscription.clone(), user.granted_scopes()));
 
     info!(
         %subscription.id,
@@ -276,7 +287,7 @@ pub async fn edit(
         check_callback_urls(&webhook_callback_urls).await?;
     }
 
-    let subscription = if user.has_scope(Scope::WriteSubscriptionsBl) {
+    let (subscription, subscriber_scopes) = if user.has_scope(Scope::WriteSubscriptionsBl) {
         // A BL can edit anyone's subscription. Only save its scopes if it owns this one,
         // otherwise its ReadAll would leak into the owner's webhook.
         let existing = subscription_source.retrieve(&id, &None).await?;
@@ -286,19 +297,23 @@ pub async fn edit(
         } else {
             None
         };
-        subscription_source
+        let subscription = subscription_source
             .update(
                 &id,
                 NewSubscription {
                     request: update,
-                    subscriber_scopes,
+                    subscriber_scopes: subscriber_scopes.clone(),
                 },
                 &None,
             )
-            .await?
+            .await?;
+
+        (subscription, subscriber_scopes)
+
     } else {
         // Storage only updates a VEN's own subscription, so the editor is the owner
-        subscription_source
+        let subscriber_scopes = Some(user.granted_scopes());
+        let subscription =  subscription_source
             .update(
                 &id,
                 NewSubscription {
@@ -307,15 +322,22 @@ pub async fn edit(
                 },
                 &Some(user.client_id()?),
             )
-            .await?
+            .await?;
+
+        (subscription, subscriber_scopes)
+
+    };
+    let mut subscriptions = app_state.notifier.subscriptions.lock().await;
+    // None means a BL edited someone else's subscription: keep the scopes already saved
+    let scopes = match subscriber_scopes {
+        Some(scopes) => scopes,
+        None => subscriptions
+            .get(&subscription.id)
+            .map(|(_, scopes)| scopes.clone())
+            .unwrap_or_default(),
     };
 
-    app_state
-        .notifier
-        .subscriptions
-        .lock()
-        .await
-        .insert(subscription.id.clone(), subscription.clone());
+    subscriptions.insert(subscription.id.clone(), (subscription.clone(), scopes));
 
     info!(
         %subscription.id,
@@ -519,7 +541,7 @@ pub(crate) async fn notify(
     )
     .await;
 
-    for subscription in notifier_state.subscriptions.lock().await.values() {
+    for (subscription, _scopes) in notifier_state.subscriptions.lock().await.values() {
         let program_id = subscription.content.program_id.as_ref();
 
         for object_operation in &subscription.content.object_operations {
@@ -1354,16 +1376,17 @@ mod test {
         };
 
         let subscriptions = HashMap::from([
-            ("subscription_1".parse().unwrap(), subscription_1),
-            ("subscription_2".parse().unwrap(), subscription_2),
-            ("subscription_3".parse().unwrap(), subscription_3),
+            ("subscription_1".parse().unwrap(), (subscription_1, vec![])),
+            ("subscription_2".parse().unwrap(), (subscription_2, vec![])),
+            ("subscription_3".parse().unwrap(), (subscription_3, vec![])),
         ]);
 
         let state = NotifierState {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(websockets),
-            subscriptions: Mutex::new(subscriptions),
+            subscriptions: Mutex::new(subscriptions),// TODO how the hell am I meant to get all these?
             mqtt_state: None,
+            webhook_client: callback_client_builder().https_only(false).build().unwrap(),
         };
 
         notify(
@@ -2997,7 +3020,7 @@ mod test {
         let ven_scopes = vec![Scope::WriteSubscriptionsVen, Scope::ReadVenObjects];
         let ven_server = ApiTest::new(db.clone(), "ven-1-client-id", ven_scopes.clone()).await;
 
-        let (status, subscription) = ven_server
+        let (status, _subscription) = ven_server
             .request::<Subscription>(
                 Method::PUT,
                 "/subscriptions/subscription-1",

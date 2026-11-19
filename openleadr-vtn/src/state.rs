@@ -696,6 +696,7 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use async_trait::async_trait;
     use openleadr_wire::{
         ClientId,
@@ -808,7 +809,7 @@ mod test {
     #[async_trait]
     impl SubscriptionCrud for MockSubscriptionSource {
         async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError> {
-            unimplemented!()
+            Ok(HashMap::new())
         }
     }
 
