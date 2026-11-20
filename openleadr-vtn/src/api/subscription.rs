@@ -1170,6 +1170,7 @@ mod test {
         error::AppError,
         jwt::{Claims, Scope},
     };
+    use crate::jwt::Scope::ReadAll;
 
     struct TestVenObjectPrivacyTargets;
 
@@ -3223,5 +3224,40 @@ mod test {
 
         assert_eq!(body.object, event);
         assert_eq!(header, Some("Bearer secret-token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn notify_does_not_deliver_to_webhook_without_saved_scopes() {
+        let (state, mut rx) = webhook_notifier(vec![]).await;
+        let event = AnyObject::Event(Event {
+            id: "test_event_1".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_1".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec!["test_target_1".parse().unwrap()],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+
+        notify(
+            &TestVenCrud,
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Create,
+            event.clone(),
+        )
+            .await;
+
+        let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        assert!(result.is_err(), "expected no delivery, got {result:?}");
+
     }
 }
