@@ -88,7 +88,7 @@ impl NotifierState {
             mqtt_state,
             webhook_client: callback_client_builder()
                 .build()
-                .map_err(AppError::HttpClient)?
+                .map_err(AppError::HttpClient)?,
         })
     }
 }
@@ -224,12 +224,10 @@ pub async fn add(
         )
         .await?;
 
-    app_state
-        .notifier
-        .subscriptions
-        .lock()
-        .await
-        .insert(subscription.id.clone(), (subscription.clone(), user.granted_scopes()));
+    app_state.notifier.subscriptions.lock().await.insert(
+        subscription.id.clone(),
+        (subscription.clone(), user.granted_scopes()),
+    );
 
     info!(
         %subscription.id,
@@ -309,11 +307,10 @@ pub async fn edit(
             .await?;
 
         (subscription, subscriber_scopes)
-
     } else {
         // Storage only updates a VEN's own subscription, so the editor is the owner
         let subscriber_scopes = Some(user.granted_scopes());
-        let subscription =  subscription_source
+        let subscription = subscription_source
             .update(
                 &id,
                 NewSubscription {
@@ -325,7 +322,6 @@ pub async fn edit(
             .await?;
 
         (subscription, subscriber_scopes)
-
     };
     let mut subscriptions = app_state.notifier.subscriptions.lock().await;
     // None means a BL edited someone else's subscription: keep the scopes already saved
@@ -541,7 +537,7 @@ pub(crate) async fn notify(
     )
     .await;
 
-    for (subscription, _scopes) in notifier_state.subscriptions.lock().await.values() {
+    for (subscription, scopes) in notifier_state.subscriptions.lock().await.values() {
         let program_id = subscription.content.program_id.as_ref();
 
         for object_operation in &subscription.content.object_operations {
@@ -552,19 +548,50 @@ pub(crate) async fn notify(
                 continue;
             }
 
-            if let Some((tx, claims)) = notifier_state
-                .websockets
-                .lock()
-                .await
-                .get(&subscription.client_id)
-                && let Some(object) =
-                    privacy_filter_object(&object, privacy, &subscription.client_id, claims).await
-            {
-                let _ = tx.send(Notification {
-                    id: uuid.clone(),
-                    operation,
-                    object: object.clone(),
-                });
+            match object_operation.mechanism {
+                NotificationMechanism::Websocket => {
+                    if let Some((tx, claims)) = notifier_state
+                        .websockets
+                        .lock()
+                        .await
+                        .get(&subscription.client_id)
+                        && let Some(object) =
+                            privacy_filter_object(&object, privacy, &subscription.client_id, claims)
+                                .await
+                    {
+                        let _ = tx.send(Notification {
+                            id: uuid.clone(),
+                            operation,
+                            object: object.clone(),
+                        });
+                    }
+                }
+                NotificationMechanism::Webhook => {
+                    let claims =
+                        Claims::for_webhook_subscriber(&subscription.client_id, scopes.clone());
+
+                    if let Some(url) = &object_operation.callback_url
+                        && let Some(object) = privacy_filter_object(
+                            &object,
+                            privacy,
+                            &subscription.client_id,
+                            &claims,
+                        )
+                        .await
+                    {
+                        let client = notifier_state.webhook_client.clone();
+                        tokio::spawn(notify_webhook(
+                            client,
+                            url.clone(),
+                            object_operation.bearer_token.clone(),
+                            Notification {
+                                id: uuid.clone(),
+                                operation,
+                                object,
+                            },
+                        ));
+                    }
+                }
             }
         }
     }
@@ -1384,7 +1411,7 @@ mod test {
         let state = NotifierState {
             uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
             websockets: Mutex::new(websockets),
-            subscriptions: Mutex::new(subscriptions),// TODO how the hell am I meant to get all these?
+            subscriptions: Mutex::new(subscriptions),
             mqtt_state: None,
             webhook_client: callback_client_builder().https_only(false).build().unwrap(),
         };

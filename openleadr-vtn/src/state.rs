@@ -696,12 +696,12 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
     use async_trait::async_trait;
     use openleadr_wire::{
         ClientId,
         subscription::{Subscription, SubscriptionId},
     };
+    use std::collections::HashMap;
 
     use super::*;
     use crate::{
