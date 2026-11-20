@@ -1192,7 +1192,10 @@ mod test {
     use sqlx::PgPool;
     use tokio::{
         net::TcpListener,
-        sync::{Mutex, mpsc::unbounded_channel},
+        sync::{
+            Mutex,
+            mpsc::{UnboundedReceiver, unbounded_channel},
+        },
     };
     use uuid::ContextV7;
 
@@ -3165,5 +3168,102 @@ mod test {
             .unwrap();
 
         assert_eq!(saved[&subscription.id], editing_scopes)
+    }
+
+    async fn webhook_notifier(
+        scopes: Vec<Scope>,
+    ) -> (
+        NotifierState,
+        UnboundedReceiver<(Option<String>, Notification)>,
+    ) {
+        let (tx, rx) = unbounded_channel();
+        let router = axum::Router::new().route(
+            "/callback",
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap,
+                      axum::Json(notification): axum::Json<Notification>| {
+                    let tx = tx.clone();
+                    async move {
+                        let header = headers
+                            .get(AUTHORIZATION)
+                            .map(|value| value.to_str().unwrap().to_string());
+                        tx.send((header, notification)).unwrap();
+                        StatusCode::OK
+                    }
+                },
+            ),
+        );
+
+        let url = start_callback_server(router).await;
+
+        let subscription_1 = Subscription {
+            id: "subscription_1".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            client_id: "test_client_a".parse().unwrap(),
+            content: SubscriptionRequest {
+                client_name: "subscription 1".into(),
+                program_id: None,
+                object_operations: vec![SubscriptionObjectOperation {
+                    objects: vec![ObjectType::Event],
+                    operations: vec![Operation::Create],
+                    mechanism: NotificationMechanism::Webhook,
+                    callback_url: Some(url),
+                    bearer_token: Some("secret-token".to_string()),
+                }],
+            },
+        };
+
+        let subscriptions =
+            HashMap::from([("subscription_1".parse().unwrap(), (subscription_1, scopes))]);
+
+        let state = NotifierState {
+            uuidv7_context: Arc::new(Mutex::new(ContextV7::new())),
+            websockets: Mutex::new(HashMap::new()),
+            subscriptions: Mutex::new(subscriptions),
+            mqtt_state: None,
+            webhook_client: callback_client_builder().https_only(false).build().unwrap(),
+        };
+
+        (state, rx)
+    }
+
+    #[tokio::test]
+    async fn notify_delivers_to_webhook_subscription() {
+        let (state, mut rx) = webhook_notifier(vec![Scope::ReadAll]).await;
+        let event = AnyObject::Event(Event {
+            id: "test_event_1".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_1".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec!["test_target_1".parse().unwrap()],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+
+        notify(
+            &TestVenCrud,
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Create,
+            event.clone(),
+        )
+        .await;
+
+        let (header, body) = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("webhook was not delivered within 2s")
+            .expect("channel closed");
+
+        assert_eq!(body.object, event);
+        assert_eq!(header, Some("Bearer secret-token".to_string()));
     }
 }
