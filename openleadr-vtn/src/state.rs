@@ -44,7 +44,6 @@ use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::PartialEq,
-    collections::HashMap,
     convert::Infallible,
     env::{self, VarError},
     io::{BufReader, Read},
