@@ -3264,4 +3264,91 @@ mod test {
         let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
         assert!(result.is_err(), "expected no delivery, got {result:?}");
     }
+
+    #[tokio::test]
+    async fn notify_filters_webhook_delivery_by_saved_ven_scopes() {
+        let (state, mut rx) = webhook_notifier(
+            vec![Scope::ReadVenObjects, Scope::ReadTargets],
+            ClientId::new("test_client_id").unwrap(),
+        )
+        .await;
+
+        //include test_target_2 in event, but expect it to be filtered out
+        let test_event_1 = AnyObject::Event(Event {
+            id: "test_event_1".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_1".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec![
+                    "test_target_1".parse().unwrap(),
+                    "test_target_2".parse().unwrap(),
+                ],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+
+        notify(
+            &TestVenCrud,
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Create,
+            test_event_1,
+        )
+        .await;
+
+        let (_, body) = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("event was not delivered within 2s")
+            .expect("channel closed");
+
+        let AnyObject::Event(event) = body.object else {
+            panic!("expected an event")
+        };
+        assert_eq!(
+            event.content.targets,
+            vec!["test_target_1".parse().unwrap()]
+        );
+
+        //entire event should be filtered
+        let test_event_2 = AnyObject::Event(Event {
+            id: "test_event_2".parse().unwrap(),
+            created_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
+            content: EventRequest {
+                program_id: "program_1".parse().unwrap(),
+                event_name: None,
+                duration: None,
+                priority: Priority::MIN,
+                targets: vec!["test_target_2".parse().unwrap()],
+                report_descriptors: None,
+                payload_descriptors: None,
+                interval_period: None,
+                intervals: None,
+            },
+        });
+
+        notify(
+            &TestVenCrud,
+            &TestEventCrud,
+            &TestVenObjectPrivacyTargets,
+            &state,
+            Operation::Create,
+            test_event_2,
+        )
+        .await;
+
+        let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        assert!(
+            result.is_err(),
+            "expected no delivery of test_event_2, got {result:?}"
+        );
+    }
 }
