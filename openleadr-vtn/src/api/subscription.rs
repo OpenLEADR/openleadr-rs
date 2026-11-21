@@ -1170,7 +1170,6 @@ mod test {
         error::AppError,
         jwt::{Claims, Scope},
     };
-    use crate::jwt::Scope::ReadAll;
 
     struct TestVenObjectPrivacyTargets;
 
@@ -3131,6 +3130,7 @@ mod test {
 
     async fn webhook_notifier(
         scopes: Vec<Scope>,
+        client_id: ClientId,
     ) -> (
         NotifierState,
         UnboundedReceiver<(Option<String>, Notification)>,
@@ -3159,7 +3159,7 @@ mod test {
             id: "subscription_1".parse().unwrap(),
             created_date_time: DateTime::from_timestamp_nanos(15_000_000),
             modification_date_time: DateTime::from_timestamp_nanos(15_000_000),
-            client_id: "test_client_a".parse().unwrap(),
+            client_id,
             content: SubscriptionRequest {
                 client_name: "subscription 1".into(),
                 program_id: None,
@@ -3189,7 +3189,11 @@ mod test {
 
     #[tokio::test]
     async fn notify_delivers_to_webhook_subscription() {
-        let (state, mut rx) = webhook_notifier(vec![Scope::ReadAll]).await;
+        let (state, mut rx) = webhook_notifier(
+            vec![Scope::ReadAll],
+            ClientId::new("test_client_a").unwrap(),
+        )
+        .await;
         let event = AnyObject::Event(Event {
             id: "test_event_1".parse().unwrap(),
             created_date_time: DateTime::from_timestamp_nanos(15_000_000),
@@ -3228,7 +3232,8 @@ mod test {
 
     #[tokio::test]
     async fn notify_does_not_deliver_to_webhook_without_saved_scopes() {
-        let (state, mut rx) = webhook_notifier(vec![]).await;
+        let (state, mut rx) =
+            webhook_notifier(vec![], ClientId::new("test_client_a").unwrap()).await;
         let event = AnyObject::Event(Event {
             id: "test_event_1".parse().unwrap(),
             created_date_time: DateTime::from_timestamp_nanos(15_000_000),
@@ -3254,10 +3259,9 @@ mod test {
             Operation::Create,
             event.clone(),
         )
-            .await;
+        .await;
 
         let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
         assert!(result.is_err(), "expected no delivery, got {result:?}");
-
     }
 }
