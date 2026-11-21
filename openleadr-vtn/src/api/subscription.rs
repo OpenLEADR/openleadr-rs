@@ -2757,6 +2757,61 @@ mod test {
         assert!(subscriptions.is_empty());
     }
 
+    #[sqlx::test(fixtures("vens", "users"))]
+    async fn webhook_subscription_not_created_with_plain_http_callback_url(db: PgPool) {
+        let server = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteSubscriptionsVen, Scope::ReadAll],
+        )
+        .await;
+
+        // working echo server, so non-HTTPS scheme is the only thing wrong
+        let router =
+            axum::Router::new().route(
+                "/callback",
+                axum::routing::get(
+                    |axum::extract::Query(params): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| async move {
+                        (
+                            StatusCode::OK,
+                            params.get("echo").cloned().unwrap_or_default(),
+                        )
+                    },
+                ),
+            );
+        let url = start_callback_server(router).await;
+        assert!(url.starts_with("http://"));
+
+        let body = serde_json::json!({
+            "clientName": "myClient",
+            "objectOperations": [{
+                "mechanism": "WEBHOOK",
+                "callbackUrl": url,
+                "operations": ["CREATE"],
+                "objects": ["EVENT"]
+            }]
+        });
+
+        let (status, problem) = server
+            .request::<Problem>(Method::POST, "/subscriptions", Body::from(body.to_string()))
+            .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let detail = problem.detail.unwrap_or_default();
+        assert!(
+            detail.contains("callback_url must use HTTPS"),
+            "got detail: {detail}"
+        );
+
+        let (status, subscriptions) = server
+            .request::<Vec<Subscription>>(Method::GET, "/subscriptions", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(subscriptions.is_empty());
+    }
+
     #[tokio::test]
     async fn callback_client_refuses_plain_http() {
         let router =
