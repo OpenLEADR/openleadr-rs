@@ -225,7 +225,6 @@ impl Crud for PgSubscriptionStorage {
         new: Self::NewType,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        //
         let subscription: Subscription = sqlx::query_as!(
             PostgresSubscription,
             r#"

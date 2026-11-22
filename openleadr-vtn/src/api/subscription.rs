@@ -261,7 +261,6 @@ async fn check_callback_urls(webhook_callback_urls: &HashSet<&str>) -> Result<()
         futures.push(check_callback_url(url, &client));
     }
 
-    //TODO use join_all to collect all errors
     try_join_all(futures).await?;
     Ok(())
 }

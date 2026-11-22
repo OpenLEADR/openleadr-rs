@@ -202,7 +202,6 @@ impl AppError {
                     Some("An mqtt error occurred".to_string()),
                 )
             }
-            //again - too generic?
             AppError::HttpClient(err) => {
                 error!(%reference, "HTTP client error: {}", err);
                 problem(
