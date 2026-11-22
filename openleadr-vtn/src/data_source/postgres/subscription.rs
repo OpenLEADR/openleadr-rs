@@ -24,9 +24,9 @@ impl SubscriptionCrud for PgSubscriptionStorage {
         )
         .fetch_all(&self.db)
         .await?;
-
+        // collect() builds a Result<HashMap<..>>: it stops at the first id that fails to parse
         rows.into_iter()
-            .map(|row| Ok((row.id.parse()?, row.subscriber_scopes))) //how on earth is this making a HashMap?
+            .map(|row| Ok((row.id.parse()?, row.subscriber_scopes)))
             .collect()
     }
 }
