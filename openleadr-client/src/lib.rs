@@ -70,7 +70,7 @@ use openleadr_wire::{
     resource::Resource,
     resource_group::ResourceGroup,
     subscription::{
-        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
+        AnyObject, MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
     },
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
@@ -266,55 +266,97 @@ pub trait OadrObject {
     const OBJECT_TYPE: ObjectType;
     type Client;
 
-    fn client() -> Self::Client;
+    fn into_client(any_object: AnyObject) -> Result<Self::Client>;
 }
 
 impl OadrObject for Program {
     const OBJECT_TYPE: ObjectType = ObjectType::Program;
     type Client = ();
 
-    fn client() -> Self::Client {
-        ()
+    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
+        let AnyObject::Program(program) = any_object else {
+            return Err(Error::MqttIncorrectObjectType {
+                expected: Self::OBJECT_TYPE,
+                actual: any_object.kind(),
+            });
+        };
+
+        Ok(())
     }
 }
 impl OadrObject for Report {
     const OBJECT_TYPE: ObjectType = ObjectType::Report;
     type Client = ();
 
-    fn client() -> Self::Client {
-        ()
+    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
+        let AnyObject::Report(report) = any_object else {
+            return Err(Error::MqttIncorrectObjectType {
+                expected: Self::OBJECT_TYPE,
+                actual: any_object.kind(),
+            });
+        };
+
+        Ok(())
     }
 }
 impl OadrObject for Event {
     const OBJECT_TYPE: ObjectType = ObjectType::Event;
     type Client = ();
 
-    fn client() -> Self::Client {
-        ()
+    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
+        let AnyObject::Event(event) = any_object else {
+            return Err(Error::MqttIncorrectObjectType {
+                expected: Self::OBJECT_TYPE,
+                actual: any_object.kind(),
+            });
+        };
+
+        Ok(())
     }
 }
 impl OadrObject for Ven {
     const OBJECT_TYPE: ObjectType = ObjectType::Ven;
     type Client = ();
 
-    fn client() -> Self::Client {
-        ()
+    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
+        let AnyObject::Ven(ven) = any_object else {
+            return Err(Error::MqttIncorrectObjectType {
+                expected: Self::OBJECT_TYPE,
+                actual: any_object.kind(),
+            });
+        };
+
+        Ok(())
     }
 }
 impl OadrObject for Resource {
     const OBJECT_TYPE: ObjectType = ObjectType::Resource;
     type Client = ();
 
-    fn client() -> Self::Client {
-        ()
+    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
+        let AnyObject::Resource(resource) = any_object else {
+            return Err(Error::MqttIncorrectObjectType {
+                expected: Self::OBJECT_TYPE,
+                actual: any_object.kind(),
+            });
+        };
+
+        Ok(())
     }
 }
 impl OadrObject for ResourceGroup {
     const OBJECT_TYPE: ObjectType = ObjectType::ResourceGroup;
     type Client = ();
 
-    fn client() -> Self::Client {
-        ()
+    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
+        let AnyObject::ResourceGroup(resource_group) = any_object else {
+            return Err(Error::MqttIncorrectObjectType {
+                expected: Self::OBJECT_TYPE,
+                actual: any_object.kind(),
+            });
+        };
+
+        Ok(())
     }
 }
 

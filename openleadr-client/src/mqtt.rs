@@ -80,26 +80,6 @@ pub enum MqttSubscriptionTarget {
     VenResourceGroups(VenId),
 }
 
-impl Into<ObjectType> for MqttSubscriptionTarget {
-    fn into(self) -> ObjectType {
-        match self {
-            MqttSubscriptionTarget::Programs => ObjectType::Program,
-            MqttSubscriptionTarget::Program(_) => ObjectType::Program,
-            MqttSubscriptionTarget::Events => ObjectType::Event,
-            MqttSubscriptionTarget::ProgramEvents(_) => ObjectType::Event,
-            MqttSubscriptionTarget::Reports => ObjectType::Report,
-            MqttSubscriptionTarget::Vens => ObjectType::Ven,
-            MqttSubscriptionTarget::Ven(_) => ObjectType::Ven,
-            MqttSubscriptionTarget::Resources => ObjectType::Resource,
-            MqttSubscriptionTarget::ResourceGroups => ObjectType::ResourceGroup,
-            MqttSubscriptionTarget::VenEvents(_) => ObjectType::Event,
-            MqttSubscriptionTarget::VenPrograms(_) => ObjectType::Program,
-            MqttSubscriptionTarget::VenResources(_) => ObjectType::Resource,
-            MqttSubscriptionTarget::VenResourceGroups(_) => ObjectType::ResourceGroup,
-        }
-    }
-}
-
 /// A subscription made with one of the `subscribe_*` methods of
 /// [`MqttClient`](crate::MqttClient). Receive its notifications with
 /// [`recv`](Self::recv).
@@ -195,14 +175,7 @@ impl<O: OadrObject> MqttSubscription<O> {
                 let notification: Notification =
                     serde_json::from_slice(message.payload()).map_err(Error::Serde)?;
 
-                if O::OBJECT_TYPE != notification.object.kind() {
-                    return Err(Error::MqttIncorrectObjectType {
-                        expected: O::OBJECT_TYPE,
-                        actual: notification.object.kind(),
-                    });
-                }
-
-                Ok(O::client())
+                O::into_client(notification.object)
             }
             Ok(None) => Err(Error::Mqtt(paho_mqtt::Error::Disconnected)),
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
