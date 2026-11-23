@@ -46,8 +46,9 @@ impl_oadr_object!(Program, Event, Report, Ven, Resource, ResourceGroup);
 
 /// A notification received by an [`MqttSubscription`] about an object of type `O`.
 ///
-/// To act on the object, turn it into a client with e.g. [`Client::program_client`] or
-/// [`MqttClient::event_client`].
+/// To act on the object, turn it into a client with e.g.
+/// [`Client::program_client`](crate::Client::program_client) or
+/// [`MqttClient::event_client`](crate::MqttClient::event_client).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MqttNotification<O> {
     /// The ID of the operation that triggered this notification. The same change can arrive on
