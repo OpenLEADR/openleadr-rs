@@ -65,12 +65,12 @@ mod ven;
 
 use async_trait::async_trait;
 use openleadr_wire::{
-    Event, ObjectType, Report, Ven,
+    Event, Report, Ven,
     event::EventId,
     resource::Resource,
     resource_group::ResourceGroup,
     subscription::{
-        AnyObject, MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
+        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
     },
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
@@ -90,7 +90,7 @@ pub use error::*;
 pub use event::*;
 #[cfg(feature = "mdns")]
 pub use mdns::*;
-pub use mqtt::MqttSubscription;
+pub use mqtt::{MqttNotification, MqttSubscription, OadrObject};
 pub use program::*;
 pub use report::*;
 pub use resource::*;
@@ -232,6 +232,7 @@ mod sealed {
     use std::fmt::Debug;
 
     use crate::{BusinessLogic, VirtualEndNode};
+    use openleadr_wire::{ObjectType, subscription::AnyObject};
 
     #[derive(Debug, Clone)]
     pub struct VenEventTopics {
@@ -248,6 +249,13 @@ mod sealed {
     impl SealedClientKind for VirtualEndNode {
         type EventTopics = VenEventTopics;
     }
+
+    pub trait SealedOadrObject: Sized {
+        const OBJECT_TYPE: ObjectType;
+
+        /// Returns the object if `object` is of this type.
+        fn from_any(object: AnyObject) -> Option<Self>;
+    }
 }
 
 /// This trait is used to mark the kind of [`Client`] to use,
@@ -261,104 +269,6 @@ impl ClientKind for BusinessLogic {}
 /// Used to mark the kind of [`Client`], see also [`ClientKind`]
 pub struct VirtualEndNode;
 impl ClientKind for VirtualEndNode {}
-
-pub trait OadrObject {
-    const OBJECT_TYPE: ObjectType;
-    type Client;
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client>;
-}
-
-impl OadrObject for Program {
-    const OBJECT_TYPE: ObjectType = ObjectType::Program;
-    type Client = ();
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
-        let AnyObject::Program(program) = any_object else {
-            return Err(Error::MqttIncorrectObjectType {
-                expected: Self::OBJECT_TYPE,
-                actual: any_object.kind(),
-            });
-        };
-
-        Ok(())
-    }
-}
-impl OadrObject for Report {
-    const OBJECT_TYPE: ObjectType = ObjectType::Report;
-    type Client = ();
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
-        let AnyObject::Report(report) = any_object else {
-            return Err(Error::MqttIncorrectObjectType {
-                expected: Self::OBJECT_TYPE,
-                actual: any_object.kind(),
-            });
-        };
-
-        Ok(())
-    }
-}
-impl OadrObject for Event {
-    const OBJECT_TYPE: ObjectType = ObjectType::Event;
-    type Client = ();
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
-        let AnyObject::Event(event) = any_object else {
-            return Err(Error::MqttIncorrectObjectType {
-                expected: Self::OBJECT_TYPE,
-                actual: any_object.kind(),
-            });
-        };
-
-        Ok(())
-    }
-}
-impl OadrObject for Ven {
-    const OBJECT_TYPE: ObjectType = ObjectType::Ven;
-    type Client = ();
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
-        let AnyObject::Ven(ven) = any_object else {
-            return Err(Error::MqttIncorrectObjectType {
-                expected: Self::OBJECT_TYPE,
-                actual: any_object.kind(),
-            });
-        };
-
-        Ok(())
-    }
-}
-impl OadrObject for Resource {
-    const OBJECT_TYPE: ObjectType = ObjectType::Resource;
-    type Client = ();
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
-        let AnyObject::Resource(resource) = any_object else {
-            return Err(Error::MqttIncorrectObjectType {
-                expected: Self::OBJECT_TYPE,
-                actual: any_object.kind(),
-            });
-        };
-
-        Ok(())
-    }
-}
-impl OadrObject for ResourceGroup {
-    const OBJECT_TYPE: ObjectType = ObjectType::ResourceGroup;
-    type Client = ();
-
-    fn into_client(any_object: AnyObject) -> Result<Self::Client> {
-        let AnyObject::ResourceGroup(resource_group) = any_object else {
-            return Err(Error::MqttIncorrectObjectType {
-                expected: Self::OBJECT_TYPE,
-                actual: any_object.kind(),
-            });
-        };
-
-        Ok(())
-    }
-}
 
 struct ClientRef<K> {
     client: Box<dyn HttpClient + Send + Sync>,
@@ -964,6 +874,31 @@ impl<K: ClientKind> Client<K> {
         }
         Err(last_error)
     }
+
+    /// Wrap `program` in a [`ProgramClient`].
+    pub fn program_client(&self, program: Program) -> ProgramClient<K> {
+        ProgramClient::from_program(self.clone(), program)
+    }
+
+    /// Wrap `event` in an [`EventClient`].
+    pub fn event_client(&self, event: Event) -> EventClient<K> {
+        EventClient::from_event(self.client_ref.clone(), event)
+    }
+
+    /// Wrap `report` in a [`ReportClient`].
+    pub fn report_client(&self, report: Report) -> ReportClient<K> {
+        ReportClient::from_report(self.client_ref.clone(), report)
+    }
+
+    /// Wrap `ven` in a [`VenClient`].
+    pub fn ven_client(&self, ven: Ven) -> VenClient<K> {
+        VenClient::from_ven(self.client_ref.clone(), ven)
+    }
+
+    /// Wrap `resource` in a [`ResourceClient`].
+    pub fn resource_client(&self, resource: Resource) -> ResourceClient<K> {
+        ResourceClient::from_resource(self.client_ref.clone(), resource)
+    }
 }
 
 impl MqttClient<VirtualEndNode> {
@@ -1044,6 +979,19 @@ impl MqttClient<VirtualEndNode> {
             event,
         ))
     }
+
+    /// Wrap `event`, e.g., from an [`MqttNotification`], in an [`MqttEventClient`].
+    ///
+    /// This requests the report upload topic from the VTN.
+    pub async fn event_client(&self, event: Event) -> Result<MqttEventClient<VirtualEndNode>> {
+        let topic = self.upload_topic().await?;
+
+        Ok(MqttEventClient::from_event(
+            topic,
+            self.mqtt_client.clone(),
+            event,
+        ))
+    }
 }
 
 impl<K: ClientKind> MqttClient<K> {
@@ -1100,9 +1048,7 @@ impl<K: ClientKind> MqttClient<K> {
         .await
     }
 
-    /// Subscribes to notifications about the
-    /// [`Resource`](openleadr_wire::resource::Resource)s of the [`Ven`]
-    /// identified by `ven_id`.
+    /// Subscribes to notifications about the [`Resource`]s of the [`Ven`] identified by `ven_id`.
     pub async fn subscribe_ven_resources(
         &self,
         ven_id: VenId,
@@ -1115,9 +1061,8 @@ impl<K: ClientKind> MqttClient<K> {
         .await
     }
 
-    /// Subscribes to notifications about the
-    /// [`ResourceGroup`](openleadr_wire::resource_group::ResourceGroup)s of the
-    /// [`Ven`] identified by `ven_id`.
+    /// Subscribes to notifications about the [`ResourceGroup`]s of the [`Ven`] identified by
+    /// `ven_id`.
     pub async fn subscribe_ven_resource_groups(
         &self,
         ven_id: VenId,
