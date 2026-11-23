@@ -4,13 +4,61 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use openleadr_wire::{ObjectType, program::ProgramId, subscription::Notification, ven::VenId};
+use openleadr_wire::{
+    Event, Identifier, ObjectType, Program, Report, Ven,
+    program::ProgramId,
+    resource::Resource,
+    resource_group::ResourceGroup,
+    subscription::{AnyObject, Notification, Operation},
+    ven::VenId,
+};
 use paho_mqtt::TopicFilter;
 use tokio::sync::broadcast;
 
-use crate::{Error, OadrObject, error::Result};
+use crate::{Error, error::Result, sealed::SealedOadrObject};
 
 const MQTT_NOTIFICATION_BUFFER: usize = 128;
+
+mod sealed {}
+
+/// An object that an [`MqttSubscription`] can receive notifications about.
+///
+/// This trait is sealed: it is implemented for [`Program`], [`Event`],
+/// [`Report`], [`Ven`], [`Resource`] and [`ResourceGroup`] only.
+pub trait OadrObject: SealedOadrObject {}
+
+macro_rules! impl_oadr_object {
+    ($($ty:ident),*) => {$(
+        impl SealedOadrObject for $ty {
+            const OBJECT_TYPE: ObjectType = ObjectType::$ty;
+
+            fn from_any(object: AnyObject) -> Option<Self> {
+                match object {
+                    AnyObject::$ty(inner) => Some(inner),
+                    _ => None,
+                }
+            }
+        }
+        impl OadrObject for $ty {}
+    )*};
+}
+impl_oadr_object!(Program, Event, Report, Ven, Resource, ResourceGroup);
+
+/// A notification received by an [`MqttSubscription`] about an object of type `O`.
+///
+/// To act on the object, turn it into a client with e.g. [`Client::program_client`] or
+/// [`MqttClient::event_client`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct MqttNotification<O> {
+    /// The ID of the operation that triggered this notification. The same change can arrive on
+    /// several subscriptions with the same ID, so it can be used to deduplicate them.
+    pub id: Identifier,
+    /// The operation on the object that triggered the notification.
+    pub operation: Operation,
+    /// The object the notification is about. For [`Operation::Delete`] this is the object as it was
+    /// right before its deletion.
+    pub object: O,
+}
 
 pub(crate) struct TopicEntry {
     pub(crate) refcount: usize,
@@ -86,15 +134,16 @@ pub enum MqttSubscriptionTarget {
 ///
 /// Dropping the subscription unsubscribes from the topic, unless another
 /// subscription to the same topic (e.g., a clone) is still alive.
-pub struct MqttSubscription<O: OadrObject> {
+pub struct MqttSubscription<O> {
     topic: String,
     receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
     registry: Arc<MqttSubscriptionRegistry>,
     mqtt_client: paho_mqtt::AsyncClient,
-    phantom: PhantomData<O>,
+    // Produces `O`s but never holds one
+    object: PhantomData<fn() -> O>,
 }
 
-impl<O: OadrObject> MqttSubscription<O> {
+impl<O> MqttSubscription<O> {
     pub(crate) fn new(
         topic: &str,
         receiver: broadcast::Receiver<Option<paho_mqtt::Message>>,
@@ -106,7 +155,7 @@ impl<O: OadrObject> MqttSubscription<O> {
             receiver,
             registry,
             mqtt_client,
-            phantom: PhantomData,
+            object: PhantomData,
         }
     }
 
@@ -114,18 +163,19 @@ impl<O: OadrObject> MqttSubscription<O> {
     pub fn topic(&self) -> &str {
         &self.topic
     }
+}
 
+impl<O: OadrObject> MqttSubscription<O> {
     /// Waits for the next notification of this subscription.
     ///
     /// Every subscription, including every clone, receives every notification for its topic that
     /// arrives after it was created.
     ///
-    /// The VTN may publish one change on several topics (e.g., a targeted event
-    /// on both the [`subscribe_events`](crate::MqttClient::subscribe_events)
-    /// and the
-    /// [`subscribe_ven_events`](crate::MqttClient::subscribe_ven_events)
-    /// topic), so different subscriptions can receive the same change. Use
-    /// [`Notification::id`] to deduplicate across subscriptions.
+    /// The VTN may publish one change on several topics (e.g., a targeted event on both the
+    /// [`subscribe_events`](crate::MqttClient::subscribe_events) and the
+    /// [`subscribe_ven_events`](crate::MqttClient::subscribe_ven_events) topic), so different
+    /// subscriptions can receive the same change. Use [`MqttNotification::id`] to deduplicate
+    /// across subscriptions.
     ///
     /// # Errors
     ///
@@ -133,6 +183,8 @@ impl<O: OadrObject> MqttSubscription<O> {
     /// the next notification.
     ///
     /// - [`Error::Serde`] if a message is not a valid [`Notification`].
+    /// - [`Error::MqttIncorrectObjectType`] if a notification is about another
+    ///   kind of object than this subscription is for.
     /// - [`Error::MqttNotificationsLagged`] if this subscription fell behind
     ///   and notifications were dropped.
     /// - [`Error::Mqtt`] with [`paho_mqtt::Error::Disconnected`] if the
@@ -169,13 +221,26 @@ impl<O: OadrObject> MqttSubscription<O> {
     /// }
     /// # }
     /// ```
-    pub async fn recv(&mut self) -> Result<O::Client> {
+    pub async fn recv(&mut self) -> Result<MqttNotification<O>> {
         match self.receiver.recv().await {
             Ok(Some(message)) => {
-                let notification: Notification =
-                    serde_json::from_slice(message.payload()).map_err(Error::Serde)?;
+                let Notification {
+                    id,
+                    operation,
+                    object,
+                } = serde_json::from_slice(message.payload()).map_err(Error::Serde)?;
 
-                O::into_client(notification.object)
+                let actual = object.kind();
+                let object = O::from_any(object).ok_or(Error::MqttIncorrectObjectType {
+                    expected: O::OBJECT_TYPE,
+                    actual,
+                })?;
+
+                Ok(MqttNotification {
+                    id,
+                    operation,
+                    object,
+                })
             }
             Ok(None) => Err(Error::Mqtt(paho_mqtt::Error::Disconnected)),
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
@@ -190,7 +255,7 @@ impl<O: OadrObject> MqttSubscription<O> {
     }
 }
 
-impl<O: OadrObject> Drop for MqttSubscription<O> {
+impl<O> Drop for MqttSubscription<O> {
     fn drop(&mut self) {
         let mut subscriptions = self.registry.subscriptions();
 
@@ -208,7 +273,7 @@ impl<O: OadrObject> Drop for MqttSubscription<O> {
     }
 }
 
-impl<O: OadrObject> Clone for MqttSubscription<O> {
+impl<O> Clone for MqttSubscription<O> {
     fn clone(&self) -> Self {
         let mut subscriptions = self.registry.subscriptions();
 

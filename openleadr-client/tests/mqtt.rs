@@ -1,29 +1,28 @@
 use std::time::Duration;
 
 use crate::common::AuthRole;
-use openleadr_client::{BusinessLogic, MqttSubscription, OadrObject, VirtualEndNode};
+use openleadr_client::{BusinessLogic, MqttNotification, MqttSubscription, VirtualEndNode};
 use openleadr_wire::{
+    Program,
     program::{ProgramId, ProgramRequest},
-    subscription::{AnyObject, Notification, Operation},
+    subscription::Operation,
 };
 use sqlx::PgPool;
 
 mod common;
 
-async fn next_notification_for_program<O: OadrObject>(
-    subscription: &mut MqttSubscription<O,
+async fn next_notification_for_program(
+    subscription: &mut MqttSubscription<Program>,
     program_id: &ProgramId,
     timeout: Duration,
-) -> Option<Notification> {
+) -> Option<MqttNotification<Program>> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let received = match tokio::time::timeout_at(deadline, subscription.recv()).await {
             Ok(received) => received.expect("failed to receive notification"),
             Err(_) => return None,
         };
-        let is_for_program =
-            matches!(&received.object, AnyObject::Program(program) if &program.id == program_id);
-        if is_for_program {
+        if &received.object.id == program_id {
             return Some(received);
         }
     }
