@@ -29,7 +29,7 @@ async fn next_notification_for_program(
 }
 
 #[sqlx::test(fixtures("users"))]
-async fn mqtt_receive_notification(db: PgPool) {
+async fn client_from_mqtt_notification(db: PgPool) {
     let bl = common::setup_client_with_role::<BusinessLogic>(db.clone(), AuthRole::Bl).await;
     let ven = common::setup_client_with_role::<VirtualEndNode>(db, AuthRole::Ven).await;
 
@@ -47,6 +47,15 @@ async fn mqtt_receive_notification(db: PgPool) {
             .expect("no notification received in time");
 
     assert_eq!(notification.operation, Operation::Create);
+    let program_client = bl.program_client(notification.object);
+    program_client.delete().await.unwrap();
+
+    let notification =
+        next_notification_for_program(&mut subscription, program.id(), Duration::from_secs(5))
+            .await
+            .expect("no notification received in time");
+
+    assert_eq!(notification.operation, Operation::Delete);
 }
 
 #[sqlx::test(fixtures("users"))]
