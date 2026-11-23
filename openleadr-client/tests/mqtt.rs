@@ -11,7 +11,7 @@ use sqlx::PgPool;
 mod common;
 
 async fn next_notification_for_program<O: OadrObject>(
-    subscription: &mut MqttSubscription<O>,
+    subscription: &mut MqttSubscription<O,
     program_id: &ProgramId,
     timeout: Duration,
 ) -> Option<Notification> {
