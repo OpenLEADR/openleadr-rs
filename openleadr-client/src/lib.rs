@@ -60,6 +60,7 @@ mod mqtt;
 mod program;
 mod report;
 mod resource;
+mod resource_groups;
 mod timeline;
 mod ven;
 

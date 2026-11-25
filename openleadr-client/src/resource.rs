@@ -3,9 +3,8 @@ use chrono::{DateTime, Utc};
 use openleadr_wire::resource::{BlResourceRequest, Resource, ResourceId, ResourceRequest};
 use std::sync::Arc;
 
-/// A client
-/// for interacting with the data in a specific resource
-/// stored as a child element of a VEN on the VTN.
+/// A client for interacting with the data in a specific resource stored as a child element of a VEN
+/// on the VTN.
 ///
 /// To retrieve or create a resource, refer to the [`VenClient`](crate::VenClient).
 #[derive(Debug, Clone)]
