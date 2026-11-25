@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT rg.targets\n            FROM rg_visible AS v\n            INNER JOIN resource_group AS rg ON rg.id = v.rg_id\n            WHERE v.client_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "targets",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a6fe2892bca06b4d0a05af1362c021c418495fdd3b72754035cae97da4819a8d"
+}

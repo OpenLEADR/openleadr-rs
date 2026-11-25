@@ -355,13 +355,10 @@ impl VenObjectPrivacy for PgVenStorage {
         // also include that resource group's targets
         let resource_group_targets = sqlx::query_scalar!(
             r#"
-             SELECT DISTINCT rg.targets
-             FROM rg_family AS fam
-             INNER JOIN rg_child_ven_resource AS rcvr ON fam.id = rcvr.rg_parent_rg_id
-             INNER JOIN resource AS r ON rcvr.rg_child_ven_resource_id = r.id
-             INNER JOIN ven AS v ON r.ven_id = v.id
-             INNER JOIN resource_group rg on fam.root = rg.id
-             WHERE v.client_id = $1
+            SELECT DISTINCT rg.targets
+            FROM rg_visible AS v
+            INNER JOIN resource_group AS rg ON rg.id = v.rg_id
+            WHERE v.client_id = $1
             "#,
             client_id.as_str()
         )
@@ -386,13 +383,7 @@ impl VenObjectPrivacy for PgVenStorage {
         Ok(sqlx::query_scalar!(
             r#"
             SELECT EXISTS (
-                SELECT r.id FROM resource r
-                INNER JOIN rg_child_ven_resource rcvr
-                    ON rcvr.rg_child_ven_resource_id = r.id
-                INNER JOIN rg_family rg_fam
-                    ON rg_fam.id = rcvr.rg_parent_rg_id
-                WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
-                    AND rg_fam.root = $1
+                SELECT 1 FROM rg_visible WHERE rg_id = $1 AND client_id = $2
             ) AS "exists!"
             "#,
             resource_group_id.as_str(),
@@ -506,6 +497,32 @@ mod tests {
         let targets = repo.targets_by_client_id(&client_id).await.unwrap();
 
         assert!(targets.is_empty());
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn resource_group_visibility(db: PgPool) {
+        let repo: PgVenStorage = db.into();
+        let visible = async |client: &str, rg: &str| {
+            repo.resource_group_visible_for_client(&client.parse().unwrap(), &rg.parse().unwrap())
+                .await
+                .unwrap()
+        };
+
+        // Group 1 contains groups 2 and 3, group 2 contains group 4.
+        // ven-1 resources are in groups 2 and 3, ven-2 resources only in group 3.
+        for rg in ["resource-group-1", "resource-group-2", "resource-group-3"] {
+            assert!(visible("ven-1-client-id", rg).await, "ven-1 sees {rg}");
+        }
+        for rg in ["resource-group-4", "ouroboros"] {
+            assert!(
+                !visible("ven-1-client-id", rg).await,
+                "ven-1 can't see {rg}"
+            );
+        }
+        assert!(visible("ven-2-client-id", "resource-group-1").await);
+        assert!(!visible("ven-2-client-id", "resource-group-2").await);
+        assert!(!visible("ven-3-client-id", "resource-group-1").await);
+        assert!(!visible("unknown-client-id", "resource-group-1").await);
     }
 
     mod get_all {
