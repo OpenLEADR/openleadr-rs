@@ -66,7 +66,7 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
     }
 }
 
-/// A resource group with its children, as returned by `delete`.
+/// A resource group with its children, as returned by [`select_resource_groups`] and `delete`.
 struct PostgresResourceGroupWithChildren {
     id: String,
     created_date_time: DateTime<Utc>,
@@ -106,77 +106,72 @@ impl TryFrom<PostgresResourceGroupWithChildren> for ResourceGroup {
     }
 }
 
-async fn get_rg_children(
-    tx: &mut Transaction<'_, Postgres>,
-    rg_id: &ResourceGroupId,
+/// Resource groups with their children, in one statement, so that a group and its children
+/// always come from the same snapshot.
+///
+/// A VEN client sees the groups of the `rg_visible` view, only the children that it sees
+/// itself, and only its own resources. The BL (`client_id` is `None`) sees everything.
+async fn select_resource_groups(
+    db: &PgPool,
+    id: Option<&ResourceGroupId>,
+    name: Option<&str>,
+    targets: &[Target],
     client_id: &Option<ClientId>,
-) -> Result<Vec<ResourceGroupChild>, <PgResourceGroupStorage as Crud>::Error> {
-    let mut rg_children: Vec<_> = sqlx::query!(
+    skip: i64,
+    limit: i64,
+) -> Result<Vec<ResourceGroup>, AppError> {
+    sqlx::query_as!(
+        PostgresResourceGroupWithChildren,
         r#"
-        SELECT id
-        FROM (
-            SELECT root, id
-            FROM rg_family
-            WHERE root = $1
-              AND (
-                  -- business logic
-                  $2::text IS NULL
-
-                  -- client logic (child rg visible if any
-                  -- descendant resource is owned by client id)
-                  OR EXISTS (
-                      SELECT r.id
-                      FROM resource r
-                      INNER JOIN rg_child_ven_resource AS rcvr
-                          ON rcvr.rg_child_ven_resource_id = r.id
-                      INNER JOIN rg_family AS rg_fam
-                          ON rg_fam.id = rcvr.rg_parent_rg_id
-                      WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
-                        AND rg_fam.root = $1
-                  )
-              )
-
-            INTERSECT
-
-            SELECT rg_parent_rg_id, rg_child_rg_id FROM rg_child_rg
+        WITH visible AS (
+            SELECT rg_id FROM rg_visible WHERE client_id = $4
+            UNION ALL
+            SELECT id FROM resource_group WHERE $4::text IS NULL
         )
+        SELECT
+            rg.id,
+            rg.created_date_time,
+            rg.modification_date_time,
+            rg.resource_group_name,
+            rg.attributes,
+            rg.targets AS "targets:Vec<Target>",
+            ARRAY(
+                SELECT DISTINCT child.rg_child_rg_id
+                FROM rg_child_rg child
+                WHERE child.rg_parent_rg_id = rg.id
+                  AND child.rg_child_rg_id IN (SELECT rg_id FROM visible)
+            ) AS "child_groups!",
+            ARRAY(
+                SELECT child.rg_child_ven_resource_id
+                FROM rg_child_ven_resource child
+                WHERE child.rg_parent_rg_id = rg.id
+                  AND ($4::text IS NULL OR EXISTS (
+                      SELECT 1 FROM resource r
+                      WHERE r.id = child.rg_child_ven_resource_id
+                        AND r.ven_id = (SELECT id FROM ven WHERE client_id = $4)
+                  ))
+            ) AS "child_resources!"
+        FROM resource_group rg
+        WHERE ($1::text IS NULL OR rg.id = $1)
+          AND ($2::text IS NULL OR rg.resource_group_name = $2)
+          AND (array_length($3::text[], 1) IS NULL OR rg.targets && $3)
+          AND rg.id IN (SELECT rg_id FROM visible)
+        -- id breaks ties, so paging with OFFSET doesn't skip or repeat groups
+        ORDER BY rg.created_date_time, rg.id
+        OFFSET $5 LIMIT $6
         "#,
-        rg_id.as_str(),
-        client_id as _
+        id.map(ResourceGroupId::as_str),
+        name,
+        targets as _,
+        client_id as _,
+        skip,
+        limit,
     )
-    .fetch_all(tx.as_mut())
+    .fetch_all(db)
     .await?
     .into_iter()
-    .filter_map(|r| {
-        r.id.and_then(|id| id.parse().ok().map(ResourceGroupChild::ResourceGroup))
-    })
-    .collect();
-
-    let ven_children = sqlx::query!(
-        r#"
-        SELECT rg_child.rg_child_ven_resource_id
-        FROM rg_child_ven_resource AS rg_child
-            INNER JOIN resource ON rg_child.rg_child_ven_resource_id = resource.id
-            INNER JOIN ven ON ven_id = ven.id
-
-        WHERE rg_child.rg_parent_rg_id = $1
-            AND (client_id = $2 OR $2::text IS NULL)
-        "#,
-        rg_id.as_str(),
-        client_id as _
-    )
-    .fetch_all(tx.as_mut())
-    .await?
-    .into_iter()
-    .map(|r| {
-        r.rg_child_ven_resource_id
-            .parse()
-            .map(ResourceGroupChild::VenResource)
-    })
-    .collect::<Result<Vec<_>, _>>()?;
-
-    rg_children.extend(ven_children);
-    Ok(rg_children)
+    .map(TryInto::try_into)
+    .collect()
 }
 
 async fn insert_resource_group_children(
@@ -293,54 +288,10 @@ impl Crud for PgResourceGroupStorage {
         id: &Self::Id,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
-        let mut tx = self.db.begin().await?;
-
-        let mut resource_group: ResourceGroup = sqlx::query_as!(
-            PostgresResourceGroup,
-            r#"
-                SELECT
-                    rg.id,
-                    rg.created_date_time,
-                    rg.modification_date_time,
-                    rg.resource_group_name,
-                    rg.attributes,
-                    rg.targets as "targets:Vec<Target>"
-                FROM resource_group rg
-                WHERE rg.id = $1
-
-                AND (
-                    -- If client_id is null, it is a business logic request
-                    $2::text IS NULL
-
-                    -- Otherwise, for a VEN, the resource group should only be visible if there
-                    -- is at least 1 VEN resource (grand) child, with matching client_id.
-                    OR EXISTS (
-                        SELECT r.id FROM resource r
-                        INNER JOIN rg_child_ven_resource rcvr
-                            ON rcvr.rg_child_ven_resource_id = r.id
-                        INNER JOIN rg_family rg_fam
-                            ON rg_fam.id = rcvr.rg_parent_rg_id
-                        WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $2)
-                          AND rg_fam.root = $1
-
-                    )
-                )
-                "#,
-            id.as_str(),
-            client_id as _
-        )
-        .fetch_one(tx.as_mut())
-        .await?
-        .try_into()?;
-
-        resource_group
-            .content
-            .children
-            .extend(get_rg_children(&mut tx, &resource_group.id, client_id).await?);
-
-        tx.commit().await?;
-
-        Ok(resource_group)
+        select_resource_groups(&self.db, Some(id), None, &[], client_id, 0, 1)
+            .await?
+            .pop()
+            .ok_or(AppError::NotFound)
     }
 
     async fn retrieve_all(
@@ -348,63 +299,17 @@ impl Crud for PgResourceGroupStorage {
         filter: &Self::Filter,
         client_id: &Self::PermissionFilter,
     ) -> Result<Vec<Self::Type>, Self::Error> {
-        let mut tx = self.db.begin().await?;
-
-        let mut rgs = sqlx::query_as!(
-            PostgresResourceGroup,
-            r#"
-            SELECT
-                rg.id,
-                rg.created_date_time,
-                rg.modification_date_time,
-                rg.resource_group_name,
-                rg.attributes,
-                rg.targets as "targets:Vec<Target>"
-            FROM resource_group rg
-            WHERE ($1::text IS NULL OR rg.resource_group_name = $1)
-            AND (array_length($2::text[], 1) IS NULL OR rg.targets && $2)
-
-            AND (
-                -- If client_id is null, it is a business logic request
-                $3::text IS NULL
-
-                    -- Otherwise, for a VEN, the resource group should only be visible if there
-                    -- is at least 1 VEN resource (grand) child, with matching ven_id.
-                  OR EXISTS (
-                      SELECT r.id
-                      FROM resource r
-                      INNER JOIN rg_child_ven_resource AS rcvr
-                          ON rcvr.rg_child_ven_resource_id = r.id
-                      INNER JOIN rg_family AS rg_fam
-                          ON rg_fam.id = rcvr.rg_parent_rg_id
-                      WHERE r.ven_id = (SELECT v.id FROM ven v WHERE v.client_id = $3)
-                        AND rg_fam.root = rg.id
-                  )
-            )
-
-            ORDER BY rg.created_date_time
-            OFFSET $4 LIMIT $5
-            "#,
-            filter.resource_group_name,
-            filter.targets.as_deref() as _,
-            client_id as _,
+        let rgs = select_resource_groups(
+            &self.db,
+            None,
+            filter.resource_group_name.as_deref(),
+            filter.targets.as_deref(),
+            client_id,
             filter.skip,
             filter.limit,
         )
-        .fetch_all(tx.as_mut())
-        .await?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<Vec<ResourceGroup>, _>>()?;
-
-        for rg in rgs.iter_mut() {
-            rg.content
-                .children
-                .extend(get_rg_children(&mut tx, &rg.id, client_id).await?);
-        }
-
+        .await?;
         trace!("retrieved {} resource groups", rgs.len());
-        tx.commit().await?;
         Ok(rgs)
     }
 
@@ -518,8 +423,12 @@ mod test {
         api::{TargetQueryParams, resource_group::QueryParams},
         data_source::{Crud, postgres::resource_group::PgResourceGroupStorage},
     };
-    use openleadr_wire::resource_group::ResourceGroupChild;
+    use openleadr_wire::{
+        ClientId,
+        resource_group::{ResourceGroup, ResourceGroupChild},
+    };
     use sqlx::PgPool;
+    use std::collections::BTreeMap;
 
     impl Default for QueryParams {
         fn default() -> Self {
@@ -593,6 +502,178 @@ mod test {
             .collect();
         names.sort();
         names
+    }
+
+    /// Children per group as seen by `client_id` through `retrieve_all`, checked against
+    /// `retrieve` for each group.
+    async fn children_by_group(
+        repo: &PgResourceGroupStorage,
+        client_id: &Option<ClientId>,
+    ) -> BTreeMap<String, Vec<String>> {
+        let rgs: Vec<ResourceGroup> = repo
+            .retrieve_all(&QueryParams::default(), client_id)
+            .await
+            .unwrap();
+        let mut by_group = BTreeMap::new();
+        for rg in rgs {
+            let single = repo.retrieve(&rg.id, client_id).await.unwrap();
+            assert_eq!(
+                child_names(&single.content.children),
+                child_names(&rg.content.children),
+                "retrieve and retrieve_all disagree on children of {}",
+                rg.id.as_str()
+            );
+            by_group.insert(rg.id.as_str().to_owned(), child_names(&rg.content.children));
+        }
+        by_group
+    }
+
+    fn expected(groups: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
+        groups
+            .iter()
+            .map(|(id, children)| {
+                let mut children: Vec<String> = children.iter().map(|c| c.to_string()).collect();
+                children.sort();
+                (id.to_string(), children)
+            })
+            .collect()
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn children_for_bl(db: PgPool) {
+        let repo = PgResourceGroupStorage::from(db);
+
+        assert_eq!(
+            children_by_group(&repo, &None).await,
+            expected(&[
+                (
+                    "resource-group-1",
+                    &["rg:resource-group-2", "rg:resource-group-3"]
+                ),
+                (
+                    "resource-group-2",
+                    &["rg:resource-group-4", "res:resource-1"]
+                ),
+                (
+                    "resource-group-3",
+                    &[
+                        "res:resource-1",
+                        "res:resource-2",
+                        "res:resource-3",
+                        "res:resource-4"
+                    ]
+                ),
+                ("resource-group-4", &[]),
+                ("ouroboros", &["rg:ouroboros"]),
+            ])
+        );
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn children_for_ven(db: PgPool) {
+        let repo = PgResourceGroupStorage::from(db);
+
+        // ven-1 owns resource-1 (in groups 2 and 3) and resource-3 (in group 3). Group 4 is a
+        // child of group 2 but holds none of its resources, so it is hidden.
+        assert_eq!(
+            children_by_group(&repo, &Some("ven-1-client-id".parse().unwrap())).await,
+            expected(&[
+                (
+                    "resource-group-1",
+                    &["rg:resource-group-2", "rg:resource-group-3"]
+                ),
+                ("resource-group-2", &["res:resource-1"]),
+                ("resource-group-3", &["res:resource-1", "res:resource-3"]),
+            ])
+        );
+
+        // ven-2 only has resources in group 3, so group 2 is hidden, also as a child of group 1.
+        assert_eq!(
+            children_by_group(&repo, &Some("ven-2-client-id".parse().unwrap())).await,
+            expected(&[
+                ("resource-group-1", &["rg:resource-group-3"]),
+                ("resource-group-3", &["res:resource-2", "res:resource-4"]),
+            ])
+        );
+
+        // ven-3 owns no resources and sees nothing.
+        let ven_3 = Some("ven-3-client-id".parse().unwrap());
+        assert!(children_by_group(&repo, &ven_3).await.is_empty());
+
+        for hidden in ["resource-group-2", "resource-group-4", "ouroboros"] {
+            assert!(
+                repo.retrieve(
+                    &hidden.parse().unwrap(),
+                    &Some("ven-2-client-id".parse().unwrap())
+                )
+                .await
+                .is_err(),
+                "{hidden} must be hidden from ven-2"
+            );
+        }
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn visibility_through_nesting_and_cycles(db: PgPool) {
+        // Put a ven-2 resource two levels down (1 -> 2 -> 4), and close the loop 4 -> 1.
+        sqlx::raw_sql(
+            "INSERT INTO rg_child_ven_resource VALUES ('resource-group-4', 'resource-5');
+             INSERT INTO rg_child_rg VALUES ('resource-group-4', 'resource-group-1');",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        let repo = PgResourceGroupStorage::from(db);
+
+        assert_eq!(
+            children_by_group(&repo, &Some("ven-2-client-id".parse().unwrap())).await,
+            expected(&[
+                (
+                    "resource-group-1",
+                    &["rg:resource-group-2", "rg:resource-group-3"]
+                ),
+                ("resource-group-2", &["rg:resource-group-4"]),
+                ("resource-group-3", &["res:resource-2", "res:resource-4"]),
+                (
+                    "resource-group-4",
+                    &["rg:resource-group-1", "res:resource-5"]
+                ),
+            ])
+        );
+        let ven_3 = Some("ven-3-client-id".parse().unwrap());
+        assert!(children_by_group(&repo, &ven_3).await.is_empty());
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn paging_is_stable_with_equal_timestamps(db: PgPool) {
+        // All fixture groups share created_date_time; paging must still visit each one once.
+        let repo = PgResourceGroupStorage::from(db);
+        let mut seen = Vec::new();
+        for skip in 0..5 {
+            let page = repo
+                .retrieve_all(
+                    &QueryParams {
+                        skip,
+                        limit: 1,
+                        ..QueryParams::default()
+                    },
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(page.len(), 1);
+            seen.push(page[0].id.as_str().to_owned());
+        }
+        assert_eq!(
+            seen,
+            [
+                "ouroboros",
+                "resource-group-1",
+                "resource-group-2",
+                "resource-group-3",
+                "resource-group-4"
+            ]
+        );
     }
 
     #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]

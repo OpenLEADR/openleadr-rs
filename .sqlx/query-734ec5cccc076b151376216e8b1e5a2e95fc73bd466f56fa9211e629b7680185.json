@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH visible AS (\n            SELECT rg_id FROM rg_visible WHERE client_id = $4\n            UNION ALL\n            SELECT id FROM resource_group WHERE $4::text IS NULL\n        )\n        SELECT\n            rg.id,\n            rg.created_date_time,\n            rg.modification_date_time,\n            rg.resource_group_name,\n            rg.attributes,\n            rg.targets AS \"targets:Vec<Target>\",\n            ARRAY(\n                SELECT DISTINCT child.rg_child_rg_id\n                FROM rg_child_rg child\n                WHERE child.rg_parent_rg_id = rg.id\n                  AND child.rg_child_rg_id IN (SELECT rg_id FROM visible)\n            ) AS \"child_groups!\",\n            ARRAY(\n                SELECT child.rg_child_ven_resource_id\n                FROM rg_child_ven_resource child\n                WHERE child.rg_parent_rg_id = rg.id\n                  AND ($4::text IS NULL OR EXISTS (\n                      SELECT 1 FROM resource r\n                      WHERE r.id = child.rg_child_ven_resource_id\n                        AND r.ven_id = (SELECT id FROM ven WHERE client_id = $4)\n                  ))\n            ) AS \"child_resources!\"\n        FROM resource_group rg\n        WHERE ($1::text IS NULL OR rg.id = $1)\n          AND ($2::text IS NULL OR rg.resource_group_name = $2)\n          AND (array_length($3::text[], 1) IS NULL OR rg.targets && $3)\n          AND rg.id IN (SELECT rg_id FROM visible)\n        -- id breaks ties, so paging with OFFSET doesn't skip or repeat groups\n        ORDER BY rg.created_date_time, rg.id\n        OFFSET $5 LIMIT $6\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modification_date_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_group_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attributes",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "targets:Vec<Target>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "child_groups!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "child_resources!",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "734ec5cccc076b151376216e8b1e5a2e95fc73bd466f56fa9211e629b7680185"
+}
