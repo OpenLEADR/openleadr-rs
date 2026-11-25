@@ -3,10 +3,11 @@ use chrono::{DateTime, Utc};
 use openleadr_wire::resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId};
 use std::sync::Arc;
 
-/// A client for interacting with the data in a specific resource_group stored as a child element of a VEN
-/// on the VTN.
+/// A client for interacting with the data in a specific resource group on the VTN.
 ///
-/// To retrieve or create a resource_group, refer to the [`VenClient`](crate::VenClient).
+/// To retrieve a resource group, refer to the [`Client`](crate::Client). Only the business
+/// logic can create, update, or delete resource groups, see
+/// [`Client::create_resource_group`](crate::Client::create_resource_group).
 #[derive(Debug, Clone)]
 pub struct ResourceGroupClient<K> {
     client: Arc<ClientRef<K>>,

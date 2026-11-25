@@ -69,7 +69,7 @@ use openleadr_wire::{
     Event, Report, Ven,
     event::EventId,
     resource::Resource,
-    resource_group::{ResourceGroup, ResourceGroupId},
+    resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId},
     subscription::Operation,
     subscription::{MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse},
 };
@@ -562,6 +562,21 @@ impl Client<BusinessLogic> {
             .post("vens", &VenRequest::BlVenRequest(ven))
             .await?;
         Ok(VenClient::from_ven(self.client_ref.clone(), ven))
+    }
+
+    /// Create a new resource group at the VTN.
+    pub async fn create_resource_group(
+        &self,
+        resource_group: BlResourceGroupRequest,
+    ) -> Result<ResourceGroupClient<BusinessLogic>> {
+        let resource_group = self
+            .client_ref
+            .post("resource_groups", &resource_group)
+            .await?;
+        Ok(ResourceGroupClient::from_resource_group(
+            self.client_ref.clone(),
+            resource_group,
+        ))
     }
 }
 
