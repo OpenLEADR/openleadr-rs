@@ -69,10 +69,9 @@ use openleadr_wire::{
     Event, Report, Ven,
     event::EventId,
     resource::Resource,
-    resource_group::ResourceGroup,
-    subscription::{
-        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
-    },
+    resource_group::{ResourceGroup, ResourceGroupId},
+    subscription::Operation,
+    subscription::{MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse},
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
 use std::{
@@ -101,6 +100,7 @@ pub use ven::*;
 use crate::{
     error::Result,
     mqtt::{MqttSubscriptionRegistry, MqttSubscriptionTarget, TopicEntry},
+    resource_groups::ResourceGroupClient,
     sealed::SealedClientKind,
 };
 use openleadr_wire::{
@@ -899,6 +899,59 @@ impl<K: ClientKind> Client<K> {
     /// Wrap `resource` in a [`ResourceClient`].
     pub fn resource_client(&self, resource: Resource) -> ResourceClient<K> {
         ResourceClient::from_resource(self.client_ref.clone(), resource)
+    }
+
+    async fn get_resource_groups_req(
+        &self,
+        resource_group_name: Option<&str>,
+        skip: usize,
+        limit: usize,
+    ) -> Result<Vec<ResourceGroupClient<K>>> {
+        let skip_str = skip.to_string();
+        let limit_str = limit.to_string();
+
+        let mut query: Vec<(&str, &str)> = vec![("skip", &skip_str), ("limit", &limit_str)];
+
+        if let Some(resource_group_name) = resource_group_name {
+            query.push(("resourceGroupName", resource_group_name));
+        }
+
+        let resources: Vec<ResourceGroup> = self.client_ref.get("resource_groups", &query).await?;
+        Ok(resources
+            .into_iter()
+            .map(|resource| {
+                ResourceGroupClient::from_resource_group(Arc::clone(&self.client_ref), resource)
+            })
+            .collect())
+    }
+
+    /// Get all resource_groups
+    ///
+    /// The client automatically tries to iterate pages where necessary.
+    pub async fn get_all_resource_groups(
+        &self,
+        resource_group_name: Option<&str>,
+    ) -> Result<Vec<ResourceGroupClient<K>>> {
+        self.client_ref
+            .iterate_pages(|skip, limit| {
+                self.get_resource_groups_req(resource_group_name, skip, limit)
+            })
+            .await
+    }
+
+    /// Get a resource_group by its ID
+    pub async fn get_resource_group_by_id(
+        &self,
+        id: &ResourceGroupId,
+    ) -> Result<ResourceGroupClient<K>> {
+        let resource_group = self
+            .client_ref
+            .get(&format!("resource_groups/{}", id), &[])
+            .await?;
+        Ok(ResourceGroupClient::from_resource_group(
+            Arc::clone(&self.client_ref),
+            resource_group,
+        ))
     }
 }
 

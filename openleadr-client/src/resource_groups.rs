@@ -1,4 +1,4 @@
-use crate::{ClientKind, ClientRef, Result};
+use crate::{BusinessLogic, ClientKind, ClientRef, Result};
 use chrono::{DateTime, Utc};
 use openleadr_wire::resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId};
 use std::sync::Arc;
@@ -50,7 +50,9 @@ impl<K: ClientKind> ResourceGroupClient<K> {
     pub fn content_mut(&mut self) -> &mut BlResourceGroupRequest {
         &mut self.data.content
     }
+}
 
+impl ResourceGroupClient<BusinessLogic> {
     /// Stores any modifications made to the resource_group content at the VTN
     /// and refreshes the data stored locally with the returned VTN data
     pub async fn update(&mut self) -> Result<()> {
