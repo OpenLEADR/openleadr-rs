@@ -94,13 +94,13 @@ pub use mqtt::{MqttNotification, MqttSubscription, OadrObject};
 pub use program::*;
 pub use report::*;
 pub use resource::*;
+pub use resource_groups::*;
 pub use timeline::*;
 pub use ven::*;
 
 use crate::{
     error::Result,
     mqtt::{MqttSubscriptionRegistry, MqttSubscriptionTarget, TopicEntry},
-    resource_groups::ResourceGroupClient,
     sealed::SealedClientKind,
 };
 use openleadr_wire::{
