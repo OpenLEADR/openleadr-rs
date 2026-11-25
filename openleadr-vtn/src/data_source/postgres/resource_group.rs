@@ -66,6 +66,46 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
     }
 }
 
+/// A resource group with its children, as returned by `delete`.
+struct PostgresResourceGroupWithChildren {
+    id: String,
+    created_date_time: DateTime<Utc>,
+    modification_date_time: DateTime<Utc>,
+    resource_group_name: String,
+    attributes: Option<serde_json::Value>,
+    targets: Vec<Target>,
+    child_groups: Vec<String>,
+    child_resources: Vec<String>,
+}
+
+impl TryFrom<PostgresResourceGroupWithChildren> for ResourceGroup {
+    type Error = AppError;
+
+    fn try_from(value: PostgresResourceGroupWithChildren) -> Result<Self, Self::Error> {
+        let mut rg: ResourceGroup = PostgresResourceGroup {
+            id: value.id,
+            created_date_time: value.created_date_time,
+            modification_date_time: value.modification_date_time,
+            resource_group_name: value.resource_group_name,
+            attributes: value.attributes,
+            targets: value.targets,
+        }
+        .try_into()?;
+
+        for id in value.child_groups {
+            rg.content
+                .children
+                .push(ResourceGroupChild::ResourceGroup(id.parse()?));
+        }
+        for id in value.child_resources {
+            rg.content
+                .children
+                .push(ResourceGroupChild::VenResource(id.parse()?));
+        }
+        Ok(rg)
+    }
+}
+
 async fn get_rg_children(
     tx: &mut Transaction<'_, Postgres>,
     rg_id: &ResourceGroupId,
@@ -425,14 +465,29 @@ impl Crud for PgResourceGroupStorage {
     async fn delete(
         &self,
         id: &Self::Id,
-        client_id: &Self::PermissionFilter,
+        _client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
         let mut tx = self.db.begin().await?;
 
-        let children = get_rg_children(&mut tx, id, client_id).await?;
-        let mut resource_group: ResourceGroup = sqlx::query_as!(
-            PostgresResourceGroup,
+        // Lock the group first: a concurrent update holds the same row lock while it replaces
+        // the children, and the next statement then sees the children of its commit.
+        sqlx::query!(
+            "SELECT id FROM resource_group WHERE id = $1 FOR UPDATE",
+            id.as_str()
+        )
+        .fetch_one(tx.as_mut())
+        .await?;
+
+        // The foreign key cascade would remove the children without returning them.
+        let resource_group = sqlx::query_as!(
+            PostgresResourceGroupWithChildren,
             r#"
+            WITH child_groups AS (
+                DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1 RETURNING rg_child_rg_id
+            ), child_resources AS (
+                DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1
+                RETURNING rg_child_ven_resource_id
+            )
             DELETE FROM resource_group rg
             WHERE rg.id = $1
             RETURNING
@@ -441,29 +496,15 @@ impl Crud for PgResourceGroupStorage {
                 rg.modification_date_time,
                 rg.resource_group_name,
                 rg.attributes,
-                rg.targets as "targets:Vec<Target>"
+                rg.targets as "targets:Vec<Target>",
+                ARRAY(SELECT DISTINCT rg_child_rg_id FROM child_groups) AS "child_groups!",
+                ARRAY(SELECT rg_child_ven_resource_id FROM child_resources) AS "child_resources!"
             "#,
             id.as_str(),
         )
         .fetch_one(tx.as_mut())
         .await?
         .try_into()?;
-
-        resource_group.content.children.extend(children);
-
-        sqlx::query!(
-            r#"DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1"#,
-            id.as_str()
-        )
-        .execute(tx.as_mut())
-        .await?;
-
-        sqlx::query!(
-            r#"DELETE FROM rg_child_ven_resource WHERE rg_parent_rg_id = $1"#,
-            id.as_str()
-        )
-        .execute(tx.as_mut())
-        .await?;
 
         tx.commit().await?;
         Ok(resource_group)
@@ -477,6 +518,7 @@ mod test {
         api::{TargetQueryParams, resource_group::QueryParams},
         data_source::{Crud, postgres::resource_group::PgResourceGroupStorage},
     };
+    use openleadr_wire::resource_group::ResourceGroupChild;
     use sqlx::PgPool;
 
     impl Default for QueryParams {
@@ -539,5 +581,44 @@ mod test {
         };
         let resource_groups = repo.retrieve_all(&filters, &None).await.unwrap();
         assert_eq!(resource_groups.len(), 4);
+    }
+
+    fn child_names(children: &[ResourceGroupChild]) -> Vec<String> {
+        let mut names: Vec<String> = children
+            .iter()
+            .map(|child| match child {
+                ResourceGroupChild::ResourceGroup(id) => format!("rg:{}", id.as_str()),
+                ResourceGroupChild::VenResource(id) => format!("res:{}", id.as_str()),
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn delete_returns_the_children_it_removed(db: PgPool) {
+        let repo = PgResourceGroupStorage::from(db.clone());
+
+        let deleted = repo
+            .delete(&"resource-group-2".parse().unwrap(), &None)
+            .await
+            .unwrap();
+        assert_eq!(
+            child_names(&deleted.content.children),
+            ["res:resource-1", "rg:resource-group-4"]
+        );
+        let left_over: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM rg_child_rg WHERE rg_parent_rg_id = 'resource-group-2'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(left_over, 0);
+
+        let deleted = repo
+            .delete(&"ouroboros".parse().unwrap(), &None)
+            .await
+            .unwrap();
+        assert_eq!(child_names(&deleted.content.children), ["rg:ouroboros"]);
     }
 }
