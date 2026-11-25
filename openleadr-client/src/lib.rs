@@ -70,8 +70,9 @@ use openleadr_wire::{
     event::EventId,
     resource::Resource,
     resource_group::{BlResourceGroupRequest, ResourceGroup, ResourceGroupId},
-    subscription::Operation,
-    subscription::{MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse},
+    subscription::{
+        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
+    },
 };
 use paho_mqtt::{ConnectOptionsBuilder, QoS};
 use std::{
@@ -916,6 +917,11 @@ impl<K: ClientKind> Client<K> {
         ResourceClient::from_resource(self.client_ref.clone(), resource)
     }
 
+    /// Wrap `resource_group` in a [`ResourceGroupClient`].
+    pub fn resource_group_client(&self, resource_group: ResourceGroup) -> ResourceGroupClient<K> {
+        ResourceGroupClient::from_resource_group(self.client_ref.clone(), resource_group)
+    }
+
     async fn get_resource_groups_req(
         &self,
         resource_group_name: Option<&str>,
@@ -931,11 +937,15 @@ impl<K: ClientKind> Client<K> {
             query.push(("resourceGroupName", resource_group_name));
         }
 
-        let resources: Vec<ResourceGroup> = self.client_ref.get("resource_groups", &query).await?;
-        Ok(resources
+        let resource_groups: Vec<ResourceGroup> =
+            self.client_ref.get("resource_groups", &query).await?;
+        Ok(resource_groups
             .into_iter()
-            .map(|resource| {
-                ResourceGroupClient::from_resource_group(Arc::clone(&self.client_ref), resource)
+            .map(|resource_group| {
+                ResourceGroupClient::from_resource_group(
+                    Arc::clone(&self.client_ref),
+                    resource_group,
+                )
             })
             .collect())
     }
