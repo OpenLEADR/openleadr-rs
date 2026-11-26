@@ -206,8 +206,13 @@ impl AnyObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "SCREAMING-KEBAB-CASE")]
 pub struct NotifiersResponse {
-    pub websocket: bool,
+    /// Whether the VTN delivers notifications to subscription callback URLs
+    pub webhook: bool,
     pub mqtt: Option<MqttNotifierBindingObject>,
+    /// Extension: websocket notifications from openleadr-vtn
+    #[serde(default)]
+    pub websocket: bool,
+    /// Extension: MQTT binding for pushing objects to the VTN
     pub push_mqtt: Option<MqttNotifierBindingObject>,
 }
 
@@ -233,9 +238,19 @@ pub enum MqttNotifierAuthentication {
     /// Specifies anonymous authentication
     Anonymous,
     /// Specifies OAuth2 bearer token authentication
+    #[serde(rename = "OAUTH2_BEARER_TOKEN", alias = "OAUTH2BEARERTOKEN")]
     Oauth2BearerToken {
         /// Either the distinguished string "{clientID}", or any other literal string
         username: String,
+    },
+    /// Specifies mTLS client certificate authentication
+    Certificate {
+        /// String containing the Certificate Authority certificate
+        ca_cert: String,
+        /// String containing the client certificate
+        client_cert: String,
+        /// String containing the client certificate private key
+        client_key: String,
     },
 }
 
@@ -369,6 +384,64 @@ mod tests {
                 }),
                 // targets: vec![],
             }
+        );
+    }
+
+    #[test]
+    fn parse_spec_notifiers_response() {
+        let example = r#"{
+  "WEBHOOK": false,
+  "MQTT": {
+    "URIS": ["mqtts://mqtt.example.com:8883"],
+    "serialization": "JSON",
+    "authentication": {"method": "ANONYMOUS"}
+  }
+}"#;
+        assert_eq!(
+            serde_json::from_str::<NotifiersResponse>(example).unwrap(),
+            NotifiersResponse {
+                webhook: false,
+                mqtt: Some(MqttNotifierBindingObject {
+                    uris: vec!["mqtts://mqtt.example.com:8883".to_owned()],
+                    serialization: SerializationType::Json,
+                    authentication: MqttNotifierAuthentication::Anonymous,
+                }),
+                websocket: false,
+                push_mqtt: None,
+            }
+        );
+    }
+
+    #[test]
+    fn mqtt_notifier_authentication_methods() {
+        let oauth2 = MqttNotifierAuthentication::Oauth2BearerToken {
+            username: "{clientID}".to_owned(),
+        };
+        let json = r#"{"method":"OAUTH2_BEARER_TOKEN","username":"{clientID}"}"#;
+        assert_eq!(serde_json::to_string(&oauth2).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<MqttNotifierAuthentication>(json).unwrap(),
+            oauth2
+        );
+        assert_eq!(
+            serde_json::from_str::<MqttNotifierAuthentication>(
+                r#"{"method":"OAUTH2BEARERTOKEN","username":"{clientID}"}"#
+            )
+            .unwrap(),
+            oauth2
+        );
+
+        let certificate = MqttNotifierAuthentication::Certificate {
+            ca_cert: "ca".to_owned(),
+            client_cert: "cert".to_owned(),
+            client_key: "key".to_owned(),
+        };
+        let json =
+            r#"{"method":"CERTIFICATE","caCert":"ca","clientCert":"cert","clientKey":"key"}"#;
+        assert_eq!(serde_json::to_string(&certificate).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<MqttNotifierAuthentication>(json).unwrap(),
+            certificate
         );
     }
 }
