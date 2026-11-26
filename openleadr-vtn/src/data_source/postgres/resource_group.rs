@@ -33,6 +33,8 @@ pub(crate) struct PostgresResourceGroup {
     resource_group_name: String,
     attributes: Option<serde_json::Value>,
     targets: Vec<Target>,
+    child_groups: Vec<String>,
+    child_resources: Vec<String>,
 }
 
 impl TryFrom<PostgresResourceGroup> for ResourceGroup {
@@ -52,6 +54,15 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
                 .map_err(AppError::SerdeJsonInternalServerError)?,
         };
 
+        let mut children =
+            Vec::with_capacity(value.child_groups.len() + value.child_resources.len());
+        for id in value.child_groups {
+            children.push(ResourceGroupChild::ResourceGroup(id.parse()?));
+        }
+        for id in value.child_resources {
+            children.push(ResourceGroupChild::VenResource(id.parse()?));
+        }
+
         Ok(Self {
             id: value.id.parse()?,
             created_date_time: value.created_date_time,
@@ -60,49 +71,9 @@ impl TryFrom<PostgresResourceGroup> for ResourceGroup {
                 resource_group_name: value.resource_group_name,
                 attributes,
                 targets: value.targets,
-                children: vec![],
+                children,
             },
         })
-    }
-}
-
-/// A resource group with its children, as returned by [`select_resource_groups`] and `delete`.
-struct PostgresResourceGroupWithChildren {
-    id: String,
-    created_date_time: DateTime<Utc>,
-    modification_date_time: DateTime<Utc>,
-    resource_group_name: String,
-    attributes: Option<serde_json::Value>,
-    targets: Vec<Target>,
-    child_groups: Vec<String>,
-    child_resources: Vec<String>,
-}
-
-impl TryFrom<PostgresResourceGroupWithChildren> for ResourceGroup {
-    type Error = AppError;
-
-    fn try_from(value: PostgresResourceGroupWithChildren) -> Result<Self, Self::Error> {
-        let mut rg: ResourceGroup = PostgresResourceGroup {
-            id: value.id,
-            created_date_time: value.created_date_time,
-            modification_date_time: value.modification_date_time,
-            resource_group_name: value.resource_group_name,
-            attributes: value.attributes,
-            targets: value.targets,
-        }
-        .try_into()?;
-
-        for id in value.child_groups {
-            rg.content
-                .children
-                .push(ResourceGroupChild::ResourceGroup(id.parse()?));
-        }
-        for id in value.child_resources {
-            rg.content
-                .children
-                .push(ResourceGroupChild::VenResource(id.parse()?));
-        }
-        Ok(rg)
     }
 }
 
@@ -121,7 +92,7 @@ async fn select_resource_groups(
     limit: i64,
 ) -> Result<Vec<ResourceGroup>, AppError> {
     sqlx::query_as!(
-        PostgresResourceGroupWithChildren,
+        PostgresResourceGroup,
         r#"
         WITH visible AS (
             SELECT rg_id FROM rg_visible WHERE client_id = $4
@@ -267,7 +238,9 @@ impl Crud for PgResourceGroupStorage {
                 modification_date_time,
                 resource_group_name,
                 attributes,
-                targets as "targets:Vec<Target>"
+                targets as "targets:Vec<Target>",
+                '{}'::text[] AS "child_groups!",
+                '{}'::text[] AS "child_resources!"
             "#,
             new.resource_group_name,
             to_json_value(new.attributes)?,
@@ -336,7 +309,9 @@ impl Crud for PgResourceGroupStorage {
                 rg.modification_date_time,
                 rg.resource_group_name,
                 rg.attributes,
-                rg.targets as "targets:Vec<Target>"
+                rg.targets as "targets:Vec<Target>",
+                '{}'::text[] AS "child_groups!",
+                '{}'::text[] AS "child_resources!"
             "#,
             id.as_str(),
             new.resource_group_name,
@@ -385,7 +360,7 @@ impl Crud for PgResourceGroupStorage {
 
         // The foreign key cascade would remove the children without returning them.
         let resource_group = sqlx::query_as!(
-            PostgresResourceGroupWithChildren,
+            PostgresResourceGroup,
             r#"
             WITH child_groups AS (
                 DELETE FROM rg_child_rg WHERE rg_parent_rg_id = $1 RETURNING rg_child_rg_id
