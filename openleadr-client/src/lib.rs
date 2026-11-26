@@ -56,6 +56,7 @@ mod error;
 mod event;
 #[cfg(feature = "mdns")]
 mod mdns;
+mod mqtt;
 mod program;
 mod report;
 mod resource;
@@ -64,11 +65,15 @@ mod ven;
 
 use async_trait::async_trait;
 use openleadr_wire::{
-    Event, Ven,
+    Event, Report, Ven,
     event::EventId,
-    subscription::{MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse},
+    resource::Resource,
+    resource_group::ResourceGroup,
+    subscription::{
+        MqttNotifierAuthentication, NotifierTopicsResponse, NotifiersResponse, Operation,
+    },
 };
-use paho_mqtt::ConnectOptionsBuilder;
+use paho_mqtt::{ConnectOptionsBuilder, QoS};
 use std::{
     fmt::Debug,
     future::Future,
@@ -85,13 +90,18 @@ pub use error::*;
 pub use event::*;
 #[cfg(feature = "mdns")]
 pub use mdns::*;
+pub use mqtt::{MqttNotification, MqttSubscription, OadrObject};
 pub use program::*;
 pub use report::*;
 pub use resource::*;
 pub use timeline::*;
 pub use ven::*;
 
-use crate::{error::Result, sealed::SealedClientKind};
+use crate::{
+    error::Result,
+    mqtt::{MqttSubscriptionRegistry, MqttSubscriptionTarget, TopicEntry},
+    sealed::SealedClientKind,
+};
 use openleadr_wire::{
     Program,
     program::{ProgramId, ProgramRequest},
@@ -123,11 +133,30 @@ pub struct Client<K> {
 
 /// Client for managing an mqtt connection with a VTN.
 ///
-/// This can be used to publish reports via mqtt.
+/// This can be used to publish reports via mqtt, and to receive notifications
+/// via its `subscribe_*` methods (e.g., [`MqttClient::subscribe_programs`]).
+///
+/// # Subscriptions
+///
+/// Each `subscribe_*` method subscribes to the notifications about one kind of
+/// object, optionally filtered by `operation_filter`. Which kinds are available
+/// depends on the [`ClientKind`]: the topics that the VTN only offers to the
+/// business logic can only be subscribed to by an `MqttClient<BusinessLogic>`.
+///
+/// Each method returns an [`MqttSubscription`] that receives the notifications
+/// of that subscription only. Dropping it unsubscribes again.
+///
+/// ## Errors
+///
+/// The `subscribe_*` methods return
+/// - [`Error::NotSupported`] if the VTN does not offer the requested topic
+/// - [`Error::MqttSubscriptionRejected`] if the broker refused the
+///   subscription, typically because this client may not read the topic.
 #[derive(Clone)]
 pub struct MqttClient<K> {
     client_ref: Arc<ClientRef<K>>,
     mqtt_client: paho_mqtt::AsyncClient,
+    registry: Arc<MqttSubscriptionRegistry>,
 }
 
 impl<K: Debug> Debug for MqttClient<K> {
@@ -203,6 +232,7 @@ mod sealed {
     use std::fmt::Debug;
 
     use crate::{BusinessLogic, VirtualEndNode};
+    use openleadr_wire::{ObjectType, subscription::AnyObject};
 
     #[derive(Debug, Clone)]
     pub struct VenEventTopics {
@@ -218,6 +248,13 @@ mod sealed {
     }
     impl SealedClientKind for VirtualEndNode {
         type EventTopics = VenEventTopics;
+    }
+
+    pub trait SealedOadrObject: Sized {
+        const OBJECT_TYPE: ObjectType;
+
+        /// Returns the object if `object` is of this type.
+        fn from_any(object: AnyObject) -> Option<Self>;
     }
 }
 
@@ -784,13 +821,16 @@ impl<K: ClientKind> Client<K> {
 
         let mut last_error = Error::NotSupported;
         for url in mqtt_info.uris {
-            let client = match paho_mqtt::AsyncClient::new(url) {
+            let mut client = match paho_mqtt::AsyncClient::new(url) {
                 Ok(client) => client,
                 Err(e) => {
                     last_error = e.into();
                     continue;
                 }
             };
+
+            // Best practice to open the stream before connecting
+            let incoming = client.get_stream(None);
 
             let connection = client
                 .connect(
@@ -814,12 +854,50 @@ impl<K: ClientKind> Client<K> {
                 continue;
             }
 
+            let registry = Arc::new(MqttSubscriptionRegistry::default());
+            let dispatch_to = registry.clone();
+
+            // `incoming` closes once the last handle to the paho client is
+            // dropped, i.e., the `MqttClient`, its subscriptions, and the
+            // clients created from it. That ends this task.
+            tokio::spawn(async move {
+                while let Ok(message) = incoming.recv().await {
+                    dispatch_to.dispatch(message);
+                }
+            });
+
             return Ok(MqttClient {
                 client_ref: self.client_ref.clone(),
                 mqtt_client: client,
+                registry,
             });
         }
         Err(last_error)
+    }
+
+    /// Wrap `program` in a [`ProgramClient`].
+    pub fn program_client(&self, program: Program) -> ProgramClient<K> {
+        ProgramClient::from_program(self.clone(), program)
+    }
+
+    /// Wrap `event` in an [`EventClient`].
+    pub fn event_client(&self, event: Event) -> EventClient<K> {
+        EventClient::from_event(self.client_ref.clone(), event)
+    }
+
+    /// Wrap `report` in a [`ReportClient`].
+    pub fn report_client(&self, report: Report) -> ReportClient<K> {
+        ReportClient::from_report(self.client_ref.clone(), report)
+    }
+
+    /// Wrap `ven` in a [`VenClient`].
+    pub fn ven_client(&self, ven: Ven) -> VenClient<K> {
+        VenClient::from_ven(self.client_ref.clone(), ven)
+    }
+
+    /// Wrap `resource` in a [`ResourceClient`].
+    pub fn resource_client(&self, resource: Resource) -> ResourceClient<K> {
+        ResourceClient::from_resource(self.client_ref.clone(), resource)
     }
 }
 
@@ -900,5 +978,217 @@ impl MqttClient<VirtualEndNode> {
             self.mqtt_client.clone(),
             event,
         ))
+    }
+
+    /// Wrap `event`, e.g., from an [`MqttNotification`], in an [`MqttEventClient`].
+    ///
+    /// This requests the report upload topic from the VTN.
+    pub async fn event_client(&self, event: Event) -> Result<MqttEventClient<VirtualEndNode>> {
+        let topic = self.upload_topic().await?;
+
+        Ok(MqttEventClient::from_event(
+            topic,
+            self.mqtt_client.clone(),
+            event,
+        ))
+    }
+}
+
+impl<K: ClientKind> MqttClient<K> {
+    /// Subscribes to notifications about all [`Program`]s.
+    pub async fn subscribe_programs(
+        &self,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Program>> {
+        self.subscribe(MqttSubscriptionTarget::Programs, operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about all [`Event`]s.
+    pub async fn subscribe_events(
+        &self,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Event>> {
+        self.subscribe(MqttSubscriptionTarget::Events, operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about the [`Ven`] identified by `ven_id`.
+    pub async fn subscribe_ven(
+        &self,
+        ven_id: VenId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Ven>> {
+        self.subscribe(MqttSubscriptionTarget::Ven(ven_id), operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about the [`Event`]s of the [`Ven`]
+    /// identified by `ven_id`.
+    pub async fn subscribe_ven_events(
+        &self,
+        ven_id: VenId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Event>> {
+        self.subscribe(MqttSubscriptionTarget::VenEvents(ven_id), operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about the [`Program`]s of the [`Ven`]
+    /// identified by `ven_id`.
+    pub async fn subscribe_ven_programs(
+        &self,
+        ven_id: VenId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Program>> {
+        self.subscribe(
+            MqttSubscriptionTarget::VenPrograms(ven_id),
+            operation_filter,
+        )
+        .await
+    }
+
+    /// Subscribes to notifications about the [`Resource`]s of the [`Ven`] identified by `ven_id`.
+    pub async fn subscribe_ven_resources(
+        &self,
+        ven_id: VenId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Resource>> {
+        self.subscribe(
+            MqttSubscriptionTarget::VenResources(ven_id),
+            operation_filter,
+        )
+        .await
+    }
+
+    /// Subscribes to notifications about the [`ResourceGroup`]s of the [`Ven`] identified by
+    /// `ven_id`.
+    pub async fn subscribe_ven_resource_groups(
+        &self,
+        ven_id: VenId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<ResourceGroup>> {
+        self.subscribe(
+            MqttSubscriptionTarget::VenResourceGroups(ven_id),
+            operation_filter,
+        )
+        .await
+    }
+
+    async fn subscribe<O: OadrObject>(
+        &self,
+        target: MqttSubscriptionTarget,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<O>> {
+        let NotifierTopicsResponse { topics } =
+            self.client_ref.get(&target.endpoint(), &[]).await?;
+
+        let topic = match operation_filter {
+            None => topics.all.ok_or(Error::NotSupported)?,
+            Some(Operation::Create) => topics.create.ok_or(Error::NotSupported)?,
+            Some(Operation::Update) => topics.update,
+            Some(Operation::Delete) => topics.delete,
+        };
+
+        let (token, subscription) = self.subscribe_topic(&topic);
+
+        let response = token.await?;
+
+        // With MQTT v3, a refused subscription is not an error but a granted QoS of 0x80.
+        if response.subscribe_response().is_some_and(|qos| qos >= 0x80) {
+            return Err(Error::MqttSubscriptionRejected { topic });
+        }
+
+        Ok(subscription)
+    }
+
+    /// Sends a subscribe request for `topic` to the broker, and takes a
+    /// reference to the topic in the form of the returned subscription.
+    fn subscribe_topic<O: OadrObject>(
+        &self,
+        topic: &str,
+    ) -> (paho_mqtt::Token, MqttSubscription<O>) {
+        let mut subscriptions = self.registry.subscriptions();
+        let entry = subscriptions
+            .entry(topic.to_string())
+            .or_insert_with(|| TopicEntry::new(topic));
+
+        let token = self.mqtt_client.subscribe(topic, QoS::AtMostOnce);
+        entry.refcount += 1;
+
+        let subscription = MqttSubscription::new(
+            topic,
+            entry.receiver(),
+            self.registry.clone(),
+            self.mqtt_client.clone(),
+        );
+        (token, subscription)
+    }
+}
+
+/// Subscriptions to topics that the VTN only offers to the business logic.
+impl MqttClient<BusinessLogic> {
+    /// Subscribes to notifications about the [`Program`] identified by
+    /// `program_id`.
+    pub async fn subscribe_program(
+        &self,
+        program_id: ProgramId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Program>> {
+        self.subscribe(
+            MqttSubscriptionTarget::Program(program_id),
+            operation_filter,
+        )
+        .await
+    }
+
+    /// Subscribes to notifications about the [`Event`]s of the [`Program`]
+    /// identified by `program_id`.
+    pub async fn subscribe_program_events(
+        &self,
+        program_id: ProgramId,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Event>> {
+        self.subscribe(
+            MqttSubscriptionTarget::ProgramEvents(program_id),
+            operation_filter,
+        )
+        .await
+    }
+
+    /// Subscribes to notifications about all [`Report`]s.
+    pub async fn subscribe_reports(
+        &self,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Report>> {
+        self.subscribe(MqttSubscriptionTarget::Reports, operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about all [`Ven`]s.
+    pub async fn subscribe_vens(
+        &self,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Ven>> {
+        self.subscribe(MqttSubscriptionTarget::Vens, operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about all [`Resource`]s.
+    pub async fn subscribe_resources(
+        &self,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<Resource>> {
+        self.subscribe(MqttSubscriptionTarget::Resources, operation_filter)
+            .await
+    }
+
+    /// Subscribes to notifications about all [`ResourceGroup`]s.
+    pub async fn subscribe_resource_groups(
+        &self,
+        operation_filter: Option<Operation>,
+    ) -> Result<MqttSubscription<ResourceGroup>> {
+        self.subscribe(MqttSubscriptionTarget::ResourceGroups, operation_filter)
+            .await
     }
 }

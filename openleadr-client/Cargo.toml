@@ -6,7 +6,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
@@ -23,12 +22,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 reqwest.workspace = true
-axum.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
-http-body-util.workspace = true
-tower.workspace = true
 paho-mqtt.workspace = true
 
 url.workspace = true
@@ -40,11 +35,20 @@ async-trait.workspace = true
 mdns-sd = { workspace = true, optional = true }
 
 [features]
+default = ["rustls"]
 mdns = ["dep:mdns-sd"]
+# TLS for VTN requests: rustls with its default crypto provider, or rustls
+# with none, for applications that install their own (for example ring).
+rustls = ["reqwest/rustls"]
+rustls-no-provider = ["reqwest/rustls-no-provider"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
-openleadr-vtn = { path = "../openleadr-vtn" }
+axum.workspace = true
+tracing-subscriber.workspace = true
+http-body-util.workspace = true
+tower.workspace = true
+openleadr-vtn = { path = "../openleadr-vtn", features=["live-db-test"] }
 tokio-test.workspace = true
 sqlx.workspace = true
 serial_test.workspace = true
