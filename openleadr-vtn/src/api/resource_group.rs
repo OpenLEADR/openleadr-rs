@@ -567,4 +567,46 @@ mod test {
         assert!(naive_ven_children.is_empty());
         assert!(naive_rg_children.is_empty());
     }
+
+    #[sqlx::test(fixtures("users", "vens", "resources", "resource_groups"))]
+    async fn childless_resource_group_with_matching_targets_is_visible(db: PgPool) {
+        let test = ApiTest::new(
+            db.clone(),
+            "ven-1-client-id",
+            vec![Scope::WriteVensBl, Scope::ReadVenObjects],
+        )
+        .await;
+
+        // creates a resource group with no children but with a target that matches ven-1's targets
+        let (status, resource_group) = test
+            .request::<ResourceGroup>(
+                Method::POST,
+                "/resource_groups",
+                Body::from(
+                    r#"
+                  {
+                    "resourceGroupName":"new-resource-group",
+                    "children":[],
+                    "targets": ["group-1"]
+                  }"#,
+                ),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(
+            resource_group.content.resource_group_name,
+            "new-resource-group"
+        );
+
+        let (status, _) = test
+            .request::<ResourceGroup>(
+                Method::GET,
+                &format!("/resource_groups/{}", resource_group.id),
+                Body::empty(),
+            )
+            .await;
+
+        assert_eq!(status, StatusCode::OK);
+    }
 }
