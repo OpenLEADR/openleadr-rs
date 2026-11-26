@@ -19,7 +19,7 @@ use openleadr_wire::{
 pub use postgres::PostgresStorage;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[async_trait]
 pub trait VenObjectPrivacy: Send + Sync + 'static {
@@ -142,16 +142,28 @@ pub trait ResourceGroupCrud:
 {
 }
 
+/// What storage needs to create or update a subscription: the wire request plus the
+/// scopes saved for webhook delivery. `Crud` has one `NewType` for both create and
+/// update, so the two share the `Option` below.
+pub struct NewSubscription {
+    pub request: SubscriptionRequest,
+    /// Scopes from the owner's token, used to filter webhook notifications.
+    /// `None` on update keeps the saved scopes: the editor isn't the owner.
+    /// `None` on create saves no scopes, so nothing is delivered.
+    pub subscriber_scopes: Option<Vec<Scope>>,
+}
+#[async_trait]
 pub trait SubscriptionCrud:
     Crud<
         Type = Subscription,
         Id = SubscriptionId,
-        NewType = SubscriptionRequest,
+        NewType = NewSubscription,
         Error = AppError,
         Filter = crate::api::subscription::QueryParams,
         PermissionFilter = Option<ClientId>,
     >
 {
+    async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError>;
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]

@@ -1,7 +1,8 @@
 use crate::{
     api::subscription::QueryParams,
-    data_source::{Crud, SubscriptionCrud},
+    data_source::{Crud, NewSubscription, SubscriptionCrud},
     error::AppError,
+    jwt::Scope,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -10,9 +11,25 @@ use openleadr_wire::{
     subscription::{Subscription, SubscriptionId, SubscriptionRequest},
 };
 use sqlx::PgPool;
+use std::collections::HashMap;
 use tracing::{error, trace, warn};
 
-impl SubscriptionCrud for PgSubscriptionStorage {}
+#[async_trait]
+impl SubscriptionCrud for PgSubscriptionStorage {
+    async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, subscriber_scopes AS "subscriber_scopes: Vec<Scope>" FROM subscription
+            "#
+        )
+        .fetch_all(&self.db)
+        .await?;
+        // collect() builds a Result<HashMap<..>>: it stops at the first id that fails to parse
+        rows.into_iter()
+            .map(|row| Ok((row.id.parse()?, row.subscriber_scopes)))
+            .collect()
+    }
+}
 
 pub(crate) struct PgSubscriptionStorage {
     db: PgPool,
@@ -71,7 +88,7 @@ impl TryFrom<PostgresSubscription> for Subscription {
 impl Crud for PgSubscriptionStorage {
     type Type = Subscription;
     type Id = SubscriptionId;
-    type NewType = SubscriptionRequest;
+    type NewType = NewSubscription;
     type Error = AppError;
     type Filter = QueryParams;
     type PermissionFilter = Option<ClientId>;
@@ -81,6 +98,7 @@ impl Crud for PgSubscriptionStorage {
         new: Self::NewType,
         client_id: &Self::PermissionFilter,
     ) -> Result<Self::Type, Self::Error> {
+        let subscriber_scopes = new.subscriber_scopes.unwrap_or_default();
         let subscription: Subscription = sqlx::query_as!(
             PostgresSubscription,
             r#"
@@ -91,9 +109,10 @@ impl Crud for PgSubscriptionStorage {
                 client_id,
                 client_name,
                 program_id,
-                object_operations
+                object_operations,
+                subscriber_scopes
             )
-            VALUES (gen_random_uuid(), now(), now(), $1, $2::text, $3, $4)
+            VALUES (gen_random_uuid(), now(), now(), $1, $2::text, $3, $4, $5)
             RETURNING
                 id,
                 created_date_time,
@@ -107,9 +126,11 @@ impl Crud for PgSubscriptionStorage {
                 .as_ref()
                 .expect("subscription create requires client id")
                 .as_str(),
-            new.client_name,
-            new.program_id.as_ref().map(|id| id.as_str()),
-            serde_json::to_value(new.object_operations).map_err(AppError::SerdeJsonBadRequest)?,
+            new.request.client_name,
+            new.request.program_id.as_ref().map(|id| id.as_str()),
+            serde_json::to_value(new.request.object_operations)
+                .map_err(AppError::SerdeJsonBadRequest)?,
+            subscriber_scopes.as_slice() as _
         )
         .fetch_one(&self.db)
         .await?
@@ -211,7 +232,8 @@ impl Crud for PgSubscriptionStorage {
             SET modification_date_time = now(),
                 client_name = $2,
                 program_id = $3,
-                object_operations = $4
+                object_operations = $4,
+                subscriber_scopes = COALESCE($6, subscriber_scopes)
             WHERE id = $1
               AND ($5::text IS NULL OR client_id = $5)
             RETURNING
@@ -224,10 +246,12 @@ impl Crud for PgSubscriptionStorage {
                 object_operations
             "#,
             id.as_str(),
-            new.client_name,
-            new.program_id.as_ref().map(|id| id.as_str()),
-            serde_json::to_value(&new.object_operations).map_err(AppError::SerdeJsonBadRequest)?,
-            client_id as _
+            new.request.client_name,
+            new.request.program_id.as_ref().map(|id| id.as_str()),
+            serde_json::to_value(&new.request.object_operations)
+                .map_err(AppError::SerdeJsonBadRequest)?,
+            client_id as _,
+            new.subscriber_scopes.as_deref() as _
         )
         .fetch_one(&self.db)
         .await?

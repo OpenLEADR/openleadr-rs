@@ -695,14 +695,18 @@ impl FromRef<AppState> for Arc<dyn SubscriptionCrud> {
 
 #[cfg(test)]
 mod test {
+    use async_trait::async_trait;
     use openleadr_wire::{
         ClientId,
-        subscription::{Subscription, SubscriptionId, SubscriptionRequest},
+        subscription::{Subscription, SubscriptionId},
     };
-
-    use crate::data_source::Crud;
+    use std::collections::HashMap;
 
     use super::*;
+    use crate::{
+        data_source::{Crud, NewSubscription},
+        jwt::Scope,
+    };
 
     struct MockDataSource {}
     impl DataSource for MockDataSource {
@@ -754,7 +758,7 @@ mod test {
     impl Crud for MockSubscriptionSource {
         type Type = Subscription;
         type Id = SubscriptionId;
-        type NewType = SubscriptionRequest;
+        type NewType = NewSubscription;
         type Error = AppError;
         type Filter = subscription::QueryParams;
         type PermissionFilter = Option<ClientId>;
@@ -801,7 +805,12 @@ mod test {
         }
     }
 
-    impl SubscriptionCrud for MockSubscriptionSource {}
+    #[async_trait]
+    impl SubscriptionCrud for MockSubscriptionSource {
+        async fn subscriber_scopes(&self) -> Result<HashMap<SubscriptionId, Vec<Scope>>, AppError> {
+            Ok(HashMap::new())
+        }
+    }
 
     // It is critical for the safety assumption of set_env_var and remove_env_var that the tests in
     // this module do not run in parallel.
