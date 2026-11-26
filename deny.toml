@@ -29,6 +29,8 @@ license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 [advisories]
 ignore = [
-    # proc-macro-error2
-    "RUSTSEC-2026-0173",
+    # Chrono is unmaintained
+    # Has been for some time now and is a transient dependency of sqlx, so can't
+    # easily be resolved
+    "RUSTSEC-2026-0543",
 ]
