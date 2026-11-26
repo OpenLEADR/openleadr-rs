@@ -286,7 +286,14 @@ impl Crud for PgResourceStorage {
             client_id as _
         )
         .fetch_one(&self.db)
-        .await?
+        .await
+        .map_err(|err| match err {
+            sqlx::Error::Database(err) if err.is_foreign_key_violation() => AppError::Conflict(
+                "Resource is still a member of one or more resource groups".to_string(),
+                Some(err),
+            ),
+            err => err.into(),
+        })?
         .try_into()?)
     }
 }

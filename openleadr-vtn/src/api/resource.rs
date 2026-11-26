@@ -949,6 +949,49 @@ mod test {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn ven_cannot_delete_resource_in_resource_group(db: PgPool) {
+        let test = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteVensVen, Scope::ReadVenObjects],
+        )
+        .await;
+        let (status, problem) = test
+            .request::<Problem>(Method::DELETE, "/resources/resource-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            problem.detail,
+            Some("Resource is still a member of one or more resource groups".to_string())
+        );
+
+        let (status, _) = test
+            .request::<Resource>(Method::GET, "/resources/resource-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[sqlx::test(fixtures("vens", "resources", "resource_groups"))]
+    async fn ven_can_delete_resource_after_removal_from_resource_groups(db: PgPool) {
+        sqlx::query("DELETE FROM rg_child_ven_resource WHERE rg_child_ven_resource_id = $1")
+            .bind("resource-1")
+            .execute(&db)
+            .await
+            .unwrap();
+
+        let test = ApiTest::new(
+            db,
+            "ven-1-client-id",
+            vec![Scope::WriteVensVen, Scope::ReadVenObjects],
+        )
+        .await;
+        let (status, _) = test
+            .request::<Resource>(Method::DELETE, "/resources/resource-1", Body::empty())
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
     #[sqlx::test(fixtures("vens", "resources"))]
     async fn ven_cannot_delete_resource_of_other_ven(db: PgPool) {
         let test = ApiTest::new(
