@@ -9,7 +9,7 @@ exclude = []
 resolver = "2"
 
 [workspace.package]
-version = "0.2.8"
+version = "0.2.9"
 edition = "2024"
 rust-version = "1.91" # MSRV
 license = "Apache-2.0 OR MIT"
@@ -18,7 +18,7 @@ publish = true
 keywords = ["energy", "openadr", "lf-energy"]
 
 [workspace.dependencies]
-openleadr-wire = { version = "0.2.8", path = "openleadr-wire" }
+openleadr-wire = { version = "0.2.9", path = "openleadr-wire" }
 
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
