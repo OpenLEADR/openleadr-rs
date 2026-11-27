@@ -165,7 +165,7 @@ impl<K: ClientKind> VenClient<K> {
         ))
     }
 
-    /// Get VEN by name from VTN.
+    /// Get resource by name from VTN.
     /// According to the spec, a [`resource_name`](BlResourceRequest::resource_name) must be unique per VEN.
     pub async fn get_resource_by_name(&self, name: &str) -> Result<ResourceClient<K>> {
         let mut resources: Vec<Resource> = self
